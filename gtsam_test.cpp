@@ -11,8 +11,6 @@ using symbol_shorthand::B;  // Bias  (ax,ay,az,gx,gy,gz)
 using symbol_shorthand::V;  // Vel   (xdot,ydot,zdot)
 using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 
- 
-
 
 // This parses a single line of EuRoC GT, all parameters by reference
 bool parse_EuRoC_gt_line(ifstream& gt_file, Point3& position, Rot3& rotation,
@@ -144,9 +142,6 @@ void draw_coordinate_frame_axes(Rot3 rot_S_to_R, Vector3 loc_R) {
 
 }
 
-// References:
-// ILLIXR: https://github.com/ILLIXR/gtsam/tree/develop/examples
-// GTSAM: https://github.com/haidai/gtsam/blob/master/examples/ImuFactorsExample.cpp
 
 int main(int argc, char* argv[]) {
 
@@ -202,27 +197,13 @@ int main(int argc, char* argv[]) {
 	ys.push_back(prior_pos.y());
 	zs.push_back(prior_pos.z());
 
-	imuBias::ConstantBias prior_imu_bias; // TODO: Going to assume no prior IMU bias for now, but this is not actually the case.
+	imuBias::ConstantBias prior_imu_bias;
 
 	Values init_values; 
-	// a K,V map, used to define variables in the factor graph
-	// Can later use the K to retreive estimations from the factor graph
-	// Manifold Group Elements: Parameters that we want to estimate, that lie in a non-linear space
-	//  -> We have variables in a non-linear manifold, we want to optimize over this manifold to estimate their true values
-	//  -> Optimizing over non-linear spaces requires more complex algorithms -> still don't quite understand what it means for a Pose to exist in non-linear space
-	//  -> For a linear manifold, we would just estimate values that minimize our least squares error
 	int c = 0; // Correction step index
 	init_values.insert(X(c), prior_pose);
 	init_values.insert(V(c), prior_vel);
 	init_values.insert(B(c), prior_imu_bias);
-	// X, V, B are functions that return a key value for a specific timestep or correction
-
-
-	// Noise models:
-	//  - Each Manifold element has its own noise model, this noise model may vary between the prior, and the runtime IMU factors
-	//  - Prior noise model is added to the factor graph to represent uncertainty about our initial state
-	//  - IMU factor noise model is added to the factor graph to represent the uncertainty in each preintegrated IMU factor (i.e. over time)
-	// Noise may change over time, so its necessary to add both.
 
 	// Define Prior Noise Model:
 	noiseModel::Diagonal::shared_ptr prior_pose_noise_model = noiseModel::Diagonal::Sigmas((Vector(6) << 0.01, 0.01, 0.01, 0.5, 0.5, 0.5).finished()); // rad,rad,rad,m, m, m
@@ -235,31 +216,15 @@ int main(int argc, char* argv[]) {
 
 
 	// Now we can finally start building our factor graph
-
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
 	// Initialize our (initial) prior factors, and also set up our coordinate frame
 	graph->addPrior(X(c), prior_pose, prior_pose_noise_model);
 	graph->addPrior(V(c), prior_vel, prior_velocity_noise_model);
 	graph->addPrior(B(c), prior_imu_bias, prior_bias_noise_model);
 
-	// NonlinearFactorGraph is a wrapper around the graph, and ISAM2 is the online optimizer
-	// ISAM2 approximates the nonlinear manifold using linear methods
-	ISAM2* isam2;
-	ISAM2Params parameters;
-	parameters.relinearizeThreshold = 0.01;
-	parameters.relinearizeSkip = 1;
-	isam2 = new ISAM2(parameters);
-
-
 
 	// To initialize our IMU preintegration, we give it the uncertainty, as well as the initial bias measured/assumed.
 	PreintegrationType* imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
-
-	// Building Prior defines the first node -> consists of pose, vel, bias state, 
-	// Building Preintegration object (begins to) define the first edge -> just consists of IMU error model and initial IMU bias.
-	// Each IMU combinedfactor builds upon this imu preintegration
-
-	// Now use ISAM to update the graph as IMU readings appear online.
 
 	NavState previous_state(prior_pose, prior_vel);
 	imuBias::ConstantBias previous_bias = prior_imu_bias;
@@ -270,21 +235,12 @@ int main(int argc, char* argv[]) {
 	unsigned long long imu_integrations = 0;
 
 
-	// We need IMU data to be in the same frame as GT before integration, to visualize data properly.
-	// IMU data is in frame S w.r.t R, GT data is in frame R w.r.t R
-
-	// TODO: GT starts recording 1 second earlier than IMU, need to crop it later to sync up
-
 	Rot3 T_S_to_R = prior_rot.inverse(); // Start by assuming GT initial orientation is aligned with S
 	Rot3 delta_T_S_to_R;
 
 	Vector3 vel_angular_S, accel_axial_S, vel_angular_R, accel_axial_R;
 	int j = 0;
 	while (parse_EuRoC_imu_line(imu_file, vel_angular_S, accel_axial_S)) {
-
-		// IF IMU MEASUREMENT ----------------------------------------------------------------------------------
-		// Add latest IMU measurement to our IMU preintegration
-		
 
 		delta_T_S_to_R = Rot3::Rodrigues(vel_angular_S * dt);
 		T_S_to_R = T_S_to_R * delta_T_S_to_R; // Now need to add this change onto the current transform
@@ -311,52 +267,6 @@ int main(int argc, char* argv[]) {
 
 			if (imu_integrations < 10) {
 				draw_coordinate_frame_axes(T_S_to_R, proposed_state.position());
-			}
-		}
-
-		// ELSE IF CORRECTION MEASUREMENT ----------------------------------------------------------------------
-		if (imu_integrations % preintegration_window == 0) {
-			c++; // Increment our key index by one
-
-			// PreintegratedCombinedMeasurements assumes bias is not constant, i.e. changing with each IMU measurement.
-			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-
-			// providing the proper keys (each key is a function of time) to let us reference this factor later
-			CombinedImuFactor imu_factor(X(c), V(c), X(c - 1), V(c - 1), B(c), B(c - 1), *current_imu_preintegration);
-			graph->add(imu_factor);
-
-			// -- Then if there is a correction factor, you would add it to the graph, and run the solver --
-
-
-			// Ok, so the preintegration object accumulates the IMU data from M-1 to M, this IMU data is stored in a way s.t. it can later be used with the factor graph to solve an optimization problem
-			// the factor graph adds one factor for each IMU preintegration between M-1 to M, each factor represents a constraint on that integration (not actual IMU data)
-			// Now to get an optimized pose estimate, we hand the factor graph and preintegration to our optimizer.
-
-			// Note: The way the code is currently structured, we have no correction measurement, 
-			// so we make an IMU preintegration factor after each IMU data point, and then run the optimizer on it.
-
-			// Now, we use init_values to define our second state node. - each usage of init_values represents a node.
-			// Our proposed state will just be based on the IMU preintegration
-			proposed_state = imu_preintegrated->predict(previous_state, previous_bias);
-			init_values.insert(X(c), proposed_state.pose());
-			init_values.insert(V(c), proposed_state.velocity());
-			init_values.insert(B(c), previous_bias);
-
-			// Optimizer corrects our state estimate
-			LevenbergMarquardtOptimizer optimizer(*graph, init_values);
-			Values result = optimizer.optimize(); // Optimizer gives us a corrected state estimate
-
-			//Overwrite the starting point of the integration to be the optimizer output, not the preintegration prediction
-			previous_state = NavState(result.at<Pose3>(X(c)), result.at<Vector3>(V(c)));
-			previous_bias = result.at<imuBias::ConstantBias>(B(c));
-
-			imu_preintegrated->resetIntegrationAndSetBias(previous_bias); // Prepare our integration factor
-
-			if (imu_integrations < max_plot_datapoints) {
-				Point3 p = proposed_state.position();
-				xs.push_back(p.x());
-				ys.push_back(p.y());
-				zs.push_back(p.z());
 			}
 		}
 	}
