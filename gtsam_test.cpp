@@ -112,6 +112,17 @@ void define_IMU_factor_noise_model(boost::shared_ptr<PreintegratedCombinedMeasur
 	imu_preintegration_params->biasAccOmegaInt = initial_bias_cov;
 }
 
+void draw_vector(Vector3 start, Vector3 end, string color) {
+
+
+	vector<double> dx = { start.x(), end.x() - start.x()};
+	vector<double> dy = { start.y(), end.y() - start.y() };
+	vector<double> dz = { start.z(), end.z() - start.z() };
+
+	using namespace matplot;
+	plot3(dx, dy, dz)->color(color);
+}
+
 void draw_coordinate_frame_axes(Rot3 rot_S_to_R, Vector3 loc_R) {
 
 	double length = 0.5;
@@ -120,25 +131,35 @@ void draw_coordinate_frame_axes(Rot3 rot_S_to_R, Vector3 loc_R) {
 
 	hold(on);
 
+	// Visualization bug
+	
+	// Almost seems like the coordinate frames aren't being translated porperly away from 0,0?
+
+	Rot3 T = rot_S_to_R;
+	Matrix33 M = rot_S_to_R.matrix();
+	// I think the rotator is somehow re-scaling the vectors in transform?
+
+	Rot3 x_axis();
+
 	Vector3 x_S(1, 0, 0);
 	Vector3 y_S(0, 1, 0);
 	Vector3 z_S(0, 0, 1);
 
-	Vector3 x_R = rot_S_to_R * x_S;
-	Vector3 y_R = rot_S_to_R * y_S;
-	Vector3 z_R = rot_S_to_R * z_S;
+	//Vector3 x_R = T * x_S;
+	//Vector3 y_R = T * y_S;
+	//Vector3 z_R = T * z_S;
 
-	vector<double> x_axis = { loc_R.x(), loc_R.x() + x_R.x() };
-	vector<double> y_axis = { loc_R.y(), loc_R.y() + y_R.y() };
-	vector<double> z_axis = { loc_R.z(), loc_R.z() + z_R.z() };
+	Vector3 x_R = M * x_S;
+	Vector3 y_R = M * y_S;
+	Vector3 z_R = M * z_S;
 
-	cout << x_axis[0] <<","<<x_axis[1]<<","<<x_axis[2] << endl;
-	cout << y_axis[0] << "," << y_axis[1] << "," << y_axis[2] << endl;
-	cout << z_axis[0] << "," << z_axis[1] << "," << z_axis[2] << endl;
+	x_R = loc_R +x_R;
+	y_R = loc_R + y_R;
+	z_R = loc_R + z_R;
 
-	plot3(x_axis);
-	plot3(y_axis);
-	plot3(z_axis);
+	draw_vector(loc_R, x_R, "red");
+	draw_vector(loc_R,  y_R, "blue");
+	draw_vector(loc_R, z_R, "green");
 
 }
 
@@ -157,7 +178,7 @@ int main(int argc, char* argv[]) {
 	getline(imu_file, s);
 
 	int seconds = 10;
-	double dt = 0.005; // Average timestamp difference in EuRoC IMU is 5ms for GT and IMU
+	double dt = 0.005;
 
 	int max_plot_datapoints = int(double(seconds)/dt);
 
@@ -223,7 +244,6 @@ int main(int argc, char* argv[]) {
 	graph->addPrior(B(c), prior_imu_bias, prior_bias_noise_model);
 
 
-	// To initialize our IMU preintegration, we give it the uncertainty, as well as the initial bias measured/assumed.
 	PreintegrationType* imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
 
 	NavState previous_state(prior_pose, prior_vel);
@@ -236,11 +256,20 @@ int main(int argc, char* argv[]) {
 
 
 	Rot3 T_S_to_R = prior_rot.inverse(); // Start by assuming GT initial orientation is aligned with S
+	// It seems this initial matrix is *very* wrong
+
+	//draw_coordinate_frame_axes(T_S_to_R, Vector3(0,0,0));
+
+	//draw_coordinate_frame_axes(T_S_to_R, prior_pos);
+
+	draw_coordinate_frame_axes(T_S_to_R, Vector3(2,0,2));
+
 	Rot3 delta_T_S_to_R;
 
 	Vector3 vel_angular_S, accel_axial_S, vel_angular_R, accel_axial_R;
 	int j = 0;
 	while (parse_EuRoC_imu_line(imu_file, vel_angular_S, accel_axial_S)) {
+
 
 		delta_T_S_to_R = Rot3::Rodrigues(vel_angular_S * dt);
 		T_S_to_R = T_S_to_R * delta_T_S_to_R; // Now need to add this change onto the current transform
@@ -265,10 +294,12 @@ int main(int argc, char* argv[]) {
 			zs.push_back(p.z());
 			j++;
 
-			if (imu_integrations < 10) {
-				draw_coordinate_frame_axes(T_S_to_R, proposed_state.position());
-			}
+			//if (imu_integrations < 10) {
+			//	draw_coordinate_frame_axes(T_S_to_R, proposed_state.position());
+			//}
 		}
+
+
 	}
 
 	cout << j << " IMU integrations plotted" << endl;
