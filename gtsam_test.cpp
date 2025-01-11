@@ -2,6 +2,7 @@
 //
 
 #include "gtsam_test.h"
+#include "cmath"
 
 using namespace gtsam;
 using namespace std;
@@ -114,13 +115,25 @@ void define_IMU_factor_noise_model(boost::shared_ptr<PreintegratedCombinedMeasur
 
 void draw_vector(Vector3 start, Vector3 end, string color) {
 
-
-	vector<double> dx = { start.x(), end.x() - start.x()};
-	vector<double> dy = { start.y(), end.y() - start.y() };
-	vector<double> dz = { start.z(), end.z() - start.z() };
+	// Why dont they give you an option to plot a SINGLE FUCKING VECTOR
 
 	using namespace matplot;
+
+	hold(on);
+
+	//Vector3 delta = end - start;
+	//double length = (end - start).norm();
+	//auto t = iota(0, length);
+	//double start_x = start.x();
+	// I guess its implied this vector is going in the x direction only, so we don't need Vector3
+	//auto x_parametric = transform(iota(0, delta.x()), [start_x](auto x) {return start_x + x; });
+
+	vector<double> dx = { start.x() , end.x() };
+	vector<double> dy = { start.y(), end.y() };
+	vector<double> dz = { start.z(), end.z() };
+
 	plot3(dx, dy, dz)->color(color);
+
 }
 
 void draw_coordinate_frame_axes(Rot3 rot_S_to_R, Vector3 loc_R) {
@@ -131,9 +144,6 @@ void draw_coordinate_frame_axes(Rot3 rot_S_to_R, Vector3 loc_R) {
 
 	hold(on);
 
-	// Visualization bug
-	
-	// Almost seems like the coordinate frames aren't being translated porperly away from 0,0?
 
 	Rot3 T = rot_S_to_R;
 	Matrix33 M = rot_S_to_R.matrix();
@@ -145,21 +155,13 @@ void draw_coordinate_frame_axes(Rot3 rot_S_to_R, Vector3 loc_R) {
 	Vector3 y_S(0, 1, 0);
 	Vector3 z_S(0, 0, 1);
 
-	//Vector3 x_R = T * x_S;
-	//Vector3 y_R = T * y_S;
-	//Vector3 z_R = T * z_S;
+	Vector3 x_R = T * x_S;
+	Vector3 y_R = T * y_S;
+	Vector3 z_R = T * z_S;
 
-	Vector3 x_R = M * x_S;
-	Vector3 y_R = M * y_S;
-	Vector3 z_R = M * z_S;
-
-	x_R = loc_R +x_R;
-	y_R = loc_R + y_R;
-	z_R = loc_R + z_R;
-
-	draw_vector(loc_R, x_R, "red");
-	draw_vector(loc_R,  y_R, "blue");
-	draw_vector(loc_R, z_R, "green");
+	draw_vector(loc_R, loc_R+x_R, "red");
+	draw_vector(loc_R,  loc_R+y_R, "blue");
+	draw_vector(loc_R, loc_R+z_R, "green");
 
 }
 
@@ -258,11 +260,11 @@ int main(int argc, char* argv[]) {
 	Rot3 T_S_to_R = prior_rot.inverse(); // Start by assuming GT initial orientation is aligned with S
 	// It seems this initial matrix is *very* wrong
 
-	//draw_coordinate_frame_axes(T_S_to_R, Vector3(0,0,0));
 
-	//draw_coordinate_frame_axes(T_S_to_R, prior_pos);
+	draw_coordinate_frame_axes(T_S_to_R, prior_pos);
 
-	draw_coordinate_frame_axes(T_S_to_R, Vector3(2,0,2));
+	// Its just objectivley drawing the vectors wrong
+	// Look at the example your fault for trusting GPT
 
 	Rot3 delta_T_S_to_R;
 
