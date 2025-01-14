@@ -134,6 +134,8 @@ void draw_vector(Vector3 start, Vector3 end, string color) {
 
 	plot3(dx, dy, dz)->color(color);
 
+	// can also set line_width property
+
 }
 
 void draw_coordinate_frame_axes(Rot3 rot_S_to_R, Vector3 loc_R) {
@@ -143,7 +145,6 @@ void draw_coordinate_frame_axes(Rot3 rot_S_to_R, Vector3 loc_R) {
 	using namespace matplot;
 
 	hold(on);
-
 
 	Rot3 T = rot_S_to_R;
 	Matrix33 M = rot_S_to_R.matrix();
@@ -155,10 +156,16 @@ void draw_coordinate_frame_axes(Rot3 rot_S_to_R, Vector3 loc_R) {
 	Vector3 y_S(0, 1, 0);
 	Vector3 z_S(0, 0, 1);
 
+	// Draw reference coordinate frame
+	//draw_vector(loc_R, loc_R + x_S, "black");
+	//draw_vector(loc_R, loc_R + y_S, "black");
+	//draw_vector(loc_R, loc_R + z_S, "black");
+
 	Vector3 x_R = T * x_S;
 	Vector3 y_R = T * y_S;
 	Vector3 z_R = T * z_S;
 
+	// Draw rotated coordinate frame
 	draw_vector(loc_R, loc_R+x_R, "red");
 	draw_vector(loc_R,  loc_R+y_R, "blue");
 	draw_vector(loc_R, loc_R+z_R, "green");
@@ -256,55 +263,69 @@ int main(int argc, char* argv[]) {
 	int preintegration_window = 100; // Since I don't have a measurement yet, setting this manual window to define an imu factor
 	unsigned long long imu_integrations = 0;
 
+	// Is the inverse of a rotator different from the inverse of a matrix?
 
-	Rot3 T_S_to_R = prior_rot.inverse(); // Start by assuming GT initial orientation is aligned with S
-	// It seems this initial matrix is *very* wrong
+	Rot3 T_R_to_S(0.33638, -0.01749, 0.94156, 
+		-0.02078, -0.99972, -0.01114, 
+		0.94150, -0.01582, -0.33665);
 
+	Rot3 T_S_to_R = T_R_to_S.inverse();
 
-	draw_coordinate_frame_axes(T_S_to_R, prior_pos);
+	//Rot3 T_S_to_R(I_3x3); // Start by assuming GT initial orientation is aligned with S
 
-	// Its just objectivley drawing the vectors wrong
-	// Look at the example your fault for trusting GPT
+	//draw_coordinate_frame_axes(T_S_to_R, prior_pos); // Draw our frame
+	draw_coordinate_frame_axes(Rot3::Identity(), prior_pos); // Draw Reference frame
 
 	Rot3 delta_T_S_to_R;
 
-	Vector3 vel_angular_S, accel_axial_S, vel_angular_R, accel_axial_R;
-	int j = 0;
-	while (parse_EuRoC_imu_line(imu_file, vel_angular_S, accel_axial_S)) {
+	Vector3 vel_angular_S, accel_linear_S, vel_angular_R, accel_linear_R, adjusted_accel_linear;
 
+	Vector3 vel_linear_R = prior_vel;
+	Vector3 pos_linear_R = prior_pos;
 
-		delta_T_S_to_R = Rot3::Rodrigues(vel_angular_S * dt);
-		T_S_to_R = T_S_to_R * delta_T_S_to_R; // Now need to add this change onto the current transform
+	Rot3 T_S_to_R_next;
 
-		accel_axial_R = T_S_to_R * accel_axial_S;
-		accel_axial_R += Vector3(0, 0, -9.81); // R z-axis is vertically aligned, so this compensates for gravity
+	while (parse_EuRoC_imu_line(imu_file, vel_angular_S, accel_linear_S)) {
 
-		vel_angular_R = T_S_to_R * vel_angular_S; // Dont think you can do this
+		delta_T_S_to_R = Rot3::Expmap(vel_angular_S * dt);
+		T_S_to_R_next = T_S_to_R * delta_T_S_to_R;
 
-		imu_preintegrated->integrateMeasurement(accel_axial_R, vel_angular_R, dt);
+		// Maybe I'm still not setting the proper initial orientation.
+		// Thing is though, it seems acceleration is getting somewhat out of control in X.
+		// This is because gravity is on the x-axis, I need to apply the initial rotation matrix
+		// provided for the pose tracking system to the IMU
+
+		accel_linear_R = T_S_to_R * accel_linear_S;
+		accel_linear_R = accel_linear_R + Vector3(0, 0, -9.81); 
+
+		Vector3 vel_linear_R_next, pos_linear_R_next;
+
+		vel_linear_R_next = vel_linear_R + accel_linear_R * dt;
+		pos_linear_R_next = pos_linear_R + vel_linear_R * dt + (0.5) * accel_linear_R * pow(dt, 2);
+
+		vel_linear_R = vel_linear_R_next;
+		pos_linear_R = pos_linear_R_next;
+		T_S_to_R = T_S_to_R_next;
+
 		imu_integrations++;
 
-		// Just taking the directly predicted state of the IMU from preintegration
-		// No optimization for now - just for testing data
-
-		proposed_state = imu_preintegrated->predict(previous_state, previous_bias);
-
 		if (imu_integrations < max_plot_datapoints) {
-			Point3 p = proposed_state.position();
+			//Point3 p = proposed_state.position();
+			Vector3 p = pos_linear_R;
 			xs.push_back(p.x());
 			ys.push_back(p.y());
 			zs.push_back(p.z());
-			j++;
 
-			//if (imu_integrations < 10) {
-			//	draw_coordinate_frame_axes(T_S_to_R, proposed_state.position());
-			//}
+			if (imu_integrations % preintegration_window == 0) {
+				draw_coordinate_frame_axes(T_S_to_R.inverse(), p);
+				//draw_coordinate_frame_axes(T_R_to_S, p);
+			}
 		}
+
+		//previous_state = proposed_state;
 
 
 	}
-
-	cout << j << " IMU integrations plotted" << endl;
 
 	
 	using namespace matplot;
