@@ -274,7 +274,45 @@ int main(int argc, char* argv[]) {
 	//Rot3 T_S_to_R(I_3x3); // Start by assuming GT initial orientation is aligned with S
 
 	//draw_coordinate_frame_axes(T_S_to_R, prior_pos); // Draw our frame
+
+
+	// Print the original and the inverse rotation matrices
+	std::cout << "Original rotation matrix:" << std::endl;
+	std::cout << T_R_to_S.matrix() << std::endl;
+
+	std::cout << "Inverse rotation matrix:" << std::endl;
+	std::cout << T_S_to_R.matrix() << std::endl;
+
+	double length = 0.5;
+	using namespace matplot;
+	hold(on);
+	Vector3 loc_R = prior_pos;
+
 	draw_coordinate_frame_axes(Rot3::Identity(), prior_pos); // Draw Reference frame
+
+	Vector3 x_R(1, 0, 0);
+	Vector3 y_R(0, 1, 0);
+	Vector3 z_R(0, 0, 1);
+
+	Vector3 x_S = T_R_to_S * x_R;
+	Vector3 y_S = T_R_to_S * y_R;
+	Vector3 z_S = T_R_to_S * z_R;
+	// Draw rotated coordinate frame
+	draw_vector(loc_R, loc_R + x_S, "red");
+	draw_vector(loc_R, loc_R + y_S, "red");
+	draw_vector(loc_R, loc_R + z_S, "red");
+
+	x_R = T_S_to_R * x_S;
+	y_R = T_S_to_R * y_S;
+	z_R = T_S_to_R * z_S;
+	// Draw rotated coordinate frame
+	draw_vector(loc_R, loc_R + x_R, "blue");
+	draw_vector(loc_R, loc_R + y_R, "blue");
+	draw_vector(loc_R, loc_R + z_R, "blue");
+
+	//draw_coordinate_frame_axes(T_R_to_S, prior_pos); // Draw Reference frame
+	//draw_coordinate_frame_axes(T_S_to_R, prior_pos); // Draw Reference frame
+	
 
 	Rot3 delta_T_S_to_R;
 
@@ -317,7 +355,7 @@ int main(int argc, char* argv[]) {
 			zs.push_back(p.z());
 
 			if (imu_integrations % preintegration_window == 0) {
-				draw_coordinate_frame_axes(T_S_to_R.inverse(), p);
+				//draw_coordinate_frame_axes(T_S_to_R.inverse(), p);
 				//draw_coordinate_frame_axes(T_R_to_S, p);
 			}
 		}
