@@ -265,15 +265,17 @@ int main(int argc, char* argv[]) {
 
 	// Is the inverse of a rotator different from the inverse of a matrix?
 
-	Rot3 T_R_to_S(0.33638, -0.01749, 0.94156, 
+	Rot3 T_PoseSensor_to_Body(0.33638, -0.01749, 0.94156, 
 		-0.02078, -0.99972, -0.01114, 
 		0.94150, -0.01582, -0.33665);
 
+	Rot3 T_R_to_S = T_PoseSensor_to_Body;
+
+	//Rot3 T_S_to_R = prior_rot * T_R_to_S.inverse();
 	Rot3 T_S_to_R = T_R_to_S.inverse();
 
-	//Rot3 T_S_to_R(I_3x3); // Start by assuming GT initial orientation is aligned with S
-
-	//draw_coordinate_frame_axes(T_S_to_R, prior_pos); // Draw our frame
+	// TODO: Need to somehow account for the initial orientation of the object in our reference frame
+	// I am so lost.
 
 
 	// Print the original and the inverse rotation matrices
@@ -288,7 +290,7 @@ int main(int argc, char* argv[]) {
 	hold(on);
 	Vector3 loc_R = prior_pos;
 
-	draw_coordinate_frame_axes(Rot3::Identity(), prior_pos); // Draw Reference frame
+	//draw_coordinate_frame_axes(Rot3::Identity(), prior_pos); // Draw Reference frame
 
 	Vector3 x_R(1, 0, 0);
 	Vector3 y_R(0, 1, 0);
@@ -297,7 +299,7 @@ int main(int argc, char* argv[]) {
 	Vector3 x_S = T_R_to_S * x_R;
 	Vector3 y_S = T_R_to_S * y_R;
 	Vector3 z_S = T_R_to_S * z_R;
-	// Draw rotated coordinate frame
+	// Rotate vectors from R to S
 	draw_vector(loc_R, loc_R + x_S, "red");
 	draw_vector(loc_R, loc_R + y_S, "red");
 	draw_vector(loc_R, loc_R + z_S, "red");
@@ -305,13 +307,13 @@ int main(int argc, char* argv[]) {
 	x_R = T_S_to_R * x_S;
 	y_R = T_S_to_R * y_S;
 	z_R = T_S_to_R * z_S;
-	// Draw rotated coordinate frame
+	// Revert rotated vectors (in S) to R
 	draw_vector(loc_R, loc_R + x_R, "blue");
 	draw_vector(loc_R, loc_R + y_R, "blue");
 	draw_vector(loc_R, loc_R + z_R, "blue");
 
-	//draw_coordinate_frame_axes(T_R_to_S, prior_pos); // Draw Reference frame
-	//draw_coordinate_frame_axes(T_S_to_R, prior_pos); // Draw Reference frame
+
+	// This would indicate that T_S_to_R is working properly.
 	
 
 	Rot3 delta_T_S_to_R;
@@ -339,16 +341,25 @@ int main(int argc, char* argv[]) {
 		Vector3 vel_linear_R_next, pos_linear_R_next;
 
 		vel_linear_R_next = vel_linear_R + accel_linear_R * dt;
+
+
 		pos_linear_R_next = pos_linear_R + vel_linear_R * dt + (0.5) * accel_linear_R * pow(dt, 2);
 
 		vel_linear_R = vel_linear_R_next;
 		pos_linear_R = pos_linear_R_next;
+
 		T_S_to_R = T_S_to_R_next;
 
 		imu_integrations++;
 
+		if (imu_integrations < 100) {
+			cout << vel_linear_R_next.x() << "," << vel_linear_R_next.y() << "," << vel_linear_R_next.z() << endl;
+
+		}
+
 		if (imu_integrations < max_plot_datapoints) {
 			//Point3 p = proposed_state.position();
+
 			Vector3 p = pos_linear_R;
 			xs.push_back(p.x());
 			ys.push_back(p.y());
