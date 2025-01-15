@@ -116,31 +116,31 @@ void define_IMU_factor_noise_model(boost::shared_ptr<PreintegratedCombinedMeasur
 
 void draw_coordinate_frame_axes(Rot3 rot_S_to_R, Vector3 loc_R) {
 
-	double length = 0.5;
+	//double length = 0.5;
 
-	using namespace matplot;
+	//using namespace matplot;
 
-	hold(on);
+	//hold(on);
 
-	Vector3 x_S(1, 0, 0);
-	Vector3 y_S(0, 1, 0);
-	Vector3 z_S(0, 0, 1);
+	//Vector3 x_S(1, 0, 0);
+	//Vector3 y_S(0, 1, 0);
+	//Vector3 z_S(0, 0, 1);
 
-	Vector3 x_R = rot_S_to_R * x_S;
-	Vector3 y_R = rot_S_to_R * y_S;
-	Vector3 z_R = rot_S_to_R * z_S;
+	//Vector3 x_R = rot_S_to_R * x_S;
+	//Vector3 y_R = rot_S_to_R * y_S;
+	//Vector3 z_R = rot_S_to_R * z_S;
 
-	vector<double> x_axis = { loc_R.x(), loc_R.x() + x_R.x() };
-	vector<double> y_axis = { loc_R.y(), loc_R.y() + y_R.y() };
-	vector<double> z_axis = { loc_R.z(), loc_R.z() + z_R.z() };
+	//vector<double> x_axis = { loc_R.x(), loc_R.x() + x_R.x() };
+	//vector<double> y_axis = { loc_R.y(), loc_R.y() + y_R.y() };
+	//vector<double> z_axis = { loc_R.z(), loc_R.z() + z_R.z() };
 
-	cout << x_axis[0] <<","<<x_axis[1]<<","<<x_axis[2] << endl;
-	cout << y_axis[0] << "," << y_axis[1] << "," << y_axis[2] << endl;
-	cout << z_axis[0] << "," << z_axis[1] << "," << z_axis[2] << endl;
+	//cout << x_axis[0] <<","<<x_axis[1]<<","<<x_axis[2] << endl;
+	//cout << y_axis[0] << "," << y_axis[1] << "," << y_axis[2] << endl;
+	//cout << z_axis[0] << "," << z_axis[1] << "," << z_axis[2] << endl;
 
-	plot3(x_axis);
-	plot3(y_axis);
-	plot3(z_axis);
+	//plot3(x_axis);
+	//plot3(y_axis);
+	//plot3(z_axis);
 
 }
 
@@ -177,6 +177,7 @@ int main(int argc, char* argv[]) {
 	Rot3 r;
 	Vector3 vel, gb, ab;
 	int i = 0;
+
 	while (parse_EuRoC_gt_line(gt_file, position, r, vel, gb, ab)) {
 		if (i == 0) {
 			prior_pos = position;
@@ -266,7 +267,8 @@ int main(int argc, char* argv[]) {
 	NavState current_state = previous_state; // Just an object to represent our most recent state estimate
 	NavState proposed_state = previous_state;
 		
-	int preintegration_window = 100; // Since I don't have a measurement yet, setting this manual window to define an imu factor
+	int gps_measurement_interval = 1;
+	int preintegration_window = int(double(gps_measurement_interval) / dt);
 	unsigned long long imu_integrations = 0;
 
 
@@ -324,6 +326,16 @@ int main(int argc, char* argv[]) {
 			// providing the proper keys (each key is a function of time) to let us reference this factor later
 			CombinedImuFactor imu_factor(X(c), V(c), X(c - 1), V(c - 1), B(c), B(c - 1), *current_imu_preintegration);
 			graph->add(imu_factor);
+ 
+			if (imu_integrations < gt_xs.size()) {
+				noiseModel::Diagonal::shared_ptr correction_noise = noiseModel::Isotropic::Sigma(3, 1.0);
+				GPSFactor gps_factor(X(c),
+					Point3(gt_xs[imu_integrations],  // N,
+						gt_ys[imu_integrations],  // E,
+						gt_zs[imu_integrations]), // D,
+					correction_noise);
+				graph->add(gps_factor);
+			}
 
 			// -- Then if there is a correction factor, you would add it to the graph, and run the solver --
 
@@ -353,7 +365,7 @@ int main(int argc, char* argv[]) {
 			imu_preintegrated->resetIntegrationAndSetBias(previous_bias); // Prepare our integration factor
 
 			if (imu_integrations < max_plot_datapoints) {
-				Point3 p = proposed_state.position();
+				Point3 p = previous_state.position();
 				xs.push_back(p.x());
 				ys.push_back(p.y());
 				zs.push_back(p.z());
