@@ -263,27 +263,34 @@ int main(int argc, char* argv[]) {
 	int preintegration_window = 100; // Since I don't have a measurement yet, setting this manual window to define an imu factor
 	unsigned long long imu_integrations = 0;
 
-	// Is the inverse of a rotator different from the inverse of a matrix?
 
-	Rot3 T_PoseSensor_to_Body(0.33638, -0.01749, 0.94156, 
-		-0.02078, -0.99972, -0.01114, 
-		0.94150, -0.01582, -0.33665);
+	//Rot3 T_PoseSensor_to_Body(0.33638, -0.01749, 0.94156, 
+	//	-0.02078, -0.99972, -0.01114, 
+	//	0.94150, -0.01582, -0.33665);
 
-	Rot3 T_R_to_S = T_PoseSensor_to_Body;
+	Rot3 T_R_to_S = prior_rot;
+	Rot3 T_S_to_R = T_R_to_S.inverse(); // This is a reasonable strategy
 
-	//Rot3 T_S_to_R = prior_rot * T_R_to_S.inverse();
-	Rot3 T_S_to_R = T_R_to_S.inverse();
+	// Note: Accelrometer drifts way more than I am expecting it to
+	// Rarely do you get an IMU that you see a reasonable trajectory on integration
 
-	// TODO: Need to somehow account for the initial orientation of the object in our reference frame
-	// I am so lost.
+	// Just try to solve for orientation, don't bother integrating accelerometer
+
+	// Take unit vector x, in body frame, use orientation estimate to translate that into global frame.
+	// Draw IMU axes, and initial GT orientation axes and compare
+
+	// Integrate over orientation, plot mini-set of axes positioned at each GT pose
+	// Don't worry about plotting IMU integrated points
+
+	// 1. Gyro drift should be manageable -> Confirm orientation looks right, without any preintegration of acceleration
+	// 2. Apply accel as a measurement, can get loss function, actual vs measured. See if orientation is reasonable
 
 
-	// Print the original and the inverse rotation matrices
-	std::cout << "Original rotation matrix:" << std::endl;
-	std::cout << T_R_to_S.matrix() << std::endl;
+	// Once you're solving for orientation, add in a constant drift to each axis
+	// Exmap( w * dt - Drift on axis) // and let the solver compute drift as part of its state estimation.
 
-	std::cout << "Inverse rotation matrix:" << std::endl;
-	std::cout << T_S_to_R.matrix() << std::endl;
+
+
 
 	double length = 0.5;
 	using namespace matplot;
@@ -301,16 +308,18 @@ int main(int argc, char* argv[]) {
 	Vector3 z_S = T_R_to_S * z_R;
 	// Rotate vectors from R to S
 	draw_vector(loc_R, loc_R + x_S, "red");
-	draw_vector(loc_R, loc_R + y_S, "red");
-	draw_vector(loc_R, loc_R + z_S, "red");
+	draw_vector(loc_R, loc_R + y_S, "blue");
+	draw_vector(loc_R, loc_R + z_S, "green");
+
+
 
 	x_R = T_S_to_R * x_S;
 	y_R = T_S_to_R * y_S;
 	z_R = T_S_to_R * z_S;
 	// Revert rotated vectors (in S) to R
-	draw_vector(loc_R, loc_R + x_R, "blue");
-	draw_vector(loc_R, loc_R + y_R, "blue");
-	draw_vector(loc_R, loc_R + z_R, "blue");
+	draw_vector(loc_R, loc_R + x_R, "black");
+	draw_vector(loc_R, loc_R + y_R, "black");
+	draw_vector(loc_R, loc_R + z_R, "black");
 
 
 	// This would indicate that T_S_to_R is working properly.
@@ -323,6 +332,8 @@ int main(int argc, char* argv[]) {
 	Vector3 vel_linear_R = prior_vel;
 	Vector3 pos_linear_R = prior_pos;
 
+	Vector3 vel_linear_R_next, pos_linear_R_next;
+
 	Rot3 T_S_to_R_next;
 
 	while (parse_EuRoC_imu_line(imu_file, vel_angular_S, accel_linear_S)) {
@@ -330,32 +341,22 @@ int main(int argc, char* argv[]) {
 		delta_T_S_to_R = Rot3::Expmap(vel_angular_S * dt);
 		T_S_to_R_next = T_S_to_R * delta_T_S_to_R;
 
-		// Maybe I'm still not setting the proper initial orientation.
-		// Thing is though, it seems acceleration is getting somewhat out of control in X.
-		// This is because gravity is on the x-axis, I need to apply the initial rotation matrix
-		// provided for the pose tracking system to the IMU
-
 		accel_linear_R = T_S_to_R * accel_linear_S;
 		accel_linear_R = accel_linear_R + Vector3(0, 0, -9.81); 
 
-		Vector3 vel_linear_R_next, pos_linear_R_next;
 
 		vel_linear_R_next = vel_linear_R + accel_linear_R * dt;
-
-
 		pos_linear_R_next = pos_linear_R + vel_linear_R * dt + (0.5) * accel_linear_R * pow(dt, 2);
 
 		vel_linear_R = vel_linear_R_next;
 		pos_linear_R = pos_linear_R_next;
-
 		T_S_to_R = T_S_to_R_next;
 
 		imu_integrations++;
 
-		if (imu_integrations < 100) {
-			cout << vel_linear_R_next.x() << "," << vel_linear_R_next.y() << "," << vel_linear_R_next.z() << endl;
-
-		}
+		//if (imu_integrations < 100) {
+		//	cout << vel_linear_R_next.x() << "," << vel_linear_R_next.y() << "," << vel_linear_R_next.z() << endl;
+		//}
 
 		if (imu_integrations < max_plot_datapoints) {
 			//Point3 p = proposed_state.position();
