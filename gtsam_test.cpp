@@ -175,17 +175,23 @@ void draw_coordinate_frame_axes(Rot3 rot_S_to_R, Vector3 loc_R) {
 
 int main(int argc, char* argv[]) {
 
-	string imu_filename = "/home/admitriev/Datasets/EuRoC_orbslam3_data/drone_imu/V101_imu0/data.csv";
+	string imu_filename = "/home/admitriev/Datasets/EuRoC_orbslam3_data/drone_imu/V101_imu0/data_gt_tstp_aligned.csv";
 	string gt_filename = "/home/admitriev/Datasets/EuRoC_orbslam3_data/ground_truth/V101_state_groundtruth_estimate0/data.csv";
-	ifstream imu_file(imu_filename.c_str());
+	ifstream imu_file(imu_filename.c_str()); // Is it even opening the file
 	ifstream gt_file(gt_filename.c_str());
+
+	if (!imu_file.is_open()) {
+		std::cerr << "Error: Could not open IMU file: " << imu_filename << std::endl;
+		return 1; // Exit with error code
+	}
 
 	// Skip over the first line of both files
 	string value;
 	getline(gt_file, value);
 	string s;
-	getline(imu_file, s);
+	getline(imu_file, s); // No longer parsing anything out of the file
 
+	// First parsed: "#timestamp [ns],w_RS_S_x [rad s^-1],w_RS_S_y [rad s^-1],w_RS_S_z [rad s^-1],a_RS_S_x [m s^-2],a_RS_S_y [m s^-2],a_RS_S_z [m s^-2]\r"
 	int seconds = 10;
 	double dt = 0.005;
 
@@ -289,9 +295,6 @@ int main(int argc, char* argv[]) {
 	// Once you're solving for orientation, add in a constant drift to each axis
 	// Exmap( w * dt - Drift on axis) // and let the solver compute drift as part of its state estimation.
 
-
-
-
 	double length = 0.5;
 	using namespace matplot;
 	hold(on);
@@ -353,10 +356,6 @@ int main(int argc, char* argv[]) {
 		T_S_to_R = T_S_to_R_next;
 
 		imu_integrations++;
-
-		//if (imu_integrations < 100) {
-		//	cout << vel_linear_R_next.x() << "," << vel_linear_R_next.y() << "," << vel_linear_R_next.z() << endl;
-		//}
 
 		if (imu_integrations < max_plot_datapoints) {
 			//Point3 p = proposed_state.position();
