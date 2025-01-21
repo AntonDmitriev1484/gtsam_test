@@ -150,7 +150,7 @@ void draw_coordinate_frame_axes(Rot3 rot_S_to_R, Vector3 loc_R) {
 
 int main(int argc, char* argv[]) {
 
-	string imu_filename = "/home/admitriev/Datasets/EuRoC_orbslam3_data/drone_imu/V101_imu0/data.csv";
+	string imu_filename = "/home/admitriev/Datasets/EuRoC_orbslam3_data/drone_imu/V101_imu0/data_gt_tstp_aligned.csv";
 	string gt_filename = "/home/admitriev/Datasets/EuRoC_orbslam3_data/ground_truth/V101_state_groundtruth_estimate0/data.csv";
 	ifstream imu_file(imu_filename.c_str());
 	ifstream gt_file(gt_filename.c_str());
@@ -275,10 +275,17 @@ int main(int argc, char* argv[]) {
 	// We need IMU data to be in the same frame as GT before integration, to visualize data properly.
 	// IMU data is in frame S w.r.t R, GT data is in frame R w.r.t R
 
-	// TODO: GT starts recording 1 second earlier than IMU, need to crop it later to sync up
 
-	Rot3 T_S_to_R = prior_rot.inverse(); // Start by assuming GT initial orientation is aligned with S
 	Rot3 delta_T_S_to_R;
+
+	Rot3 T_R_to_S = prior_rot;
+	Rot3 T_S_to_R = T_R_to_S.inverse(); // This is a reasonable strategy
+
+	// 1. Gyro drift should be manageable -> Confirm orientation looks right, without any preintegration of acceleration
+	// 2. Apply accel as a measurement, can get loss function, actual vs measured. See if orientation is reasonable
+	// Once you're solving for orientation, add in a constant drift to each axis
+	// Exmap( w * dt - Drift on axis) // and let the solver compute drift as part of its state estimation.
+
 
 	Vector3 vel_angular_S, accel_axial_S, vel_angular_R, accel_axial_R;
 	int j = 0;
@@ -287,8 +294,8 @@ int main(int argc, char* argv[]) {
 		// IF IMU MEASUREMENT ----------------------------------------------------------------------------------
 		// Add latest IMU measurement to our IMU preintegration
 		
-
-		delta_T_S_to_R = Rot3::Rodrigues(vel_angular_S * dt);
+		delta_T_S_to_R = Rot3::Expmap(vel_angular_S * dt);
+		//delta_T_S_to_R = Rot3::Rodrigues(vel_angular_S * dt);
 		T_S_to_R = T_S_to_R * delta_T_S_to_R; // Now need to add this change onto the current transform
 
 		accel_axial_R = T_S_to_R * accel_axial_S;
@@ -310,10 +317,6 @@ int main(int argc, char* argv[]) {
 			ys.push_back(p.y());
 			zs.push_back(p.z());
 			j++;
-
-			if (imu_integrations < 10) {
-				draw_coordinate_frame_axes(T_S_to_R, proposed_state.position());
-			}
 		}
 
 		// ELSE IF CORRECTION MEASUREMENT ----------------------------------------------------------------------
@@ -326,7 +329,7 @@ int main(int argc, char* argv[]) {
 			// providing the proper keys (each key is a function of time) to let us reference this factor later
 			CombinedImuFactor imu_factor(X(c), V(c), X(c - 1), V(c - 1), B(c), B(c - 1), *current_imu_preintegration);
 			graph->add(imu_factor);
- 
+
 			if (imu_integrations < gt_xs.size()) {
 				noiseModel::Diagonal::shared_ptr correction_noise = noiseModel::Isotropic::Sigma(3, 1.0);
 				GPSFactor gps_factor(X(c),
@@ -336,6 +339,7 @@ int main(int argc, char* argv[]) {
 					correction_noise);
 				graph->add(gps_factor);
 			}
+ 
 
 			// -- Then if there is a correction factor, you would add it to the graph, and run the solver --
 
