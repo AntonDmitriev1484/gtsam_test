@@ -172,6 +172,25 @@ void draw_coordinate_frame_axes(Rot3 rot_S_to_R, Vector3 loc_R) {
 
 }
 
+void draw_basis(Matrix33 basis, Vector3 loc, bool as_reference_frame) {
+	using namespace matplot;
+	hold(on);
+	double length = 0.25;
+	if (as_reference_frame) {
+		string color = "black";
+		draw_vector(loc, loc + length*basis.col(0), color);
+		draw_vector(loc, loc + length * basis.col(1), color);
+		draw_vector(loc, loc + length * basis.col(2), color);
+
+	}
+	else {
+		draw_vector(loc, loc + length * basis.col(0), "red");
+		draw_vector(loc, loc + length * basis.col(1), "blue");
+		draw_vector(loc, loc + length * basis.col(2), "green");
+	}
+
+}
+
 
 int main(int argc, char* argv[]) {
 
@@ -266,32 +285,14 @@ int main(int argc, char* argv[]) {
 	NavState current_state = previous_state; // Just an object to represent our most recent state estimate
 	NavState proposed_state = previous_state;
 		
-	int preintegration_window = 100; // Since I don't have a measurement yet, setting this manual window to define an imu factor
+	int preintegration_window = 500; // Since I don't have a measurement yet, setting this manual window to define an imu factor
 	unsigned long long imu_integrations = 0;
-
-
-	//Rot3 T_PoseSensor_to_Body(0.33638, -0.01749, 0.94156, 
-	//	-0.02078, -0.99972, -0.01114, 
-	//	0.94150, -0.01582, -0.33665);
 
 	Rot3 T_R_to_S = prior_rot;
 	Rot3 T_S_to_R = T_R_to_S.inverse(); // This is a reasonable strategy
 
-	// Note: Accelrometer drifts way more than I am expecting it to
-	// Rarely do you get an IMU that you see a reasonable trajectory on integration
-
-	// Just try to solve for orientation, don't bother integrating accelerometer
-
-	// Take unit vector x, in body frame, use orientation estimate to translate that into global frame.
-	// Draw IMU axes, and initial GT orientation axes and compare
-
-	// Integrate over orientation, plot mini-set of axes positioned at each GT pose
-	// Don't worry about plotting IMU integrated points
-
 	// 1. Gyro drift should be manageable -> Confirm orientation looks right, without any preintegration of acceleration
 	// 2. Apply accel as a measurement, can get loss function, actual vs measured. See if orientation is reasonable
-
-
 	// Once you're solving for orientation, add in a constant drift to each axis
 	// Exmap( w * dt - Drift on axis) // and let the solver compute drift as part of its state estimation.
 
@@ -302,31 +303,11 @@ int main(int argc, char* argv[]) {
 
 	//draw_coordinate_frame_axes(Rot3::Identity(), prior_pos); // Draw Reference frame
 
-	Vector3 x_R(1, 0, 0);
-	Vector3 y_R(0, 1, 0);
-	Vector3 z_R(0, 0, 1);
+	Matrix33 basis_R = I_3x3;
+	Matrix33 basis_S = T_R_to_S.matrix() * basis_R;
 
-	Vector3 x_S = T_R_to_S * x_R;
-	Vector3 y_S = T_R_to_S * y_R;
-	Vector3 z_S = T_R_to_S * z_R;
-	// Rotate vectors from R to S
-	draw_vector(loc_R, loc_R + x_S, "red");
-	draw_vector(loc_R, loc_R + y_S, "blue");
-	draw_vector(loc_R, loc_R + z_S, "green");
-
-
-
-	x_R = T_S_to_R * x_S;
-	y_R = T_S_to_R * y_S;
-	z_R = T_S_to_R * z_S;
-	// Revert rotated vectors (in S) to R
-	draw_vector(loc_R, loc_R + x_R, "black");
-	draw_vector(loc_R, loc_R + y_R, "black");
-	draw_vector(loc_R, loc_R + z_R, "black");
-
-
-	// This would indicate that T_S_to_R is working properly.
-	
+	draw_basis(basis_R, loc_R, true);
+	draw_basis(T_S_to_R.matrix() * basis_S, loc_R, false);
 
 	Rot3 delta_T_S_to_R;
 
@@ -343,6 +324,7 @@ int main(int argc, char* argv[]) {
 
 		delta_T_S_to_R = Rot3::Expmap(vel_angular_S * dt);
 		T_S_to_R_next = T_S_to_R * delta_T_S_to_R;
+		
 
 		accel_linear_R = T_S_to_R * accel_linear_S;
 		accel_linear_R = accel_linear_R + Vector3(0, 0, -9.81); 
@@ -366,8 +348,17 @@ int main(int argc, char* argv[]) {
 			zs.push_back(p.z());
 
 			if (imu_integrations % preintegration_window == 0) {
-				//draw_coordinate_frame_axes(T_S_to_R.inverse(), p);
-				//draw_coordinate_frame_axes(T_R_to_S, p);
+				// Whenever you integrate an IMU measurement, draw the axes_S transformed to axes_R
+				// and compare to axes_R
+
+				// The axes should start as the inverse of T_S_to_R, and then will gradually drift away from this.
+
+				// Result: Axes start algined, at first point, Then quickly drift apart.
+
+				Matrix33 basis_Rt = T_R_to_S.matrix() * T_S_to_R.matrix(); // As we progress, basis_Rt will get further from I_3x3. This will show us how much T_S_to_R has drifted
+				loc_R = Vector3(gt_xs[imu_integrations], gt_ys[imu_integrations], gt_zs[imu_integrations]);
+				draw_basis(basis_R, loc_R, true);
+				draw_basis(basis_Rt, loc_R, false);
 			}
 		}
 
@@ -381,7 +372,7 @@ int main(int argc, char* argv[]) {
 	hold(on);
 	scatter3(gt_xs, gt_ys, gt_zs)->color("g");
 	hold(on);
-	scatter3(xs, ys, zs)->color("r");
+	//scatter3(xs, ys, zs)->color("r");
 
 	xlabel("X (m)");
 	ylabel("Y (m)");
