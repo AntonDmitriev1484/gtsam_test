@@ -111,6 +111,11 @@ void define_IMU_factor_noise_model(boost::shared_ptr<PreintegratedCombinedMeasur
 	imu_preintegration_params->biasAccCovariance = accel_bias_cov;
 	imu_preintegration_params->biasOmegaCovariance = gyro_bias_cov;
 	imu_preintegration_params->biasAccOmegaInt = initial_bias_cov;
+
+	Vector3 imu_pose_in_body_frame = Vector3(0, 0, 0);
+	Rot3 imu_rot_in_body_frame = Rot3(0, 0, 0, 0);
+
+	imu_preintegration_params->body_P_sensor = Pose3(imu_rot_in_body_frame, imu_pose_in_body_frame);
 }
 
 void draw_vector(Vector3 start, Vector3 end, string color) {
@@ -267,9 +272,31 @@ int main(int argc, char* argv[]) {
 	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 0.1); // m/s
 	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-3);
 
+
 	// Define IMU Preintegration Noise Model:
-	boost::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedD(0.0);;
-	define_IMU_factor_noise_model(imu_preintegration_params);
+	// Set up a preintegration where gravity points at -Z in Nav frame
+	auto imu_preintegration_params = PreintegratedImuMeasurements::Params::MakeSharedU();
+
+	double GYRO_BIAS = 1.9393e-05;
+	double GYRO_NOISE = 1.6968e-04; // NIs this the same as noise sigma? // Shouldn't I multiply this by sqrt(sample rate) then
+	double ACCEL_BIAS = 3.0000e-3;
+	double ACCEL_NOISE = 2.0000e-3;
+
+	Matrix33 accel_noise_cov = I_3x3 * pow(ACCEL_NOISE, 2);
+	Matrix33 gyro_noise_cov = I_3x3 * pow(GYRO_NOISE, 2);
+	Matrix33 noise_integration_cov = I_3x3 * 1e-8;  // error committed in integrating position from velocities
+
+	Matrix33 accel_bias_cov = I_3x3 * pow(ACCEL_BIAS, 2);
+	Matrix33 gyro_bias_cov = I_3x3 * pow(GYRO_BIAS, 2);
+	Matrix66 initial_bias_cov = I_6x6 * 1e-5; // Why 6x6???
+
+	imu_preintegration_params->accelerometerCovariance = accel_noise_cov;
+	imu_preintegration_params->integrationCovariance = noise_integration_cov;
+	imu_preintegration_params->gyroscopeCovariance = gyro_noise_cov;
+
+	// Specify the pose of the sensor in the body frame
+	imu_preintegration_params->body_P_sensor = Pose3(I_4x4);
+
 
 	// Now we can finally start building our factor graph
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
@@ -298,11 +325,6 @@ int main(int argc, char* argv[]) {
 
 	Rot3 T_R_to_S = prior_rot;
 	Rot3 T_S_to_R = T_R_to_S.inverse(); // This is a reasonable strategy
-
-	// 1. Gyro drift should be manageable -> Confirm orientation looks right, without any preintegration of acceleration
-	// 2. Apply accel as a measurement, can get loss function, actual vs measured. See if orientation is reasonable
-	// Once you're solving for orientation, add in a constant drift to each axis
-	// Exmap( w * dt - Drift on axis) // and let the solver compute drift as part of its state estimation.
 
 	double length = 0.5;
 	using namespace matplot;
@@ -342,29 +364,36 @@ int main(int argc, char* argv[]) {
 	// Enguang offered to collaborate but I think this project is cooked.
 		// Algorithms for IoT instructor may be able to help.
 
+	// Enguang HAS had to manually adjust for acceleration before.
+
+	// So KITTI dataset example he gave uses an HTM as T_w_imu
+	NavState prev_imu_state(prior_rot, prior_pos, prior_vel);
+	NavState imu_state = prev_imu_state;
 
 	while (parse_EuRoC_imu_line(imu_file, vel_angular_S, accel_linear_S)) {
 		//accel_linear_S = accel_linear_S - Vector3(0, 0, 9.81);
 		// Have had to compensate for EuRoC
 		// Coordinate frame transform is necessary before integration
 
-		delta_T_S_to_R = Rot3::Expmap(vel_angular_S * dt);
-		T_S_to_R_next = T_S_to_R * delta_T_S_to_R;
-		
-		accel_linear_R = T_S_to_R * accel_linear_S;
-		accel_linear_R = accel_linear_R + Vector3(0, 0, -9.81); 
+		//// This, looks correct
+		//delta_T_S_to_R = Rot3::Expmap(vel_angular_S * dt);
+		//T_S_to_R_next = T_S_to_R * delta_T_S_to_R;
+		//
+		//accel_linear_R = T_S_to_R * accel_linear_S;
+		//accel_linear_R = accel_linear_R + Vector3(0, 0, -9.81); 
 
-		vel_linear_R_next = vel_linear_R + accel_linear_R * dt;
-		pos_linear_R_next = pos_linear_R + vel_linear_R * dt + (0.5) * accel_linear_R * pow(dt, 2);
+		//vel_linear_R_next = vel_linear_R + accel_linear_R * dt;
+		//pos_linear_R_next = pos_linear_R + vel_linear_R * dt + (0.5) * accel_linear_R * pow(dt, 2);
 
-		vel_linear_R = vel_linear_R_next;
-		pos_linear_R = pos_linear_R_next;
-		T_S_to_R = T_S_to_R_next;
+		//vel_linear_R = vel_linear_R_next;
+		//pos_linear_R = pos_linear_R_next;
+		//T_S_to_R = T_S_to_R_next;
 
-		vel_angular_R = delta_T_S_to_R * vel_angular_S;
-		// Passing this as S or R makes literally no difference
+		////vel_angular_R = delta_T_S_to_R * vel_angular_S;
+		////vel_angular_R = delta_T_S_to_R.rpy();
 
-		imu_preintegrated->integrateMeasurement(accel_linear_R, vel_angular_R, dt);
+
+		imu_preintegrated->integrateMeasurement(accel_linear_S, vel_angular_S, dt);
 		imu_integrations++;
 
 		if (imu_integrations < max_plot_datapoints) {
@@ -382,16 +411,26 @@ int main(int argc, char* argv[]) {
 					imuBias::ConstantBias(),
 					prior_bias_noise_model); // No idea if this method is correct
 
-				//// Create GPS factor
-				Pose3 gps_pose = gps_poses[imu_integrations];
-				auto isotropic_noise = gtsam::noiseModel::Isotropic::Sigma(6, 0.001);
-				auto noise_model_gps = isotropic_noise;
-				graph->emplace_shared<PriorFactor<Pose3>>(cPoseKey, gps_pose, noise_model_gps);
-
-
-				values.insert(X(c), gps_pose);
-				values.insert(V(c), current_vel);
+				// IMU prediction as graph node
+				imu_state = imu_preintegrated->predict(prev_imu_state, imuBias::ConstantBias());
+				values.insert(X(c), imu_state.pose());
+				values.insert(V(c), imu_state.velocity());
 				values.insert(B(c), current_bias);
+
+				// Or create GPS factor as graph node
+				//Pose3 gps_pose = gps_poses[imu_integrations];
+				//auto isotropic_noise = gtsam::noiseModel::Isotropic::Sigma(6, 0.1);
+				//auto noise_model_gps = isotropic_noise;
+				//graph->emplace_shared<PriorFactor<Pose3>>(cPoseKey, gps_pose, noise_model_gps);
+
+
+				////gtsam::NavState p()
+				////imu_preintegrated->predict(gps_poses[imu_integrations-preintegration_window]);
+
+				//values.insert(X(c), gps_pose);
+				//values.insert(V(c), current_vel);
+				//values.insert(B(c), current_bias);
+
 
 				// Update solver:
 				isam->update(*graph, values);
@@ -400,10 +439,15 @@ int main(int argc, char* argv[]) {
 				values.clear(); // Don't understand why you need to clear values? I thought thats what the numbered keys are for....
 				imu_preintegrated->resetIntegration();
 
+				
 
 				current_pose = result.at<Pose3>(cPoseKey);
 				current_vel = result.at<Vector3>(cVelKey);
 				current_bias = result.at<imuBias::ConstantBias>(cBiasKey);
+
+				prev_imu_state = imu_state;
+				imu_state = NavState(current_pose, current_vel);
+
 
 
 				//Matrix33 basis_Rt = T_R_to_S.matrix() * T_S_to_R.matrix(); // As we progress, basis_Rt will get further from I_3x3. This will show us how much T_S_to_R has drifted
