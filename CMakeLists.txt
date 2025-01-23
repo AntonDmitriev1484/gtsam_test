@@ -8,6 +8,7 @@ project ("gtsam_test")
 include_directories("/usr/include/gtsam/")
 include_directories("/usr/include/eigen3/")
 include_directories("/usr/local/include/matplot")
+include_directories("/usr/include/json/single_include")
 
 # Note: Matplot++ is different from,.and more up to date than Matplotlib-cpp.
 

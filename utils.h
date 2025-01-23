@@ -4,8 +4,8 @@
 #include "gtsam_test.h"
 
 using namespace gtsam;
-using namespace std;
 using namespace matplot;
+using namespace std;
 
 
 void draw_vector(Vector3 start, Vector3 end, string color);

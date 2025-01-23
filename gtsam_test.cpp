@@ -53,9 +53,14 @@ void define_IMU_factor_noise_model(boost::shared_ptr<PreintegratedCombinedMeasur
 
 int main(int argc, char* argv[]) {
 
+	load_Cappella();
+
+	/*
 	string imu_filename = "/home/admitriev/Datasets/EuRoC_orbslam3_data/drone_imu/V101_imu0/data_gt_tstp_aligned.csv";
 	string gt_filename = "/home/admitriev/Datasets/EuRoC_orbslam3_data/ground_truth/V101_state_groundtruth_estimate0/data.csv";
-	ifstream imu_file(imu_filename.c_str()); // Is it even opening the file
+
+
+	ifstream imu_file(imu_filename.c_str());
 	ifstream gt_file(gt_filename.c_str());
 
 	if (!imu_file.is_open()) {
@@ -122,7 +127,7 @@ int main(int argc, char* argv[]) {
 	values.insert(B(c), prior_imu_bias);
 
 	// Define Prior Noise Model:
-	noiseModel::Diagonal::shared_ptr prior_pose_noise_model = noiseModel::Diagonal::Sigmas((Vector(6) << 0.01, 0.01, 0.01, 0.5, 0.5, 0.5).finished()); // rad,rad,rad,m, m, m
+	noiseModel::Diagonal::shared_ptr prior_pose_noise_model = noiseModel::Diagonal::Sigmas((gtsam::Vector(6) << 0.01, 0.01, 0.01, 0.5, 0.5, 0.5).finished()); // rad,rad,rad,m, m, m
 	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 0.1); // m/s
 	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-3);
 
@@ -335,5 +340,7 @@ int main(int argc, char* argv[]) {
 	zlim({ -2.5,2.5 });
 
 	show();
+
+	*/
 
 }
