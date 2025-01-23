@@ -14,12 +14,6 @@
 #include <gtsam/slam/BetweenFactor.h>
 #include <gtsam/slam/dataset.h>
 
-#include <cstring>
-#include <fstream>
-#include <iostream>
-
-#include "matplot.h"
-
 
 // GT Sensor Information
 // 
