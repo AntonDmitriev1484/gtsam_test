@@ -94,8 +94,12 @@ void get_GT(json d, vector<string>& users, vector<Matrix44>& pose_matrices) {
 		string user;
 		Matrix44 HTM_L_U;
 		get_pose_matrix(gt_collect, user, HTM_L_U);
-		users.push_back(user);
-		pose_matrices.push_back(HTM_L_U);
+
+		// Filter out static beacons for now
+		if (user.find("static") == std::string::npos ) {
+			users.push_back(user);
+			pose_matrices.push_back(HTM_L_U);
+		}
 	}
 
 }
@@ -104,6 +108,67 @@ void get_UWB(json d, string& src_user, string& dst_user, double& range) {
 	src_user = d["src"];
 	dst_user = d["dst"];
 	range = d["range"];
+}
+
+void get_info(json data, map<string, user_info>& info) {
+
+	// It will add static beacons as users.
+	// Just remove them from the map before doing any processing
+	// Or I'm guessing we'll need to treat them as users for the ranges.
+	// Also my code doesn't necessarily get all static beacons
+
+	// Ok I think the poses of all of the static beacons are included in every groundtruth
+
+	for (json mes : data) {
+
+		string measurement_type = mes["type"];
+
+		if (measurement_type == "vio") {
+
+			Matrix44 HTM_L_G;
+			string user;
+			get_pose_matrix(mes, user, HTM_L_G);
+
+			// If this user hasn't been added to our map yet
+				if (info.find(user) == info.end()) {
+					// Initialize the struct
+					user_info u = { HTM_L_G, I_4x4, I_4x4, vector<Pose3>(), vector<Pose3>() };
+					info.insert(make_pair(user, u));
+				}
+				else {
+					info.at(user).last_HTM_L_G = HTM_L_G;
+				}
+
+		}
+		else if (measurement_type == "gt") {
+
+			vector<Matrix44> HTM_L_U_per_user;
+			vector<string> users;
+			get_GT(mes, users, HTM_L_U_per_user);
+			// The matrix corresponding to the user will be at the same index
+
+			for (int i = 0; i < users.size(); i++) {
+
+				string username = users[i];
+
+					Matrix44 HTM_L_U = HTM_L_U_per_user[i];
+					Matrix44 HTM_L_G = info[username].last_HTM_L_G;
+
+					Matrix44 HTM_G_U = HTM_L_U * HTM_L_G.inverse();
+
+					info.at(username).last_HTM_L_U = HTM_L_U;
+					info.at(username).last_HTM_G_U = HTM_G_U;
+
+				//info.insert(make_pair(username, u));
+				// Insert only adds in new pairs, it doesn't automatically add new ones
+			}
+
+			// Break, once we have computed an initial HTM_G_U for all users.
+			// This will let us translate everything into the universal frame.
+			break;
+		}
+
+	}
 }
 
 chrono::system_clock::time_point iso_string_to_time(string timeString) {
@@ -124,53 +189,4 @@ chrono::system_clock::time_point iso_string_to_time(string timeString) {
 	// Convert the microseconds part (up to 6 digits)
 	int microseconds = std::stoi(microsecondsStr.substr(0, 6)); // Get first 6 digits as microseconds
 	tp += std::chrono::microseconds(microseconds);
-}
-
-bool load_Cappella() {
-
-	string filename = "/home/admitriev/Datasets/cappella_data/set_1/bigtest-1floor.json";
-
-	ifstream fs(filename);
-	if (!fs.is_open()) {
-		std::cerr << "Failed to open the file." << std::endl;
-	}
-
-	json data = json::parse(fs);
-
-	string user = "john";
-
-	for (json d : data) {
-		cout << d << endl;
-
-		string measurement_type = d["type"];
-		chrono::system_clock::time_point tp = iso_string_to_time(d["timestamp"]);
-		double timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(tp.time_since_epoch()).count(); 
-		// Just going to do the timestamp as raw nanos since 1970s because I'm lazy
-
-		if (measurement_type == "vio") {
-			
-			Matrix44 HTM_L_G; // Note: I think internally this is stored as a columnwise 2D array
-			string user;
-			get_pose_matrix(d, user, HTM_L_G);
-
-		}
-		else if (measurement_type == "uwb") {
-
-			double range;
-			string src_user, dst_user;
-			get_UWB(d, src_user, dst_user, range);
-
-		}
-		else if (measurement_type == "gt") {
-
-			vector<Matrix44> HTM_L_Us;
-			vector<string> users;
-			get_GT(d, users, HTM_L_Us);
-			// The matrix corresponding to the user will be at the same index
-
-		}
-
-	}
-
-
 }

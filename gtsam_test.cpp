@@ -14,7 +14,6 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 void define_prior_noise_model() {
 
 }
-
 void define_IMU_factor_noise_model(boost::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params) {
 
 	// TODO: Start by looking here if something is wrong
@@ -49,13 +48,7 @@ void define_IMU_factor_noise_model(boost::shared_ptr<PreintegratedCombinedMeasur
 
 	imu_preintegration_params->body_P_sensor = Pose3(imu_rot_in_body_frame, imu_pose_in_body_frame);
 }
-
-
-int main(int argc, char* argv[]) {
-
-	load_Cappella();
-
-	/*
+void run_euroc() {
 	string imu_filename = "/home/admitriev/Datasets/EuRoC_orbslam3_data/drone_imu/V101_imu0/data_gt_tstp_aligned.csv";
 	string gt_filename = "/home/admitriev/Datasets/EuRoC_orbslam3_data/ground_truth/V101_state_groundtruth_estimate0/data.csv";
 
@@ -65,7 +58,6 @@ int main(int argc, char* argv[]) {
 
 	if (!imu_file.is_open()) {
 		std::cerr << "Error: Could not open IMU file: " << imu_filename << std::endl;
-		return 1; // Exit with error code
 	}
 
 	// Skip over the first line of both files
@@ -120,7 +112,7 @@ int main(int argc, char* argv[]) {
 
 	imuBias::ConstantBias prior_imu_bias;
 
-	Values values; 
+	Values values;
 	int c = 0; // Correction step index
 	values.insert(X(c), prior_pose);
 	values.insert(V(c), prior_vel);
@@ -178,7 +170,7 @@ int main(int argc, char* argv[]) {
 
 	NavState previous_state(prior_pose, prior_vel);
 	imuBias::ConstantBias previous_bias = prior_imu_bias;
-		
+
 	int preintegration_window = 100; // Since I don't have a measurement yet, setting this manual window to define an imu factor
 	unsigned long long imu_integrations = 0;
 
@@ -212,7 +204,7 @@ int main(int argc, char* argv[]) {
 
 	Rot3 T_S_to_R_next;
 
-	// Nonlinearity comes from measurement function linear or nonlinear -> noise in measurement, ex. RSSI is nonlinear 
+	// Nonlinearity comes from measurement function linear or nonlinear -> noise in measurement, ex. RSSI is nonlinear
 	// Ex. TOF on UWB leads to a linear relationship
 	// rather than motion
 
@@ -239,7 +231,7 @@ int main(int argc, char* argv[]) {
 		//T_S_to_R_next = T_S_to_R * delta_T_S_to_R;
 		//
 		//accel_linear_R = T_S_to_R * accel_linear_S;
-		//accel_linear_R = accel_linear_R + Vector3(0, 0, -9.81); 
+		//accel_linear_R = accel_linear_R + Vector3(0, 0, -9.81);
 
 		//vel_linear_R_next = vel_linear_R + accel_linear_R * dt;
 		//pos_linear_R_next = pos_linear_R + vel_linear_R * dt + (0.5) * accel_linear_R * pow(dt, 2);
@@ -298,7 +290,7 @@ int main(int argc, char* argv[]) {
 				values.clear(); // Don't understand why you need to clear values? I thought thats what the numbered keys are for....
 				imu_preintegrated->resetIntegration();
 
-				
+
 
 				current_pose = result.at<Pose3>(cPoseKey);
 				current_vel = result.at<Vector3>(cVelKey);
@@ -325,7 +317,7 @@ int main(int argc, char* argv[]) {
 
 	}
 
-	
+
 	using namespace matplot;
 	hold(on);
 	scatter3(gt_xs, gt_ys, gt_zs)->color("g");
@@ -340,7 +332,124 @@ int main(int argc, char* argv[]) {
 	zlim({ -2.5,2.5 });
 
 	show();
+}
 
-	*/
 
+int run_cappella() {
+	string filename = "/home/admitriev/Datasets/cappella_data/set_1/bigtest-1floor.json";
+
+
+	ifstream fs(filename);
+	if (!fs.is_open()) {
+		std::cerr << "Failed to open the file." << std::endl;
+	}
+
+	json sensor_stream = json::parse(fs);
+
+	map<string, user_info> info;
+	get_info(sensor_stream, info);
+
+	// Data is collected with Z as the up-axis, adjust data for Y to be on the up-axis
+	Matrix44 vis_rotation = Matrix::Zero(4, 4);
+	vis_rotation(0, 0) = 1;
+	vis_rotation(2, 1) = 1;
+	vis_rotation(1, 2) = 1;
+	vis_rotation(3, 3) = 1;
+
+	for (json mes : sensor_stream) {
+
+		string measurement_type = mes["type"];
+		chrono::system_clock::time_point tp = iso_string_to_time(mes["timestamp"]);
+		unsigned long timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(tp.time_since_epoch()).count();
+
+		if (measurement_type == "vio") {
+
+			Matrix44 HTM_L_G;
+			string user;
+			get_pose_matrix(mes, user, HTM_L_G);
+
+			user_info& u = info.at(user);
+
+			u.last_HTM_L_G = HTM_L_G;
+
+			Matrix44 pose_matrix_U = vis_rotation * u.last_HTM_G_U * HTM_L_G;
+			Pose3 pose_U(pose_matrix_U);
+			u.vio_poses.push_back(pose_U);
+
+		}
+		else if (measurement_type == "uwb") {
+
+			double range;
+			string src_user, dst_user;
+			get_UWB(mes, src_user, dst_user, range);
+
+		}
+		else if (measurement_type == "gt") {
+
+			vector<Matrix44> HTM_L_U_per_user;
+			vector<string> users;
+			get_GT(mes, users, HTM_L_U_per_user);
+
+			for (int i = 0; i < users.size(); i++) {
+				user_info& u = info.at(users[i]);
+				Matrix44 pose_matrix_U = vis_rotation * HTM_L_U_per_user[i];
+				Pose3 Pose_U(pose_matrix_U);
+				u.gt_poses.push_back(Pose_U);
+			}
+		}
+	}
+
+
+	using namespace matplot;
+	for (const auto& [user_name, user_info] : info) {
+
+		auto fig = figure();
+		fig->name(user_name + " trajectory");
+		title(user_name);
+
+		hold(on);
+
+		vector<float> xs;
+		vector<float> ys;
+		vector<float> zs;
+		for (Pose3 pose : user_info.vio_poses) {
+			xs.push_back(pose.x());
+			ys.push_back(pose.y());
+			zs.push_back(pose.z());
+		}
+		plot3(xs, ys, zs)->color("r");
+
+		//scatter3(xs, ys, zs)->color("r");
+		// TODO figure out how to plot as a continuous line instead of scatterplot
+
+		hold(on);
+
+		vector<double> gt_xs;
+		vector<double> gt_ys;
+		vector<double> gt_zs;
+		for (Pose3 pose : user_info.gt_poses) {
+			gt_xs.push_back(pose.x());
+			gt_ys.push_back(pose.y());
+			gt_zs.push_back(pose.z());
+		}
+		scatter3(gt_xs, gt_ys, gt_zs)->color("g");
+
+		xlabel("X (m)");
+		ylabel("Z (m)");  // Switch the label to match the upward axis
+		zlabel("Y (m)");
+
+	}
+
+	show();
+
+
+	return 0;
+}
+
+int main(int argc, char* argv[]) {
+
+	// run_euroc();
+	run_cappella();
+
+	return 0;
 }

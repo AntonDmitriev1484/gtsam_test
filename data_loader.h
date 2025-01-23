@@ -16,7 +16,22 @@ using json = nlohmann::json;
 
 bool parse_EuRoC_gt_line(ifstream& gt_file, Point3& position, Rot3& rotation,
 	Vector3& velocity, Vector3& gyro_bias, Vector3& accel_bias);
-
 bool parse_EuRoC_imu_line(ifstream& imu_file, Vector3& V_angular, Vector3& A_axial);
 
-bool load_Cappella();
+// Cappella parsing code
+struct user_info {
+	Matrix44 last_HTM_L_G; // most recent VIO pose
+	Matrix44 last_HTM_L_U; // most recent GT pose
+	Matrix44 last_HTM_G_U; // most recent estimate of what Universal -> Global transform is
+	vector<Pose3> vio_poses;
+	vector<Pose3> gt_poses;
+};
+
+void get_pose_matrix(json d, string& user, Matrix44& pose_matrix);
+void get_GT(json d, vector<string>& users, vector<Matrix44>& pose_matrices);
+void get_UWB(json d, string& src_user, string& dst_user, double& range);
+void get_info(json data, map<string, user_info>& info);
+
+chrono::system_clock::time_point iso_string_to_time(string timeString);
+
+
