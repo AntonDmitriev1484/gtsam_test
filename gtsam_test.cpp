@@ -1,5 +1,5 @@
 ﻿#include "gtsam_test.h"
-#include "data_loader.h"
+#include "data_tools.h"
 #include "utils.h"
 #include "cmath"
 
@@ -337,15 +337,9 @@ void run_euroc() {
 
 int run_cappella() {
 	string filename = "/home/admitriev/Datasets/cappella_data/set_1/bigtest-1floor.json";
-
-
 	ifstream fs(filename);
-	if (!fs.is_open()) {
-		std::cerr << "Failed to open the file." << std::endl;
-	}
 
 	json sensor_stream = json::parse(fs);
-
 	map<string, user_info> info;
 	get_info(sensor_stream, info);
 
@@ -356,6 +350,8 @@ int run_cappella() {
 	vis_rotation(1, 2) = 1;
 	vis_rotation(3, 3) = 1;
 
+
+
 	for (json mes : sensor_stream) {
 
 		string measurement_type = mes["type"];
@@ -363,29 +359,28 @@ int run_cappella() {
 		unsigned long timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(tp.time_since_epoch()).count();
 
 		if (measurement_type == "vio") {
-
 			Matrix44 HTM_L_G;
 			string user;
 			get_pose_matrix(mes, user, HTM_L_G);
 
 			user_info& u = info.at(user);
-
 			u.last_HTM_L_G = HTM_L_G;
-
 			Matrix44 pose_matrix_U = vis_rotation * u.last_HTM_G_U * HTM_L_G;
 			Pose3 pose_U(pose_matrix_U);
 			u.vio_poses.push_back(pose_U);
 
+
+
 		}
 		else if (measurement_type == "uwb") {
-
 			double range;
 			string src_user, dst_user;
 			get_UWB(mes, src_user, dst_user, range);
 
+			
+
 		}
 		else if (measurement_type == "gt") {
-
 			vector<Matrix44> HTM_L_U_per_user;
 			vector<string> users;
 			get_GT(mes, users, HTM_L_U_per_user);
@@ -396,48 +391,53 @@ int run_cappella() {
 				Pose3 Pose_U(pose_matrix_U);
 				u.gt_poses.push_back(Pose_U);
 			}
+
+
+
 		}
 	}
 
 
+
+	// Plotting code
 	using namespace matplot;
 	for (const auto& [user_name, user_info] : info) {
+		if (!user_info.is_beacon) {
+			auto fig = figure();
+			fig->name(user_name + " trajectory");
+			title(user_name);
 
-		auto fig = figure();
-		fig->name(user_name + " trajectory");
-		title(user_name);
+			hold(on);
 
-		hold(on);
+			vector<float> xs;
+			vector<float> ys;
+			vector<float> zs;
+			for (Pose3 pose : user_info.vio_poses) {
+				xs.push_back(pose.x());
+				ys.push_back(pose.y());
+				zs.push_back(pose.z());
+			}
+			plot3(xs, ys, zs)->color("r");
 
-		vector<float> xs;
-		vector<float> ys;
-		vector<float> zs;
-		for (Pose3 pose : user_info.vio_poses) {
-			xs.push_back(pose.x());
-			ys.push_back(pose.y());
-			zs.push_back(pose.z());
+			//scatter3(xs, ys, zs)->color("r");
+			// TODO figure out how to plot as a continuous line instead of scatterplot
+
+			hold(on);
+
+			vector<double> gt_xs;
+			vector<double> gt_ys;
+			vector<double> gt_zs;
+			for (Pose3 pose : user_info.gt_poses) {
+				gt_xs.push_back(pose.x());
+				gt_ys.push_back(pose.y());
+				gt_zs.push_back(pose.z());
+			}
+			scatter3(gt_xs, gt_ys, gt_zs)->color("g");
+
+			xlabel("X (m)");
+			ylabel("Z (m)");  // Switch the label to match the upward axis
+			zlabel("Y (m)");
 		}
-		plot3(xs, ys, zs)->color("r");
-
-		//scatter3(xs, ys, zs)->color("r");
-		// TODO figure out how to plot as a continuous line instead of scatterplot
-
-		hold(on);
-
-		vector<double> gt_xs;
-		vector<double> gt_ys;
-		vector<double> gt_zs;
-		for (Pose3 pose : user_info.gt_poses) {
-			gt_xs.push_back(pose.x());
-			gt_ys.push_back(pose.y());
-			gt_zs.push_back(pose.z());
-		}
-		scatter3(gt_xs, gt_ys, gt_zs)->color("g");
-
-		xlabel("X (m)");
-		ylabel("Z (m)");  // Switch the label to match the upward axis
-		zlabel("Y (m)");
-
 	}
 
 	show();

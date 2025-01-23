@@ -1,5 +1,7 @@
 #pragma once
 
+// Probably would be better to rename this dataset_utils or something
+
 #include "gtsam_test.h"
 //#include "<nlohmann/json.hpp>"
 #include "nlohmann/json.hpp"
@@ -20,11 +22,17 @@ bool parse_EuRoC_imu_line(ifstream& imu_file, Vector3& V_angular, Vector3& A_axi
 
 // Cappella parsing code
 struct user_info {
+
+	// Computed in get_info
+	bool is_beacon;
 	Matrix44 last_HTM_L_G; // most recent VIO pose
 	Matrix44 last_HTM_L_U; // most recent GT pose
 	Matrix44 last_HTM_G_U; // most recent estimate of what Universal -> Global transform is
+
+	// Used to store trajectory at runtime
 	vector<Pose3> vio_poses;
 	vector<Pose3> gt_poses;
+	vector<Pose3> est_poses; // Estimated poses
 };
 
 void get_pose_matrix(json d, string& user, Matrix44& pose_matrix);

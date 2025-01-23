@@ -1,4 +1,4 @@
-#include "data_loader.h"
+#include "data_tools.h"
 
 // This parses a single line of EuRoC GT, all parameters by reference
 bool parse_EuRoC_gt_line(ifstream& gt_file, Point3& position, Rot3& rotation,
@@ -104,6 +104,68 @@ void get_GT(json d, vector<string>& users, vector<Matrix44>& pose_matrices) {
 
 }
 
+void update_info_with_VIO(json d, map<string, user_info>& info) {
+	Matrix44 HTM_L_G;
+	string user;
+	get_pose_matrix(d, user, HTM_L_G);
+	bool is_beacon = user.find("static") != std::string::npos;
+
+	if (info.find(user) == info.end()) {
+		// No data registered under VIO should be a beacon
+		user_info u;
+		if (!is_beacon) {
+			u = { is_beacon, HTM_L_G, I_4x4, I_4x4, vector<Pose3>(), vector<Pose3>() };
+		}
+		else {
+			// This case should never run
+			cout << "what" << endl;
+			u = { is_beacon, I_4x4, HTM_L_G, I_4x4, vector<Pose3>(), vector<Pose3>() };
+		}
+		info.insert(make_pair(user, u));
+	}
+	else {
+		info.at(user).last_HTM_L_G = HTM_L_G;
+	}
+}
+
+void update_info_with_GT(json d, map<string, user_info>& info) {
+
+	auto gt_collected_poses = d["poses"];
+	for (auto gt_collect : gt_collected_poses) {
+		string user;
+		Matrix44 HTM_L_U;
+		get_pose_matrix(gt_collect, user, HTM_L_U);
+		bool is_beacon = user.find("static") != std::string::npos; // If this assumption is wrong, you can also use this
+
+		if (info.find(user) == info.end()) {
+			// Users that don't have VO collected for them are always static beacons
+			// All beacons appear in the GT measurement
+			// So if they are not yet in the map, then they are beacons
+			user_info u;
+			if (!is_beacon) {
+				// This case should never run
+				cout << "what2" << endl;
+				u = { is_beacon, HTM_L_U, I_4x4, I_4x4, vector<Pose3>(), vector<Pose3>() };
+			}
+			else {
+				u = { is_beacon, I_4x4, HTM_L_U, I_4x4, vector<Pose3>(), vector<Pose3>() };
+			}
+			info.insert(make_pair(user, u));
+		}
+
+		user_info& u = info.at(user);
+		//u.is_beacon = is_beacon; // just to be safe
+
+		u.last_HTM_L_U = HTM_L_U;
+
+		Matrix44 HTM_L_G = u.last_HTM_L_G;
+
+		Matrix44 HTM_G_U = HTM_L_U * HTM_L_G.inverse();
+		u.last_HTM_G_U = HTM_G_U;
+	}
+
+}
+
 void get_UWB(json d, string& src_user, string& dst_user, double& range) {
 	src_user = d["src"];
 	dst_user = d["dst"];
@@ -112,59 +174,17 @@ void get_UWB(json d, string& src_user, string& dst_user, double& range) {
 
 void get_info(json data, map<string, user_info>& info) {
 
-	// It will add static beacons as users.
-	// Just remove them from the map before doing any processing
-	// Or I'm guessing we'll need to treat them as users for the ranges.
-	// Also my code doesn't necessarily get all static beacons
-
-	// Ok I think the poses of all of the static beacons are included in every groundtruth
 
 	for (json mes : data) {
 
 		string measurement_type = mes["type"];
 
 		if (measurement_type == "vio") {
-
-			Matrix44 HTM_L_G;
-			string user;
-			get_pose_matrix(mes, user, HTM_L_G);
-
-			// If this user hasn't been added to our map yet
-				if (info.find(user) == info.end()) {
-					// Initialize the struct
-					user_info u = { HTM_L_G, I_4x4, I_4x4, vector<Pose3>(), vector<Pose3>() };
-					info.insert(make_pair(user, u));
-				}
-				else {
-					info.at(user).last_HTM_L_G = HTM_L_G;
-				}
-
+			update_info_with_VIO(mes, info);
 		}
 		else if (measurement_type == "gt") {
-
-			vector<Matrix44> HTM_L_U_per_user;
-			vector<string> users;
-			get_GT(mes, users, HTM_L_U_per_user);
-			// The matrix corresponding to the user will be at the same index
-
-			for (int i = 0; i < users.size(); i++) {
-
-				string username = users[i];
-
-					Matrix44 HTM_L_U = HTM_L_U_per_user[i];
-					Matrix44 HTM_L_G = info[username].last_HTM_L_G;
-
-					Matrix44 HTM_G_U = HTM_L_U * HTM_L_G.inverse();
-
-					info.at(username).last_HTM_L_U = HTM_L_U;
-					info.at(username).last_HTM_G_U = HTM_G_U;
-
-				//info.insert(make_pair(username, u));
-				// Insert only adds in new pairs, it doesn't automatically add new ones
-			}
-
-			// Break, once we have computed an initial HTM_G_U for all users.
-			// This will let us translate everything into the universal frame.
+			// All static beacons should be given with the GT
+			update_info_with_GT(mes, info);
 			break;
 		}
 
