@@ -382,13 +382,17 @@ int run_cappella() {
 	// Why would we use Isotropic over Gaussian? -> Is this the same as choosing between gaussian vs uniform distribution in PF?
 	// Isotropic means even uncertainty across all dimensions it is applied to, by the constant we provide
 	//noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
-	noiseModel::Diagonal::shared_ptr UWB_noise_model = noiseModel::Diagonal::Sigmas(Vector3(uwb_stdev, uwb_stdev, uwb_stdev));
+	//noiseModel::Diagonal::shared_ptr UWB_noise_model = noiseModel::Diagonal::Sigmas(Vector6(uwb_stdev, uwb_stdev, uwb_stdev, uwb_stdev, uwb_stdev, uwb_stdev));
+	 	//noiseModel::Diagonal::shared_ptr UWB_noise_model = noiseModel::Diagonal::Sigmas(Vector2(uwb_stdev, uwb_stdev));
+	
+	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev); // Apparently this is the correct noise model for a range
 	// It seems that Diagonal is shorthand for Gaussian w/ a diagonal Cov matrix. I.E both represent a perfectly symmetric Gaussian.
 
 	// GT noise model
 
-	double gt_stdev = 0.01;
-	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector3(gt_stdev, gt_stdev, gt_stdev));
+	double gt_pos_stdev = 0.01;
+	double gt_ori_stdev = 0.0174533;
+	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_ori_stdev, gt_ori_stdev, gt_ori_stdev, gt_pos_stdev, gt_pos_stdev, gt_pos_stdev)); // Must change this to be Vector6 for pose
 	// Beacon noise model, same as GT noise model. Locations mapped out beforehand to some precision probably listed in Cappella paper
 
 	
@@ -413,22 +417,19 @@ int run_cappella() {
 	};
 
 
-	int I = 0; // Index of each user's state in the graph
 	Values vals;
 	// a, e, f (jeff), j, n, s
 	for (auto& [username, userinfo] : info) {
 		if (userinfo.is_beacon) {
-			userinfo.pose_key = MK(username, I);
+			userinfo.pose_key = MK(username, userinfo.I);
 
-			// I would think of it as a 'point' more than a pose. Not sure how UWB rotation will impact the solver
-			// but I would think it doesn't matter since its not moving and we have high confidence
 			Pose3 prior_beacon_pose(userinfo.last_HTM_L_U); // Position of beacon in U frame extracted from GT
 
 			vals.insert(userinfo.pose_key, prior_beacon_pose);
 			graph->addPrior(userinfo.pose_key, prior_beacon_pose, GT_noise_model);
 		}
 		else {
-			userinfo.pose_key = MK(username, I);
+			userinfo.pose_key = MK(username, userinfo.I);
 
 			Matrix44 prior_pose_matrix(vis_rotation * userinfo.last_HTM_G_U * userinfo.first_HTM_L_G);
 			Pose3 prior_VIO_pose(prior_pose_matrix);
@@ -450,7 +451,6 @@ int run_cappella() {
 		string measurement_type = mes["type"];
 		chrono::system_clock::time_point tp = iso_string_to_time(mes["timestamp"]);
 		unsigned long timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(tp.time_since_epoch()).count();
-		I++;
 
 		if (measurement_type == "vio") {
 			Matrix44 HTM_L_G;
@@ -458,6 +458,8 @@ int run_cappella() {
 			get_pose_matrix(mes, user, HTM_L_G);
 
 			user_info& u = info.at(user);
+			u.I++;
+
 			u.last_HTM_L_G = HTM_L_G;
 			Matrix44 pose_matrix_U = vis_rotation * u.last_HTM_G_U * HTM_L_G;
 
@@ -465,22 +467,22 @@ int run_cappella() {
 			Pose3 last_pose = u.vio_poses[u.vio_poses.size() - 1];
 			u.vio_poses.push_back(pose);
 
-			// You can add betweenfactors without having to use an ExpressionFactorGraph
-
 			//Expression<Pose3> delta = between<Pose3>(last_pose, pose);
 			//graph->add(BetweenFactor<Expression<Pose3>>(MK(user, I - 1), MK(user, I), delta, VIO_pose_noise_model));
-			graph->add(BetweenFactor<Pose3>(MK(user, I - 1), MK(user, I), pose, VIO_pose_noise_model));
-			vals.insert(MK(user, I), pose); // vio pose gets bound as the initial estimate to this key.
+			graph->add(BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), pose, VIO_pose_noise_model));
+			vals.insert(MK(user, u.I), pose); // vio pose gets bound as the initial estimate to this key.
 
 		}
 		else if (measurement_type == "uwb") {
 			double range;
 			string src_user, dst_user;
 			get_UWB(mes, src_user, dst_user, range);
+
+			/*user_info& u = info.at(users[i]);*/
 			
-			
-			// Noise model of incorrect dimension :(
-			graph->add(RangeFactor<Pose3, double>(MK(src_user, I), MK(dst_user, I), range, UWB_noise_model));
+			graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), range, UWB_noise_model));
+
+			// Increment I now?
 
 		}
 		else if (measurement_type == "gt") {
@@ -490,15 +492,17 @@ int run_cappella() {
 
 			for (int i = 0; i < users.size(); i++) {
 				user_info& u = info.at(users[i]);
+				u.I++;
+
 				Matrix44 pose_matrix_U = vis_rotation * HTM_L_U_per_user[i];
 				Pose3 pose(pose_matrix_U);
 				u.gt_poses.push_back(pose);
 
 				// Don't quite understand why a prior factor would be used...
 
-				graph->add(PriorFactor<Pose3>(MK(users[i], I), pose, GT_noise_model));
+				graph->add(PriorFactor<Pose3>(MK(users[i], u.I), pose, GT_noise_model));
 
-				vals.insert(MK(users[i], I), pose); // GT pose gets bound as the initial estimate to this key.
+				vals.insert(MK(users[i], u.I), pose); // GT pose gets bound as the initial estimate to this key.
 			}
 
 		}
@@ -508,17 +512,18 @@ int run_cappella() {
 	LevenbergMarquardtOptimizer optimizer(*graph, vals);
 	Values result = optimizer.optimize();
 
-	for (int i = 0; i < I; i++) {
 		for ( auto& [user, user_info] : info) {
-			if (!user_info.is_beacon) {
-				Pose3 estimated_pose = result.at<Pose3>(MK(user, I));
-				user_info.est_poses.push_back(estimated_pose);
+			for (int i = 0; i < user_info.I; i++) {
+				if (!user_info.is_beacon) {
+					Key k = MK(user, i);
+					Pose3 estimated_pose = result.at<Pose3>(k);
+					user_info.est_poses.push_back(estimated_pose);
+				}
 			}
 		}
-	}
 
 	// Export Factor Graph to .dot file
-	// graph->saveGraph("factor_graph.dot", vals);
+	 graph->saveGraph("/home/admitriev/Research/gtsam_test/factor_graphs/factor_graph.dot", result);
 
 
 	// Plotting code
@@ -539,10 +544,7 @@ int run_cappella() {
 				ys.push_back(pose.y());
 				zs.push_back(pose.z());
 			}
-			plot3(xs, ys, zs)->color("r");
-
-			//scatter3(xs, ys, zs)->color("r");
-			// TODO figure out how to plot as a continuous line instead of scatterplot
+			plot3(xs, ys, zs)->color("red");
 
 			hold(on);
 
@@ -554,7 +556,7 @@ int run_cappella() {
 				gt_ys.push_back(pose.y());
 				gt_zs.push_back(pose.z());
 			}
-			scatter3(gt_xs, gt_ys, gt_zs)->color("g");
+			scatter3(gt_xs, gt_ys, gt_zs)->color("green");
 
 			xlabel("X (m)");
 			ylabel("Z (m)");  // Switch the label to match the upward axis
@@ -570,7 +572,7 @@ int run_cappella() {
 				est_ys.push_back(pose.y());
 				est_zs.push_back(pose.z());
 			}
-			scatter3(est_xs, est_ys, est_zs)->color("b");
+			plot3(est_xs, est_ys, est_zs)->color("blue");
 
 			xlabel("X (m)");
 			ylabel("Z (m)");  // Switch the label to match the upward axis

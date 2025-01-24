@@ -120,12 +120,12 @@ void update_info_with_VIO(json d, map<string, user_info>& info) {
 		// No data registered under VIO should be a beacon
 		user_info u;
 		if (!is_beacon) {
-			u = { is_beacon, HTM_L_G, HTM_L_G, I_4x4, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), Key() };
+			u = { is_beacon, HTM_L_G, HTM_L_G, I_4x4, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), Key() ,0};
 		}
 		else {
 			// This case should never run
 			cout << "what" << endl;
-			u = { is_beacon, I_4x4, I_4x4, HTM_L_G, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), Key() };
+			u = { is_beacon, I_4x4, I_4x4, HTM_L_G, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), Key() ,0 };
 		}
 		info.insert(make_pair(user, u));
 	}
@@ -151,10 +151,10 @@ void update_info_with_GT(json d, map<string, user_info>& info) {
 			if (!is_beacon) {
 				// This case should never run
 				cout << "what2" << endl;
-				u = { is_beacon, I_4x4, HTM_L_U, I_4x4, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), Key() };
+				u = { is_beacon, I_4x4, HTM_L_U, I_4x4, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), Key() ,0};
 			}
 			else {
-				u = { is_beacon, I_4x4, I_4x4, HTM_L_U, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), Key()};
+				u = { is_beacon, I_4x4, I_4x4, HTM_L_U, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), Key() ,0};
 			}
 			info.insert(make_pair(user, u));
 		}
