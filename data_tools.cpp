@@ -104,6 +104,12 @@ void get_GT(json d, vector<string>& users, vector<Matrix44>& pose_matrices) {
 
 }
 
+void get_UWB(json d, string& src_user, string& dst_user, double& range) {
+	src_user = d["src"];
+	dst_user = d["dst"];
+	range = d["range"];
+}
+
 void update_info_with_VIO(json d, map<string, user_info>& info) {
 	Matrix44 HTM_L_G;
 	string user;
@@ -114,12 +120,12 @@ void update_info_with_VIO(json d, map<string, user_info>& info) {
 		// No data registered under VIO should be a beacon
 		user_info u;
 		if (!is_beacon) {
-			u = { is_beacon, HTM_L_G, I_4x4, I_4x4, vector<Pose3>(), vector<Pose3>() };
+			u = { is_beacon, HTM_L_G, HTM_L_G, I_4x4, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), Key() };
 		}
 		else {
 			// This case should never run
 			cout << "what" << endl;
-			u = { is_beacon, I_4x4, HTM_L_G, I_4x4, vector<Pose3>(), vector<Pose3>() };
+			u = { is_beacon, I_4x4, I_4x4, HTM_L_G, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), Key() };
 		}
 		info.insert(make_pair(user, u));
 	}
@@ -145,10 +151,10 @@ void update_info_with_GT(json d, map<string, user_info>& info) {
 			if (!is_beacon) {
 				// This case should never run
 				cout << "what2" << endl;
-				u = { is_beacon, HTM_L_U, I_4x4, I_4x4, vector<Pose3>(), vector<Pose3>() };
+				u = { is_beacon, I_4x4, HTM_L_U, I_4x4, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), Key() };
 			}
 			else {
-				u = { is_beacon, I_4x4, HTM_L_U, I_4x4, vector<Pose3>(), vector<Pose3>() };
+				u = { is_beacon, I_4x4, I_4x4, HTM_L_U, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), Key()};
 			}
 			info.insert(make_pair(user, u));
 		}
@@ -164,12 +170,6 @@ void update_info_with_GT(json d, map<string, user_info>& info) {
 		u.last_HTM_G_U = HTM_G_U;
 	}
 
-}
-
-void get_UWB(json d, string& src_user, string& dst_user, double& range) {
-	src_user = d["src"];
-	dst_user = d["dst"];
-	range = d["range"];
 }
 
 void get_info(json data, map<string, user_info>& info) {

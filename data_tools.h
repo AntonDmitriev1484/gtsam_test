@@ -25,6 +25,7 @@ struct user_info {
 
 	// Computed in get_info
 	bool is_beacon;
+	Matrix44 first_HTM_L_G; // lets us compute first VIO pose
 	Matrix44 last_HTM_L_G; // most recent VIO pose
 	Matrix44 last_HTM_L_U; // most recent GT pose
 	Matrix44 last_HTM_G_U; // most recent estimate of what Universal -> Global transform is
@@ -33,6 +34,8 @@ struct user_info {
 	vector<Pose3> vio_poses;
 	vector<Pose3> gt_poses;
 	vector<Pose3> est_poses; // Estimated poses
+
+	Key pose_key;
 };
 
 void get_pose_matrix(json d, string& user, Matrix44& pose_matrix);

@@ -1,7 +1,9 @@
 ﻿#include "gtsam_test.h"
 #include "data_tools.h"
 #include "utils.h"
+
 #include "cmath"
+#include <regex>
 
 using namespace gtsam;
 using namespace std;
@@ -350,13 +352,105 @@ int run_cappella() {
 	vis_rotation(1, 2) = 1;
 	vis_rotation(3, 3) = 1;
 
+	// --- Noise Models ---
 
+
+	// VIO noise model
+
+	// Each prior pose has some uncertainty associated with it.
+	// Set up a 'noise model' i.e. a covariance matrix for the initial pose.
+	// https://manialabs.wordpress.com/2012/08/06/covariance-matrices-with-a-practical-example/
+	// Diagonal of cov matrix represents each variable's individual variance
+	// Non Diagonal represents how variable i varies with respect to variable j
+	// For now all users will have the same uncertainty model.
+
+	// This will just be a diagonal. 
+	// Create cov matrix out of standard deviation of each var independently
+
+	double orientation_stdev = 0.175; // rad->~10degrees
+	double position_stdev = 0.25;
+
+	Vector6 sigmas;
+	sigmas << orientation_stdev, orientation_stdev, orientation_stdev, position_stdev, position_stdev, position_stdev;
+	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(sigmas);
+
+	// UWB noise model
+
+	double uwb_stdev = 0.1;
+	// Specifying that our noise model is Gaussian adds a constraint to the graph.
+	//const SharedNoiseModel uwb_noise_model = noiseModel::Gaussian::Covariance(Eigen::Dia); // Lets set this to be Gaussian, shared because its a shared pointer
+	// Why would we use Isotropic over Gaussian? -> Is this the same as choosing between gaussian vs uniform distribution in PF?
+	// Isotropic means even uncertainty across all dimensions it is applied to, by the constant we provide
+	//noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
+	noiseModel::Diagonal::shared_ptr UWB_noise_model = noiseModel::Diagonal::Sigmas(Vector3(uwb_stdev, uwb_stdev, uwb_stdev));
+	// It seems that Diagonal is shorthand for Gaussian w/ a diagonal Cov matrix. I.E both represent a perfectly symmetric Gaussian.
+
+	// GT noise model
+
+	double gt_stdev = 0.01;
+	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector3(gt_stdev, gt_stdev, gt_stdev));
+	// Beacon noise model, same as GT noise model. Locations mapped out beforehand to some precision probably listed in Cappella paper
+
+	
+	// When to use FactorGraph vs ExpressionFactorGraph vs NonlinearFactorGraph?
+	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
+
+
+	// Make Key
+	auto MK = [](string username, int I) {
+		Key k;
+		if (username.find("static") != std::string::npos) {
+			regex numberRegex(R"(\d+$)");
+			smatch match;
+			regex_search(username, match, numberRegex);
+			k = symbol('s', stoi(match.str())); // e.x. s11 if 'static11'
+		}
+		else {
+			k = symbol(username[0], I);
+			if (username == "jeff") k = symbol('f', I);
+		}
+		return k;
+	};
+
+
+	int I = 0; // Index of each user's state in the graph
+	Values vals;
+	// a, e, f (jeff), j, n, s
+	for (auto& [username, userinfo] : info) {
+		if (userinfo.is_beacon) {
+			userinfo.pose_key = MK(username, I);
+
+			// I would think of it as a 'point' more than a pose. Not sure how UWB rotation will impact the solver
+			// but I would think it doesn't matter since its not moving and we have high confidence
+			Pose3 prior_beacon_pose(userinfo.last_HTM_L_U); // Position of beacon in U frame extracted from GT
+
+			vals.insert(userinfo.pose_key, prior_beacon_pose);
+			graph->addPrior(userinfo.pose_key, prior_beacon_pose, GT_noise_model);
+		}
+		else {
+			userinfo.pose_key = MK(username, I);
+
+			Matrix44 prior_pose_matrix(vis_rotation * userinfo.last_HTM_G_U * userinfo.first_HTM_L_G);
+			Pose3 prior_VIO_pose(prior_pose_matrix);
+
+			userinfo.vio_poses.push_back(prior_VIO_pose);
+			vals.insert(userinfo.pose_key, prior_VIO_pose); // Add key and set its initial pose estimate
+			// Passing prior_VIO_pose here is used as an "initial estimate" for the solver
+			graph->addPrior(userinfo.pose_key, prior_VIO_pose, VIO_pose_noise_model); // Add initial pose estimate as prior to the graph
+			// Passing prior_VIO_pose here along with noise model, gives an initial constraint
+		}
+
+	}
+
+	// Goal 1: Produce a reconstructed ground truth trajectory
+	// Goal 2: Fuse UWB with VIO online, and see how we far compare to reconstructed GT.
 
 	for (json mes : sensor_stream) {
 
 		string measurement_type = mes["type"];
 		chrono::system_clock::time_point tp = iso_string_to_time(mes["timestamp"]);
 		unsigned long timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(tp.time_since_epoch()).count();
+		I++;
 
 		if (measurement_type == "vio") {
 			Matrix44 HTM_L_G;
@@ -366,18 +460,27 @@ int run_cappella() {
 			user_info& u = info.at(user);
 			u.last_HTM_L_G = HTM_L_G;
 			Matrix44 pose_matrix_U = vis_rotation * u.last_HTM_G_U * HTM_L_G;
-			Pose3 pose_U(pose_matrix_U);
-			u.vio_poses.push_back(pose_U);
 
+			Pose3 pose(pose_matrix_U);
+			Pose3 last_pose = u.vio_poses[u.vio_poses.size() - 1];
+			u.vio_poses.push_back(pose);
 
+			// You can add betweenfactors without having to use an ExpressionFactorGraph
+
+			//Expression<Pose3> delta = between<Pose3>(last_pose, pose);
+			//graph->add(BetweenFactor<Expression<Pose3>>(MK(user, I - 1), MK(user, I), delta, VIO_pose_noise_model));
+			graph->add(BetweenFactor<Pose3>(MK(user, I - 1), MK(user, I), pose, VIO_pose_noise_model));
+			vals.insert(MK(user, I), pose); // vio pose gets bound as the initial estimate to this key.
 
 		}
 		else if (measurement_type == "uwb") {
 			double range;
 			string src_user, dst_user;
 			get_UWB(mes, src_user, dst_user, range);
-
 			
+			
+			// Noise model of incorrect dimension :(
+			graph->add(RangeFactor<Pose3, double>(MK(src_user, I), MK(dst_user, I), range, UWB_noise_model));
 
 		}
 		else if (measurement_type == "gt") {
@@ -388,15 +491,34 @@ int run_cappella() {
 			for (int i = 0; i < users.size(); i++) {
 				user_info& u = info.at(users[i]);
 				Matrix44 pose_matrix_U = vis_rotation * HTM_L_U_per_user[i];
-				Pose3 Pose_U(pose_matrix_U);
-				u.gt_poses.push_back(Pose_U);
+				Pose3 pose(pose_matrix_U);
+				u.gt_poses.push_back(pose);
+
+				// Don't quite understand why a prior factor would be used...
+
+				graph->add(PriorFactor<Pose3>(MK(users[i], I), pose, GT_noise_model));
+
+				vals.insert(MK(users[i], I), pose); // GT pose gets bound as the initial estimate to this key.
 			}
-
-
 
 		}
 	}
 
+	// Once graph is complete, optimize it offline
+	LevenbergMarquardtOptimizer optimizer(*graph, vals);
+	Values result = optimizer.optimize();
+
+	for (int i = 0; i < I; i++) {
+		for ( auto& [user, user_info] : info) {
+			if (!user_info.is_beacon) {
+				Pose3 estimated_pose = result.at<Pose3>(MK(user, I));
+				user_info.est_poses.push_back(estimated_pose);
+			}
+		}
+	}
+
+	// Export Factor Graph to .dot file
+	// graph->saveGraph("factor_graph.dot", vals);
 
 
 	// Plotting code
@@ -437,6 +559,23 @@ int run_cappella() {
 			xlabel("X (m)");
 			ylabel("Z (m)");  // Switch the label to match the upward axis
 			zlabel("Y (m)");
+
+			hold(on);
+
+			vector<double> est_xs;
+			vector<double> est_ys;
+			vector<double> est_zs;
+			for (Pose3 pose : user_info.est_poses) {
+				est_xs.push_back(pose.x());
+				est_ys.push_back(pose.y());
+				est_zs.push_back(pose.z());
+			}
+			scatter3(est_xs, est_ys, est_zs)->color("b");
+
+			xlabel("X (m)");
+			ylabel("Z (m)");  // Switch the label to match the upward axis
+			zlabel("Y (m)");
+
 		}
 	}
 
