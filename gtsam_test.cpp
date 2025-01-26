@@ -482,12 +482,8 @@ int run_cappella() {
 			double range;
 			string src_user, dst_user;
 			get_UWB(mes, src_user, dst_user, range);
-
-			/*user_info& u = info.at(users[i]);*/
 			
 			graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), range, UWB_noise_model));
-
-			// Increment I now?
 
 		}
 		else if (measurement_type == "gt") {
@@ -506,6 +502,11 @@ int run_cappella() {
 				// Don't quite understand why a prior factor would be used...
 
 				graph->add(PriorFactor<Pose3>(MK(users[i], u.I), pose, GT_noise_model));
+
+				// We need to start the translation + rotation of the next IMU segment, at the GT orientation
+
+				//Pose3 last_VIO_pose = u.vio_poses[u.vio_poses.size() - 1];
+				//graph->add(BetweenFactor<Pose3>(MK(users[i], u.I - 1), MK(users[i], u.I), pose, VIO_pose_noise_model));
 
 				vals.insert(MK(users[i], u.I), pose); // GT pose gets bound as the initial estimate to this key.
 			}
@@ -526,11 +527,10 @@ int run_cappella() {
 	LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
 
 	// Loop iterations to display optimization of graph over time
-
+	// checkConvergence example here https://github.com/devbharat/gtsam/blob/master/examples/SolverComparer.cpp
 	
 	double last_error;
 
-	// check convergence example here https://github.com/devbharat/gtsam/blob/master/examples/SolverComparer.cpp
 	do {
 		last_error = optimizer.error();
 		optimizer.iterate();
