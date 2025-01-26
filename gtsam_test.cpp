@@ -448,7 +448,7 @@ int run_cappella() {
 
 	}
 
-	int max_VIO_measurements = 1000 * 5;
+	int max_VIO_measurements = 1000 *5;
 	int VIO_measurements = 0;
 
 	for (json mes : sensor_stream) {
@@ -482,6 +482,8 @@ int run_cappella() {
 			double range;
 			string src_user, dst_user;
 			get_UWB(mes, src_user, dst_user, range);
+
+			//cout << "Range happened between " << src_user << " and " << dst_user << endl;
 			
 			graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), range, UWB_noise_model));
 
@@ -493,7 +495,7 @@ int run_cappella() {
 
 			for (int i = 0; i < users.size(); i++) {
 				user_info& u = info.at(users[i]);
-				u.I++;
+				//u.I++;
 
 				Matrix44 pose_matrix_U = vis_rotation * HTM_L_U_per_user[i];
 				Pose3 pose(pose_matrix_U);
@@ -501,22 +503,27 @@ int run_cappella() {
 
 				// Don't quite understand why a prior factor would be used...
 
+				// I think I need to constrain the velocity of the system somehow. Or, the maximum change between states
+				// This will help it realize that such large jumps to the GT are impossible.
+
 				graph->add(PriorFactor<Pose3>(MK(users[i], u.I), pose, GT_noise_model));
 
 				// We need to start the translation + rotation of the next IMU segment, at the GT orientation
 
 				//Pose3 last_VIO_pose = u.vio_poses[u.vio_poses.size() - 1];
-				//graph->add(BetweenFactor<Pose3>(MK(users[i], u.I - 1), MK(users[i], u.I), pose, VIO_pose_noise_model));
+				//graph->add(BetweenFactor<Pose3>(MK(users[i], u.I - 1), MK(users[i], u.I), pose, GT_noise_model));
 
-				vals.insert(MK(users[i], u.I), pose); // GT pose gets bound as the initial estimate to this key.
+				cout << "Added GT at " << users[i] << " " << u.I << endl;
+
+				//vals.insert(MK(users[i], u.I), pose); // GT pose gets bound as the initial estimate to this key.
 			}
 
 		}
 
-		//if (VIO_measurements > max_VIO_measurements) {
-		//	// So that I can actually see the factor graph
-		//	break;
-		//}
+		if (VIO_measurements > max_VIO_measurements) {
+			// So that I can actually see the factor graph
+			break;
+		}
 	}
 
 
@@ -582,6 +589,14 @@ int run_cappella() {
 		}
 	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
 
+	GraphvizFormatting vizp;
+	vizp.plotFactorPoints = true;
+	//vizp.mergeSimilarFactors = true;
+	vizp.binaryEdges = true;
+
+	KeyFormatter kf;
+
+	graph->saveGraph("/home/admitriev/Research/gtsam_test/factor_graphs/factor_graph.dot", optimizer.values(), vizp);
 
 	//Values result = optimizer.optimize();
 	// converges in 2 manually running the optimizer.
@@ -602,3 +617,71 @@ int main(int argc, char* argv[]) {
 
 	return 0;
 }
+
+// GT Keys for reference
+
+//Added GT at john 472
+//Added GT at elahe 426
+//Added GT at nuno 481
+//Added GT at jeff 391
+//Added GT at agr 342
+//Added GT at john 618
+//Added GT at elahe 557
+//Added GT at nuno 633
+//Added GT at jeff 514
+//Added GT at agr 499
+//Added GT at john 740
+//Added GT at elahe 665
+//Added GT at nuno 765
+//Added GT at jeff 610
+//Added GT at agr 622
+//Added GT at john 837
+//Added GT at elahe 751
+//Added GT at nuno 872
+//Added GT at jeff 689
+//Added GT at agr 718
+//Added GT at john 937
+//Added GT at elahe 838
+//Added GT at nuno 981
+//Added GT at jeff 769
+//Added GT at agr 815
+//Added GT at john 1094
+//Added GT at elahe 985
+//Added GT at nuno 1160
+//Added GT at jeff 910
+//Added GT at agr 973
+//Added GT at john 1327
+//Added GT at elahe 1198
+//Added GT at nuno 1419
+//Added GT at jeff 1129
+//Added GT at agr 1195
+//Added GT at john 1495
+//Added GT at elahe 1349
+//Added GT at nuno 1598
+//Added GT at jeff 1273
+//Added GT at agr 1353
+//Added GT at john 1618
+//Added GT at elahe 1460
+//Added GT at nuno 1726
+//Added GT at jeff 1376
+//Added GT at agr 1463
+//Added GT at john 1725
+//Added GT at elahe 1547
+//Added GT at nuno 1828
+//Added GT at jeff 1467
+//Added GT at agr 1552
+//Added GT at john 1988
+//Added GT at elahe 1761
+//Added GT at nuno 2080
+//Added GT at jeff 1679
+//Added GT at agr 1781
+//Added GT at john 2134
+//Added GT at elahe 1888
+//Added GT at nuno 2225
+//Added GT at jeff 1799
+//Added GT at agr 1911
+//Added GT at john 2282
+//Added GT at elahe 2015
+//Added GT at nuno 2371
+//Added GT at jeff 1924
+//Added GT at agr 2042
