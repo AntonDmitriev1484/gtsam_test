@@ -5,7 +5,9 @@
 
 // GTSAM related includes.
 #include <gtsam/geometry/Pose3.h>
-
+#include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
+#include <gtsam/nonlinear/LevenbergMarquardtParams.h>
+#include <gtsam/nonlinear/NonlinearOptimizer.h>
 #include <gtsam/inference/Key.h>
 #include <gtsam/slam/expressions.h> 
 #include <gtsam/nonlinear/ExpressionFactorGraph.h>

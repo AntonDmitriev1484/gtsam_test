@@ -11,3 +11,5 @@ using namespace std;
 void draw_vector(Vector3 start, Vector3 end, string color);
 void draw_coordinate_frame_axes(Rot3 rot_S_to_R, Vector3 loc_R);
 void draw_basis(Matrix33 basis, Vector3 loc, bool as_reference_frame);
+void draw_trajectory(vector<Pose3> trajectory, string color);
+void draw_points(vector<Pose3> points, string color);

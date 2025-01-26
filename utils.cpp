@@ -60,3 +60,31 @@ void draw_basis(Matrix33 basis, Vector3 loc, bool as_reference_frame) {
 	}
 
 }
+
+void draw_trajectory(vector<Pose3> trajectory, string color) {
+	hold(on);
+
+	vector<float> xs;
+	vector<float> ys;
+	vector<float> zs;
+	for (Pose3 pose : trajectory) {
+		xs.push_back(pose.x());
+		ys.push_back(pose.y());
+		zs.push_back(pose.z());
+	}
+	plot3(xs, ys, zs)->color(color);
+}
+
+void draw_points(vector<Pose3> points, string color) {
+	hold(on);
+
+	vector<double> xs;
+	vector<double> ys;
+	vector<double> zs;
+	for (Pose3 pose : points) {
+		xs.push_back(pose.x());
+		ys.push_back(pose.y());
+		zs.push_back(pose.z());
+	}
+	scatter3(xs, ys, zs)->color(color);
+}

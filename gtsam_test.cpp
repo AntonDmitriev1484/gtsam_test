@@ -369,6 +369,8 @@ int run_cappella() {
 
 	double orientation_stdev = 0.175; // rad->~10degrees
 	double position_stdev = 0.25;
+	//double orientation_stdev = 1;
+	//double position_stdev = 1;
 
 	Vector6 sigmas;
 	sigmas << orientation_stdev, orientation_stdev, orientation_stdev, position_stdev, position_stdev, position_stdev;
@@ -392,6 +394,8 @@ int run_cappella() {
 
 	double gt_pos_stdev = 0.01;
 	double gt_ori_stdev = 0.0174533;
+	//double gt_pos_stdev = 0.15;
+	//double gt_ori_stdev = 0.3;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_ori_stdev, gt_ori_stdev, gt_ori_stdev, gt_pos_stdev, gt_pos_stdev, gt_pos_stdev)); // Must change this to be Vector6 for pose
 	// Beacon noise model, same as GT noise model. Locations mapped out beforehand to some precision probably listed in Cappella paper
 
@@ -417,8 +421,7 @@ int run_cappella() {
 	};
 
 
-	Values vals;
-	// a, e, f (jeff), j, n, s
+	Values vals; // a, e, f (jeff), j, n, s
 	for (auto& [username, userinfo] : info) {
 		if (userinfo.is_beacon) {
 			userinfo.pose_key = MK(username, userinfo.I);
@@ -437,14 +440,16 @@ int run_cappella() {
 			userinfo.vio_poses.push_back(prior_VIO_pose);
 			vals.insert(userinfo.pose_key, prior_VIO_pose); // Add key and set its initial pose estimate
 			// Passing prior_VIO_pose here is used as an "initial estimate" for the solver
+
+			//This prior doesn't seem to be doing anything
 			graph->addPrior(userinfo.pose_key, prior_VIO_pose, VIO_pose_noise_model); // Add initial pose estimate as prior to the graph
 			// Passing prior_VIO_pose here along with noise model, gives an initial constraint
 		}
 
 	}
 
-	// Goal 1: Produce a reconstructed ground truth trajectory
-	// Goal 2: Fuse UWB with VIO online, and see how we far compare to reconstructed GT.
+	int max_VIO_measurements = 1000 * 5;
+	int VIO_measurements = 0;
 
 	for (json mes : sensor_stream) {
 
@@ -467,10 +472,10 @@ int run_cappella() {
 			Pose3 last_pose = u.vio_poses[u.vio_poses.size() - 1];
 			u.vio_poses.push_back(pose);
 
-			//Expression<Pose3> delta = between<Pose3>(last_pose, pose);
-			//graph->add(BetweenFactor<Expression<Pose3>>(MK(user, I - 1), MK(user, I), delta, VIO_pose_noise_model));
 			graph->add(BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), pose, VIO_pose_noise_model));
 			vals.insert(MK(user, u.I), pose); // vio pose gets bound as the initial estimate to this key.
+
+			VIO_measurements++;
 
 		}
 		else if (measurement_type == "uwb") {
@@ -506,80 +511,83 @@ int run_cappella() {
 			}
 
 		}
+
+		//if (VIO_measurements > max_VIO_measurements) {
+		//	// So that I can actually see the factor graph
+		//	break;
+		//}
 	}
 
-	// Once graph is complete, optimize it offline
-	LevenbergMarquardtOptimizer optimizer(*graph, vals);
-	Values result = optimizer.optimize();
 
-		for ( auto& [user, user_info] : info) {
+	// Once graph is complete, optimize it offline
+
+	//NonlinearOptimizerParams params();
+	LevenbergMarquardtParams params;
+	LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
+
+	// Loop iterations to display optimization of graph over time
+
+	
+	double last_error;
+
+	// check convergence example here https://github.com/devbharat/gtsam/blob/master/examples/SolverComparer.cpp
+	do {
+		last_error = optimizer.error();
+		optimizer.iterate();
+
+		//new_error = optimizer.error();
+
+		Values iteration_values = optimizer.values();
+
+		for (auto& [user, user_info] : info) {
 			for (int i = 0; i < user_info.I; i++) {
 				if (!user_info.is_beacon) {
 					Key k = MK(user, i);
-					Pose3 estimated_pose = result.at<Pose3>(k);
+					Pose3 estimated_pose = iteration_values.at<Pose3>(k);
 					user_info.est_poses.push_back(estimated_pose);
 				}
 			}
 		}
 
-	// Export Factor Graph to .dot file
-	 graph->saveGraph("/home/admitriev/Research/gtsam_test/factor_graphs/factor_graph.dot", result);
+		// Plotting code
+		using namespace matplot;
 
+		for (const auto& [user_name, user_info] : info) {
+			if (!user_info.is_beacon && (user_name.find("nuno") != std::string::npos)) {
+				auto fig = figure();
+				fig->name(user_name + " trajectory");
+				title(user_name);
 
-	// Plotting code
-	using namespace matplot;
-	for (const auto& [user_name, user_info] : info) {
-		if (!user_info.is_beacon) {
-			auto fig = figure();
-			fig->name(user_name + " trajectory");
-			title(user_name);
+				hold(on);
+				draw_trajectory(user_info.vio_poses, "red");
+				hold(on);
+				draw_points(user_info.gt_poses, "green");
+				hold(on);
+				draw_trajectory(user_info.est_poses, "blue");
 
-			hold(on);
+				xlabel("X (m)");
+				ylabel("Z (m)");  // Switch the label to match the upward axis
+				zlabel("Y (m)");
 
-			vector<float> xs;
-			vector<float> ys;
-			vector<float> zs;
-			for (Pose3 pose : user_info.vio_poses) {
-				xs.push_back(pose.x());
-				ys.push_back(pose.y());
-				zs.push_back(pose.z());
 			}
-			plot3(xs, ys, zs)->color("red");
-
-			hold(on);
-
-			vector<double> gt_xs;
-			vector<double> gt_ys;
-			vector<double> gt_zs;
-			for (Pose3 pose : user_info.gt_poses) {
-				gt_xs.push_back(pose.x());
-				gt_ys.push_back(pose.y());
-				gt_zs.push_back(pose.z());
-			}
-			scatter3(gt_xs, gt_ys, gt_zs)->color("green");
-
-			xlabel("X (m)");
-			ylabel("Z (m)");  // Switch the label to match the upward axis
-			zlabel("Y (m)");
-
-			hold(on);
-
-			vector<double> est_xs;
-			vector<double> est_ys;
-			vector<double> est_zs;
-			for (Pose3 pose : user_info.est_poses) {
-				est_xs.push_back(pose.x());
-				est_ys.push_back(pose.y());
-				est_zs.push_back(pose.z());
-			}
-			plot3(est_xs, est_ys, est_zs)->color("blue");
-
-			xlabel("X (m)");
-			ylabel("Z (m)");  // Switch the label to match the upward axis
-			zlabel("Y (m)");
-
 		}
-	}
+
+		// clear all est_poses to start the next loop
+		for (auto& [user, user_info] : info) {
+			for (int i = 0; i < user_info.I; i++) {
+				if (!user_info.is_beacon) {
+					user_info.est_poses.clear();
+				}
+			}
+		}
+	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
+
+
+	//Values result = optimizer.optimize();
+	// converges in 2 manually running the optimizer.
+
+	cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
+
 
 	show();
 
