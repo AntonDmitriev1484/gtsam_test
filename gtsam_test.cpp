@@ -354,6 +354,8 @@ int run_cappella() {
 
 	// --- Noise Models ---
 
+	// VIO noise model
+
 	double orientation_stdev = 0.175; // rad->~10degrees
 	double position_stdev = 0.25;
 
@@ -372,6 +374,10 @@ int run_cappella() {
 	double gt_ori_stdev = 0.0174533;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_ori_stdev, gt_ori_stdev, gt_ori_stdev, gt_pos_stdev, gt_pos_stdev, gt_pos_stdev));
 
+	// Transform Global->Universal noise model
+	double Mat_GU_pos_stdev = 0.8;
+	double Mat_GU_ori_stdev = 0.5;
+	noiseModel::Diagonal::shared_ptr Mat_GU_noise_model = noiseModel::Diagonal::Sigmas(Vector6(Mat_GU_ori_stdev, Mat_GU_ori_stdev, Mat_GU_ori_stdev, Mat_GU_pos_stdev, Mat_GU_pos_stdev, Mat_GU_pos_stdev));
 
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
 
@@ -391,6 +397,21 @@ int run_cappella() {
 		return k;
 	};
 
+	auto MK_Matrix = [](string username, int I) {
+		Key k;
+		if (username.find("static") != std::string::npos) {
+			regex numberRegex(R"(\d+$)");
+			smatch match;
+			regex_search(username, match, numberRegex);
+			k = symbol('S', stoi(match.str()));
+		}
+		else {
+			k = symbol(toupper(username[0]), I);
+			if (username == "jeff") k = symbol('F', I);
+		}
+		return k;
+	};
+
 
 	Values vals; // a, e, f (jeff), j, n, s
 	for (auto& [username, userinfo] : info) {
@@ -406,15 +427,16 @@ int run_cappella() {
 			userinfo.pose_key = MK(username, userinfo.I);
 
 			Matrix44 prior_pose_matrix(vis_rotation * userinfo.last_HTM_G_U * userinfo.first_HTM_L_G);
+
 			Pose3 prior_VIO_pose(prior_pose_matrix);
-
 			userinfo.vio_poses.push_back(prior_VIO_pose);
-			vals.insert(userinfo.pose_key, prior_VIO_pose); // Add key and set its initial pose estimate
-			// Passing prior_VIO_pose here is used as an "initial estimate" for the solver
+			vals.insert(userinfo.pose_key, prior_VIO_pose);
+			graph->addPrior(userinfo.pose_key, prior_VIO_pose, VIO_pose_noise_model);
 
-			//This prior doesn't seem to be doing anything
-			graph->addPrior(userinfo.pose_key, prior_VIO_pose, VIO_pose_noise_model); // Add initial pose estimate as prior to the graph
-			// Passing prior_VIO_pose here along with noise model, gives an initial constraint
+
+			Pose3 prior_Mat_GU(userinfo.last_HTM_G_U); // Representating the transformation from Global->Universal as a pose
+			vals.insert(MK_Matrix(username, 0), prior_Mat_GU);
+			graph->addPrior(MK_Matrix(username, 0), prior_Mat_GU, Mat_GU_noise_model);
 		}
 
 	}
@@ -443,7 +465,19 @@ int run_cappella() {
 			Pose3 last_pose = u.vio_poses[u.vio_poses.size() - 1];
 			u.vio_poses.push_back(pose);
 
-			graph->add(BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), pose, VIO_pose_noise_model));
+
+			Pose3 rot(vis_rotation);
+			Pose3 matLG(HTM_L_G);
+			Pose3_ rot_exp(rot);
+			Pose3_ matGU_exp(MK_Matrix(user, 0));
+			Pose3_ matLG_exp(matLG);
+			Pose3_ exp = rot_exp * matGU_exp * matLG_exp;
+
+			// but currently both these keys are of type Pose3
+			graph->addExpressionFactor(between(Pose3_(MK(user, u.I - 1)), Pose3_(MK(user, u.I)), exp, VIO_pose_noise_mode);
+			//graph->addExpressionFactor(between(Pose3_(MK(user, u.I - 1)), Pose3_(MK(user, u.I)), exp, VIO_pose_noise_model));
+			//graph->add(BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), pose, VIO_pose_noise_model));
+
 			vals.insert(MK(user, u.I), pose); // vio pose gets bound as the initial estimate to this key.
 
 			VIO_measurements++;
@@ -454,9 +488,7 @@ int run_cappella() {
 			string src_user, dst_user;
 			get_UWB(mes, src_user, dst_user, range);
 
-			//cout << "Range happened between " << src_user << " and " << dst_user << endl;
-			
-			graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), range, UWB_noise_model));
+			//graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), range, UWB_noise_model));
 
 		}
 		else if (measurement_type == "gt") {
@@ -469,22 +501,24 @@ int run_cappella() {
 				//u.I++;
 
 				Matrix44 pose_matrix_U = vis_rotation * HTM_L_U_per_user[i];
-				Pose3 pose(pose_matrix_U);
-				u.gt_poses.push_back(pose);
+				Pose3 GT_pose(pose_matrix_U);
+				u.gt_poses.push_back(GT_pose);
 
-				graph->add(PriorFactor<Pose3>(MK(users[i], u.I), pose, GT_noise_model));
-				//graph->add(BetweenFactor<Pose3>(MK(users[i], u.I - 1), MK(users[i], u.I), pose, GT_noise_model));
+				graph->add(PriorFactor<Pose3>(MK(users[i], u.I), GT_pose, GT_noise_model));
 
-				cout << "Added GT at " << users[i] << " " << u.I << endl;
+					// Define a noise model for the factor
+				auto noiseModel = noiseModel::Isotropic::Sigma(6, 0.1); // 3D isotropic noise, sigma = 0.1
 
-				//vals.insert(MK(users[i], u.I), pose); // GT pose gets bound as the initial estimate to this key.
+				Pose3_ Mat_L_G(MK(users[i], u.I)); // except note that currently MK(users[i], u.I gives a pose in U
+				Pose3_ Mat_G_U(MK_Matrix(users[i], 0));
+
+				Pose3_ exp = Mat_G_U * Mat_L_G;
+				
+				graph->addExpressionFactor<Pose3>(noiseModel, GT_pose, exp);
+
+
 			}
 
-		}
-
-		if (VIO_measurements > max_VIO_measurements) {
-			// So that I can actually see the factor graph
-			break;
 		}
 	}
 
