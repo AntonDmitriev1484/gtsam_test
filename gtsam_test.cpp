@@ -468,35 +468,9 @@ int run_cappella() {
 
 			graph->add(BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), pose, VIO_pose_noise_model));
 
-
-			//Pose3 rot(vis_rotation);
-			//Pose3 matLG(HTM_L_G);
-			//Pose3_ rot_exp(rot);
-			//Pose3_ matGU_exp(MK_Matrix(user, 0));
-			//Pose3_ matLG_exp(matLG);
-
-
-			//Pose3_ exp_current = rot_exp * matGU_exp * Pose3_(Pose3(HTM_L_G));
-			//Pose3_ exp_last = rot_exp * matGU_exp * Pose3_(Pose3(u.last_HTM_L_G));
-
-			//u.last_HTM_L_G = HTM_L_G;
-
-			//// So this is a between factor, for two expressions, both expressions connect to matGU by key.
-			//// hence there should be a constraint between each output VIO pose and matGU.
-
-			//auto bf = BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), rot*matGU_exp.value(vals)*matLG, VIO_pose_noise_model);
-			//// but I can't compute the Pose measurement now.
-
-
-			//// Could we maybe make these between's exp_currents?
-			////graph->addExpressionFactor(between(exp_last, exp_current), last_pose.between(pose), VIO_pose_noise_model);
-
-			//graph->add(bf);
-
 			vals.insert(MK(user, u.I), pose); // vio pose gets bound as the initial estimate to this key.
 
 			VIO_measurements++;
-
 		}
 		else if (measurement_type == "uwb") {
 			double range;
@@ -516,7 +490,7 @@ int run_cappella() {
 				//u.I++;
 
 				Matrix44 pose_matrix_U = vis_rotation * HTM_L_U_per_user[i];
-				Pose3 GT_pose(pose_matrix_U);
+				Pose3 GT_pose(HTM_L_U_per_user[i]);
 				u.gt_poses.push_back(GT_pose);
 
 				//graph->add(PriorFactor<Pose3>(MK(users[i], u.I), GT_pose, GT_noise_model));
@@ -559,6 +533,15 @@ int run_cappella() {
 	double last_error;
 
 	do {
+		// clear all est_poses to start the next loop
+		for (auto& [user, user_info] : info) {
+			for (int i = 0; i < user_info.I; i++) {
+				if (!user_info.is_beacon) {
+					user_info.est_poses.clear();
+				}
+			}
+		}
+
 		last_error = optimizer.error();
 		optimizer.iterate();
 
@@ -603,31 +586,40 @@ int run_cappella() {
 		//	}
 		//}
 
-		// clear all est_poses to start the next loop
-		for (auto& [user, user_info] : info) {
-			for (int i = 0; i < user_info.I; i++) {
-				if (!user_info.is_beacon) {
-					user_info.est_poses.clear();
-				}
-			}
-		}
 	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
 
 	// Plotting code
 	using namespace matplot;
 
 	for (const auto& [user_name, user_info] : info) {
-		if (!user_info.is_beacon && (user_name.find("nuno") != std::string::npos)) {
+		if (!user_info.is_beacon && (user_name == "nuno")) {
+
+
 			auto fig = figure();
 			fig->name(user_name + " trajectory");
 			title(user_name);
 
 			hold(on);
+			std::vector<Pose3> b;
+			for (Pose3 vio_pose : user_info.vio_poses) {
+				Pose3 Mat_GU = optimizer.values().at<Pose3>(MK_Matrix(user_name, 0));
+				b.push_back(Pose3(vis_rotation) * Mat_GU * vio_pose); // I hope pose multiplication works same as HMT multiplication
+			}
 			draw_trajectory(user_info.vio_poses, "red");
+
 			hold(on);
 			draw_points(user_info.gt_poses, "green");
 			hold(on);
-			draw_trajectory(user_info.est_poses, "blue");
+
+			// So I think this is just completely empty?
+
+			std::cout << "Estimated poses size " << user_info.est_poses.size() << endl;
+			std::vector<Pose3> a;
+			for (Pose3 est_pose : user_info.est_poses) {
+				Pose3 Mat_GU = optimizer.values().at<Pose3>(MK_Matrix(user_name, 0));
+				a.push_back(Pose3(vis_rotation) * Mat_GU * est_pose);
+			}
+			draw_trajectory(a, "blue");
 
 			xlabel("X (m)");
 			ylabel("Z (m)");  // Switch the label to match the upward axis
