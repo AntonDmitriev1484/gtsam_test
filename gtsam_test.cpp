@@ -379,7 +379,7 @@ int run_cappella() {
 	double Mat_GU_ori_stdev = 0.5;
 	noiseModel::Diagonal::shared_ptr Mat_GU_noise_model = noiseModel::Diagonal::Sigmas(Vector6(Mat_GU_ori_stdev, Mat_GU_ori_stdev, Mat_GU_ori_stdev, Mat_GU_pos_stdev, Mat_GU_pos_stdev, Mat_GU_pos_stdev));
 
-	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
+	ExpressionFactorGraph* graph = new ExpressionFactorGraph();
 
 	// Make Key
 	auto MK = [](string username, int I) {
@@ -429,7 +429,8 @@ int run_cappella() {
 			Matrix44 prior_pose_matrix(vis_rotation * userinfo.last_HTM_G_U * userinfo.first_HTM_L_G);
 
 			Pose3 prior_VIO_pose(prior_pose_matrix);
-			userinfo.vio_poses.push_back(prior_VIO_pose);
+			userinfo.vio_poses.push_back(Pose3(prior_pose_matrix));
+
 			vals.insert(userinfo.pose_key, prior_VIO_pose);
 			graph->addPrior(userinfo.pose_key, prior_VIO_pose, VIO_pose_noise_model);
 
@@ -437,12 +438,15 @@ int run_cappella() {
 			Pose3 prior_Mat_GU(userinfo.last_HTM_G_U); // Representating the transformation from Global->Universal as a pose
 			vals.insert(MK_Matrix(username, 0), prior_Mat_GU);
 			graph->addPrior(MK_Matrix(username, 0), prior_Mat_GU, Mat_GU_noise_model);
+
 		}
 
 	}
 
 	int max_VIO_measurements = 1000 *5;
 	int VIO_measurements = 0;
+	int max_GT_measurements = 2;
+	int GT_measurements = 0;
 
 	for (json mes : sensor_stream) {
 
@@ -458,7 +462,6 @@ int run_cappella() {
 			user_info& u = info.at(user);
 			u.I++;
 
-			u.last_HTM_L_G = HTM_L_G;
 			Matrix44 pose_matrix_U = vis_rotation * u.last_HTM_G_U * HTM_L_G;
 
 			Pose3 pose(pose_matrix_U);
@@ -471,12 +474,24 @@ int run_cappella() {
 			Pose3_ rot_exp(rot);
 			Pose3_ matGU_exp(MK_Matrix(user, 0));
 			Pose3_ matLG_exp(matLG);
-			Pose3_ exp = rot_exp * matGU_exp * matLG_exp;
 
-			// but currently both these keys are of type Pose3
-			graph->addExpressionFactor(between(Pose3_(MK(user, u.I - 1)), Pose3_(MK(user, u.I)), exp, VIO_pose_noise_mode);
-			//graph->addExpressionFactor(between(Pose3_(MK(user, u.I - 1)), Pose3_(MK(user, u.I)), exp, VIO_pose_noise_model));
-			//graph->add(BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), pose, VIO_pose_noise_model));
+
+			Pose3_ exp_current = rot_exp * matGU_exp * Pose3_(Pose3(HTM_L_G));
+			Pose3_ exp_last = rot_exp * matGU_exp * Pose3_(Pose3(u.last_HTM_L_G));
+
+			u.last_HTM_L_G = HTM_L_G;
+
+			// So this is a between factor, for two expressions, both expressions connect to matGU by key.
+			// hence there should be a constraint between each output VIO pose and matGU.
+
+			auto bf = BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), rot*matGU_exp.value(vals)*matLG, VIO_pose_noise_model);
+			// but I can't compute the Pose measurement now.
+
+
+			// Could we maybe make these between's exp_currents?
+			//graph->addExpressionFactor(between(exp_last, exp_current), last_pose.between(pose), VIO_pose_noise_model);
+
+			graph->add(bf);
 
 			vals.insert(MK(user, u.I), pose); // vio pose gets bound as the initial estimate to this key.
 
@@ -504,26 +519,37 @@ int run_cappella() {
 				Pose3 GT_pose(pose_matrix_U);
 				u.gt_poses.push_back(GT_pose);
 
-				graph->add(PriorFactor<Pose3>(MK(users[i], u.I), GT_pose, GT_noise_model));
+				//graph->add(PriorFactor<Pose3>(MK(users[i], u.I), GT_pose, GT_noise_model));
 
 					// Define a noise model for the factor
 				auto noiseModel = noiseModel::Isotropic::Sigma(6, 0.1); // 3D isotropic noise, sigma = 0.1
 
-				Pose3_ Mat_L_G(MK(users[i], u.I)); // except note that currently MK(users[i], u.I gives a pose in U
+				Pose3_ Mat_L_G(MK(users[i], u.I)); // except note that currently MK(users[i], u.I) is an expression that gives us a pose in U
 				Pose3_ Mat_G_U(MK_Matrix(users[i], 0));
-
 				Pose3_ exp = Mat_G_U * Mat_L_G;
-				
-				graph->addExpressionFactor<Pose3>(noiseModel, GT_pose, exp);
+
+				graph->addExpressionFactor(exp, GT_pose, noiseModel);
 
 
 			}
 
+			GT_measurements++;
+			//if (GT_measurements > max_GT_measurements) break;
+			
+
 		}
 	}
 
+	//terminate called after throwing an instance of 'gtsam::InconsistentEliminationRequested'
+	//	what() : An inference algorithm was called with inconsistent arguments.The
+	//	factor graph, ordering, or variable index were inconsistent with each
+	//	other, or a full elimination routine was called with an ordering that
+	//	does not include all of the variables.
 
 	// Once graph is complete, optimize it offline
+
+
+
 
 	LevenbergMarquardtParams params;
 	LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
@@ -538,7 +564,14 @@ int run_cappella() {
 
 		Values iteration_values = optimizer.values();
 
+
 		for (auto& [user, user_info] : info) {
+
+			if (user == "nuno") {
+				Pose3 Mat_GU = iteration_values.at<Pose3>(MK_Matrix(user, 0));
+
+				std::cout << Mat_GU << endl;
+			}
 			for (int i = 0; i < user_info.I; i++) {
 				if (!user_info.is_beacon) {
 					Key k = MK(user, i);
