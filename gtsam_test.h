@@ -22,8 +22,8 @@
 #include <gtsam/slam/BetweenFactor.h>
 #include <gtsam/slam/dataset.h>
 #include <gtsam/slam/RangeFactor.h>
-
-#include <gtsam/slam/ExpressionFactor.h>
+#include <gtsam/nonlinear/GaussNewtonOptimizer.h>
+#include <gtsam/nonlinear/NonlinearConjugateGradientOptimizer.h>
 
 
 #include <cctype>

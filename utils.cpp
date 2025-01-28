@@ -88,3 +88,30 @@ void draw_points(vector<Pose3> points, string color) {
 	}
 	scatter3(xs, ys, zs)->color(color);
 }
+
+void unpack_results_and_plot(Values results, const function<Key(string, int)>& MK, map<string, user_info> info, vector<string> show_list){
+
+	// Plotting code
+	using namespace matplot;
+
+	for (const auto& [user_name, user_info] : info) {
+		if (!user_info.is_beacon) {
+			if (find(show_list.begin(), show_list.end(), user_name) != show_list.end()) {
+				auto fig = figure();
+				fig->name(user_name + " trajectory");
+				title(user_name);
+
+				hold(on);
+				draw_trajectory(user_info.vio_poses, "red");
+				hold(on);
+				draw_points(user_info.gt_poses, "green");
+				hold(on);
+				draw_trajectory(user_info.est_poses, "blue");
+
+				xlabel("X (m)");
+				ylabel("Z (m)");  // Switch the label to match the upward axis
+				zlabel("Y (m)");
+			}
+		}
+	}
+}

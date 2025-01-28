@@ -336,6 +336,21 @@ void run_euroc() {
 	show();
 }
 
+Key MK(string username, int I) {
+	Key k;
+	if (username.find("static") != std::string::npos) {
+		regex numberRegex(R"(\d+$)");
+		smatch match;
+		regex_search(username, match, numberRegex);
+		k = symbol('s', stoi(match.str())); // e.x. s11 if 'static11'
+	}
+	else {
+		k = symbol(username[0], I);
+		if (username == "jeff") k = symbol('f', I);
+	}
+	return k;
+};
+
 
 int run_cappella() {
 	string filename = "/home/admitriev/Datasets/cappella_data/set_1/bigtest-1floor.json";
@@ -382,7 +397,7 @@ int run_cappella() {
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
 
 	// Make Key
-	auto MK = [](string username, int I) {
+	const function<Key(string,int)> MK = [](string username, int I) {
 		Key k;
 		if (username.find("static") != std::string::npos) {
 			regex numberRegex(R"(\d+$)");
@@ -397,20 +412,20 @@ int run_cappella() {
 		return k;
 	};
 
-	auto MK_Matrix = [](string username, int I) {
-		Key k;
-		if (username.find("static") != std::string::npos) {
-			regex numberRegex(R"(\d+$)");
-			smatch match;
-			regex_search(username, match, numberRegex);
-			k = symbol('S', stoi(match.str()));
-		}
-		else {
-			k = symbol(toupper(username[0]), I);
-			if (username == "jeff") k = symbol('F', I);
-		}
-		return k;
-	};
+	//auto MK_Matrix = [](string username, int I) {
+	//	Key k;
+	//	if (username.find("static") != std::string::npos) {
+	//		regex numberRegex(R"(\d+$)");
+	//		smatch match;
+	//		regex_search(username, match, numberRegex);
+	//		k = symbol('S', stoi(match.str()));
+	//	}
+	//	else {
+	//		k = symbol(toupper(username[0]), I);
+	//		if (username == "jeff") k = symbol('F', I);
+	//	}
+	//	return k;
+	//};
 
 
 	Values vals; // a, e, f (jeff), j, n, s
@@ -432,11 +447,6 @@ int run_cappella() {
 			userinfo.vio_poses.push_back(prior_VIO_pose);
 			vals.insert(userinfo.pose_key, prior_VIO_pose);
 			graph->addPrior(userinfo.pose_key, prior_VIO_pose, VIO_pose_noise_model);
-
-
-			Pose3 prior_Mat_GU(userinfo.last_HTM_G_U); // Representating the transformation from Global->Universal as a pose
-			vals.insert(MK_Matrix(username, 0), prior_Mat_GU);
-			graph->addPrior(MK_Matrix(username, 0), prior_Mat_GU, Mat_GU_noise_model);
 		}
 
 	}
@@ -465,18 +475,7 @@ int run_cappella() {
 			Pose3 last_pose = u.vio_poses[u.vio_poses.size() - 1];
 			u.vio_poses.push_back(pose);
 
-
-			Pose3 rot(vis_rotation);
-			Pose3 matLG(HTM_L_G);
-			Pose3_ rot_exp(rot);
-			Pose3_ matGU_exp(MK_Matrix(user, 0));
-			Pose3_ matLG_exp(matLG);
-			Pose3_ exp = rot_exp * matGU_exp * matLG_exp;
-
-			// but currently both these keys are of type Pose3
-			graph->addExpressionFactor(between(Pose3_(MK(user, u.I - 1)), Pose3_(MK(user, u.I)), exp, VIO_pose_noise_mode);
-			//graph->addExpressionFactor(between(Pose3_(MK(user, u.I - 1)), Pose3_(MK(user, u.I)), exp, VIO_pose_noise_model));
-			//graph->add(BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), pose, VIO_pose_noise_model));
+			graph->add(BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), pose, VIO_pose_noise_model));
 
 			vals.insert(MK(user, u.I), pose); // vio pose gets bound as the initial estimate to this key.
 
@@ -488,7 +487,7 @@ int run_cappella() {
 			string src_user, dst_user;
 			get_UWB(mes, src_user, dst_user, range);
 
-			//graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), range, UWB_noise_model));
+			graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), range, UWB_noise_model));
 
 		}
 		else if (measurement_type == "gt") {
@@ -506,17 +505,6 @@ int run_cappella() {
 
 				graph->add(PriorFactor<Pose3>(MK(users[i], u.I), GT_pose, GT_noise_model));
 
-					// Define a noise model for the factor
-				auto noiseModel = noiseModel::Isotropic::Sigma(6, 0.1); // 3D isotropic noise, sigma = 0.1
-
-				Pose3_ Mat_L_G(MK(users[i], u.I)); // except note that currently MK(users[i], u.I gives a pose in U
-				Pose3_ Mat_G_U(MK_Matrix(users[i], 0));
-
-				Pose3_ exp = Mat_G_U * Mat_L_G;
-				
-				graph->addExpressionFactor<Pose3>(noiseModel, GT_pose, exp);
-
-
 			}
 
 		}
@@ -525,51 +513,26 @@ int run_cappella() {
 
 	// Once graph is complete, optimize it offline
 
+	vector<string> show_plots_for = { "nuno" , "elahe" };
+
+
+	//ConjugateGradientParameters params;
+	//NonlinearConjugateGradientOptimizer optimizer(*graph, vals);
+	//optimizer.optimize(); // Can't iterate over this one w/ the same code
+	//unpack_results_and_plot(optimizer.values(), MK, info, show_plots_for);
+
 	LevenbergMarquardtParams params;
 	LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
 
-	// Loop iterations to display optimization of graph over time
-	// checkConvergence example here https://github.com/devbharat/gtsam/blob/master/examples/SolverComparer.cpp
-	double last_error;
+	//GaussNewtonParams params;
+	//GaussNewtonOptimizer optimizer(*graph, vals, params);
 
+	double last_error;
 	do {
 		last_error = optimizer.error();
 		optimizer.iterate();
 
-		Values iteration_values = optimizer.values();
-
-		for (auto& [user, user_info] : info) {
-			for (int i = 0; i < user_info.I; i++) {
-				if (!user_info.is_beacon) {
-					Key k = MK(user, i);
-					Pose3 estimated_pose = iteration_values.at<Pose3>(k);
-					user_info.est_poses.push_back(estimated_pose);
-				}
-			}
-		}
-
-		// Plotting code
-		using namespace matplot;
-
-		for (const auto& [user_name, user_info] : info) {
-			if (!user_info.is_beacon && (user_name.find("nuno") != std::string::npos)) {
-				auto fig = figure();
-				fig->name(user_name + " trajectory");
-				title(user_name);
-
-				hold(on);
-				draw_trajectory(user_info.vio_poses, "red");
-				hold(on);
-				draw_points(user_info.gt_poses, "green");
-				hold(on);
-				draw_trajectory(user_info.est_poses, "blue");
-
-				xlabel("X (m)");
-				ylabel("Z (m)");  // Switch the label to match the upward axis
-				zlabel("Y (m)");
-
-			}
-		}
+		unpack_results_and_plot(optimizer.values(), MK, info, show_plots_for);
 
 		// clear all est_poses to start the next loop
 		for (auto& [user, user_info] : info) {
@@ -586,8 +549,6 @@ int run_cappella() {
 	vizp.plotFactorPoints = true;
 	//vizp.mergeSimilarFactors = true;
 	vizp.binaryEdges = true;
-
-	KeyFormatter kf;
 
 	graph->saveGraph("/home/admitriev/Research/gtsam_test/factor_graphs/factor_graph.dot", optimizer.values(), vizp);
 
