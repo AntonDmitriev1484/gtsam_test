@@ -425,17 +425,17 @@ int run_cappella() {
 		}
 		else {
 			userinfo.pose_key = MK(username, userinfo.I);
-
-			Matrix44 prior_pose_matrix(vis_rotation * userinfo.last_HTM_G_U * userinfo.first_HTM_L_G);
-
-			Pose3 prior_VIO_pose(prior_pose_matrix);
-			userinfo.vio_poses.push_back(Pose3(prior_pose_matrix));
+			Pose3 prior_VIO_pose(userinfo.last_HTM_L_G);
+			userinfo.vio_poses.push_back(Pose3(userinfo.last_HTM_L_G));
 
 			vals.insert(userinfo.pose_key, prior_VIO_pose);
 			graph->addPrior(userinfo.pose_key, prior_VIO_pose, VIO_pose_noise_model);
 
 
 			Pose3 prior_Mat_GU(userinfo.last_HTM_G_U); // Representating the transformation from Global->Universal as a pose
+
+			if (username == "nuno") std::cout << prior_Mat_GU << endl;
+
 			vals.insert(MK_Matrix(username, 0), prior_Mat_GU);
 			graph->addPrior(MK_Matrix(username, 0), prior_Mat_GU, Mat_GU_noise_model);
 
@@ -462,36 +462,36 @@ int run_cappella() {
 			user_info& u = info.at(user);
 			u.I++;
 
-			Matrix44 pose_matrix_U = vis_rotation * u.last_HTM_G_U * HTM_L_G;
-
-			Pose3 pose(pose_matrix_U);
+			Pose3 pose(u.last_HTM_L_G);
 			Pose3 last_pose = u.vio_poses[u.vio_poses.size() - 1];
 			u.vio_poses.push_back(pose);
 
-
-			Pose3 rot(vis_rotation);
-			Pose3 matLG(HTM_L_G);
-			Pose3_ rot_exp(rot);
-			Pose3_ matGU_exp(MK_Matrix(user, 0));
-			Pose3_ matLG_exp(matLG);
+			graph->add(BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), pose, VIO_pose_noise_model));
 
 
-			Pose3_ exp_current = rot_exp * matGU_exp * Pose3_(Pose3(HTM_L_G));
-			Pose3_ exp_last = rot_exp * matGU_exp * Pose3_(Pose3(u.last_HTM_L_G));
-
-			u.last_HTM_L_G = HTM_L_G;
-
-			// So this is a between factor, for two expressions, both expressions connect to matGU by key.
-			// hence there should be a constraint between each output VIO pose and matGU.
-
-			auto bf = BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), rot*matGU_exp.value(vals)*matLG, VIO_pose_noise_model);
-			// but I can't compute the Pose measurement now.
+			//Pose3 rot(vis_rotation);
+			//Pose3 matLG(HTM_L_G);
+			//Pose3_ rot_exp(rot);
+			//Pose3_ matGU_exp(MK_Matrix(user, 0));
+			//Pose3_ matLG_exp(matLG);
 
 
-			// Could we maybe make these between's exp_currents?
-			//graph->addExpressionFactor(between(exp_last, exp_current), last_pose.between(pose), VIO_pose_noise_model);
+			//Pose3_ exp_current = rot_exp * matGU_exp * Pose3_(Pose3(HTM_L_G));
+			//Pose3_ exp_last = rot_exp * matGU_exp * Pose3_(Pose3(u.last_HTM_L_G));
 
-			graph->add(bf);
+			//u.last_HTM_L_G = HTM_L_G;
+
+			//// So this is a between factor, for two expressions, both expressions connect to matGU by key.
+			//// hence there should be a constraint between each output VIO pose and matGU.
+
+			//auto bf = BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), rot*matGU_exp.value(vals)*matLG, VIO_pose_noise_model);
+			//// but I can't compute the Pose measurement now.
+
+
+			//// Could we maybe make these between's exp_currents?
+			////graph->addExpressionFactor(between(exp_last, exp_current), last_pose.between(pose), VIO_pose_noise_model);
+
+			//graph->add(bf);
 
 			vals.insert(MK(user, u.I), pose); // vio pose gets bound as the initial estimate to this key.
 
@@ -569,7 +569,6 @@ int run_cappella() {
 
 			if (user == "nuno") {
 				Pose3 Mat_GU = iteration_values.at<Pose3>(MK_Matrix(user, 0));
-
 				std::cout << Mat_GU << endl;
 			}
 			for (int i = 0; i < user_info.I; i++) {
@@ -581,28 +580,28 @@ int run_cappella() {
 			}
 		}
 
-		// Plotting code
-		using namespace matplot;
+		//// Plotting code
+		//using namespace matplot;
 
-		for (const auto& [user_name, user_info] : info) {
-			if (!user_info.is_beacon && (user_name.find("nuno") != std::string::npos)) {
-				auto fig = figure();
-				fig->name(user_name + " trajectory");
-				title(user_name);
+		//for (const auto& [user_name, user_info] : info) {
+		//	if (!user_info.is_beacon && (user_name.find("nuno") != std::string::npos)) {
+		//		auto fig = figure();
+		//		fig->name(user_name + " trajectory");
+		//		title(user_name);
 
-				hold(on);
-				draw_trajectory(user_info.vio_poses, "red");
-				hold(on);
-				draw_points(user_info.gt_poses, "green");
-				hold(on);
-				draw_trajectory(user_info.est_poses, "blue");
+		//		hold(on);
+		//		draw_trajectory(user_info.vio_poses, "red");
+		//		hold(on);
+		//		draw_points(user_info.gt_poses, "green");
+		//		hold(on);
+		//		draw_trajectory(user_info.est_poses, "blue");
 
-				xlabel("X (m)");
-				ylabel("Z (m)");  // Switch the label to match the upward axis
-				zlabel("Y (m)");
+		//		xlabel("X (m)");
+		//		ylabel("Z (m)");  // Switch the label to match the upward axis
+		//		zlabel("Y (m)");
 
-			}
-		}
+		//	}
+		//}
 
 		// clear all est_poses to start the next loop
 		for (auto& [user, user_info] : info) {
@@ -613,6 +612,29 @@ int run_cappella() {
 			}
 		}
 	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
+
+	// Plotting code
+	using namespace matplot;
+
+	for (const auto& [user_name, user_info] : info) {
+		if (!user_info.is_beacon && (user_name.find("nuno") != std::string::npos)) {
+			auto fig = figure();
+			fig->name(user_name + " trajectory");
+			title(user_name);
+
+			hold(on);
+			draw_trajectory(user_info.vio_poses, "red");
+			hold(on);
+			draw_points(user_info.gt_poses, "green");
+			hold(on);
+			draw_trajectory(user_info.est_poses, "blue");
+
+			xlabel("X (m)");
+			ylabel("Z (m)");  // Switch the label to match the upward axis
+			zlabel("Y (m)");
+
+		}
+	}
 
 
 	GraphvizFormatting vizp;
