@@ -336,24 +336,24 @@ void run_euroc() {
 	show();
 }
 
-Key MK(string username, int I) {
-	Key k;
-	if (username.find("static") != std::string::npos) {
-		regex numberRegex(R"(\d+$)");
-		smatch match;
-		regex_search(username, match, numberRegex);
-		k = symbol('s', stoi(match.str())); // e.x. s11 if 'static11'
-	}
-	else {
-		k = symbol(username[0], I);
-		if (username == "jeff") k = symbol('f', I);
-	}
-	return k;
-};
+//Key MK(string username, int I) {
+//	Key k;
+//	if (username.find("static") != std::string::npos) {
+//		regex numberRegex(R"(\d+$)");
+//		smatch match;
+//		regex_search(username, match, numberRegex);
+//		k = symbol('s', stoi(match.str())); // e.x. s11 if 'static11'
+//	}
+//	else {
+//		k = symbol(username[0], I);
+//		if (username == "jeff") k = symbol('f', I);
+//	}
+//	return k;
+//};
 
 
 int run_cappella() {
-	string filename = "/home/admitriev/Datasets/cappella_data/set_1/bigtest-1floor.json";
+	string filename = "/home/admitriev/Datasets/cappella_data/set_1/bigtest-1floor_sorted.json";
 	ifstream fs(filename);
 
 	json sensor_stream = json::parse(fs);
@@ -369,13 +369,22 @@ int run_cappella() {
 
 	// --- Noise Models ---
 
+	// VIO Prior Noise Model
+
+	//noiseModel::Diagonal::shared_ptr poseNoise = noiseModel::Diagonal::Sigmas(
+	//	(Vector(6) << Vector3::Constant(0.3), Vector3::Constant(0.1)).finished());
+
+	double os = 0.275;
+	double ps = 0.5; // Am I sure its orientation first, and not position? IT IS POSITION FIRST: SOURCE: https://github.com/haidai/gtsam/blob/master/examples/VisualISAMExample.cpp
+	noiseModel::Diagonal::shared_ptr a = noiseModel::Diagonal::Sigmas(Vector6(ps, ps, ps, os, os, os));
+
 	// VIO noise model
 
 	double orientation_stdev = 0.175; // rad->~10degrees
 	double position_stdev = 0.25;
 
 	Vector6 sigmas;
-	sigmas << orientation_stdev, orientation_stdev, orientation_stdev, position_stdev, position_stdev, position_stdev;
+	sigmas << position_stdev, position_stdev, position_stdev, orientation_stdev, orientation_stdev, orientation_stdev;
 	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(sigmas);
 
 	// UWB noise model
@@ -387,12 +396,12 @@ int run_cappella() {
 
 	double gt_pos_stdev = 0.01;
 	double gt_ori_stdev = 0.0174533;
-	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_ori_stdev, gt_ori_stdev, gt_ori_stdev, gt_pos_stdev, gt_pos_stdev, gt_pos_stdev));
+	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6( gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
 
 	// Transform Global->Universal noise model
-	double Mat_GU_pos_stdev = 0.8;
-	double Mat_GU_ori_stdev = 0.5;
-	noiseModel::Diagonal::shared_ptr Mat_GU_noise_model = noiseModel::Diagonal::Sigmas(Vector6(Mat_GU_ori_stdev, Mat_GU_ori_stdev, Mat_GU_ori_stdev, Mat_GU_pos_stdev, Mat_GU_pos_stdev, Mat_GU_pos_stdev));
+	//double Mat_GU_pos_stdev = 0.8;
+	//double Mat_GU_ori_stdev = 0.5;
+	//noiseModel::Diagonal::shared_ptr Mat_GU_noise_model = noiseModel::Diagonal::Sigmas(Vector6(Mat_GU_ori_stdev, Mat_GU_ori_stdev, Mat_GU_ori_stdev, Mat_GU_pos_stdev, Mat_GU_pos_stdev, Mat_GU_pos_stdev));
 
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
 
@@ -412,23 +421,7 @@ int run_cappella() {
 		return k;
 	};
 
-	//auto MK_Matrix = [](string username, int I) {
-	//	Key k;
-	//	if (username.find("static") != std::string::npos) {
-	//		regex numberRegex(R"(\d+$)");
-	//		smatch match;
-	//		regex_search(username, match, numberRegex);
-	//		k = symbol('S', stoi(match.str()));
-	//	}
-	//	else {
-	//		k = symbol(toupper(username[0]), I);
-	//		if (username == "jeff") k = symbol('F', I);
-	//	}
-	//	return k;
-	//};
-
-
-	Values vals; // a, e, f (jeff), j, n, s
+	Values vals; // a, e, f (jeff), j, n, s (static)
 	for (auto& [username, userinfo] : info) {
 		if (userinfo.is_beacon) {
 			userinfo.pose_key = MK(username, userinfo.I);
@@ -446,21 +439,32 @@ int run_cappella() {
 			Pose3 prior_VIO_pose(prior_pose_matrix);
 			userinfo.vio_poses.push_back(prior_VIO_pose);
 			vals.insert(userinfo.pose_key, prior_VIO_pose);
-			graph->addPrior(userinfo.pose_key, prior_VIO_pose, VIO_pose_noise_model);
+			graph->addPrior(userinfo.pose_key, prior_VIO_pose, a);
 		}
 
 	}
 
+	ISAM2Params isam_params;
+	isam_params.factorization = ISAM2Params::CHOLESKY;
+	isam_params.relinearizeSkip = 10;
+	ISAM2DoglegParams dogleg;
+	isam_params.optimizationParams = dogleg;
+	ISAM2* isam = new ISAM2(isam_params);
+	// iSam can either be configured to use DogLeg or GaussNewton, but uses GaussNewton by default...
+	
+	// Should I be calling update within each loop?
+
 	int max_VIO_measurements = 1000 *5;
 	int VIO_measurements = 0;
 
+	int VIO_show = 1000;
+
 	for (json mes : sensor_stream) {
 
-		string measurement_type = mes["type"];
 		chrono::system_clock::time_point tp = iso_string_to_time(mes["timestamp"]);
 		unsigned long timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(tp.time_since_epoch()).count();
 
-		if (measurement_type == "vio") {
+		if (mes["type"] == "vio") {
 			Matrix44 HTM_L_G;
 			string user;
 			get_pose_matrix(mes, user, HTM_L_G);
@@ -479,10 +483,12 @@ int run_cappella() {
 
 			vals.insert(MK(user, u.I), pose); // vio pose gets bound as the initial estimate to this key.
 
+			cout << "Added Key " << user << " " << u.I << endl;
+
 			VIO_measurements++;
 
 		}
-		else if (measurement_type == "uwb") {
+		else if (mes["type"] == "uwb") {
 			double range;
 			string src_user, dst_user;
 			get_UWB(mes, src_user, dst_user, range);
@@ -490,7 +496,7 @@ int run_cappella() {
 			graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), range, UWB_noise_model));
 
 		}
-		else if (measurement_type == "gt") {
+		else if (mes["type"] == "gt") {
 			vector<Matrix44> HTM_L_U_per_user;
 			vector<string> users;
 			get_GT(mes, users, HTM_L_U_per_user);
@@ -508,52 +514,61 @@ int run_cappella() {
 			}
 
 		}
+
+		// What key do we add to the graph, vs what key do we fail linearization on/
+		// It might be that when we add then ex 600th key, we fail an earlier linearization, which is better than failing immediately off the bat.
+
+		isam->update(*graph, vals);
+		graph->resize(0); // According to example
+		vals.clear(); // Still don't quite get why we need this vals.clear();
+
 	}
 
 
-	// Once graph is complete, optimize it offline
-
 	vector<string> show_plots_for = { "nuno" , "elahe" };
+	// Once graph is complete, optimize it offline
+	unpack_results_and_plot(isam->calculateBestEstimate(), MK, info, show_plots_for);
 
 
-	//ConjugateGradientParameters params;
-	//NonlinearConjugateGradientOptimizer optimizer(*graph, vals);
-	//optimizer.optimize(); // Can't iterate over this one w/ the same code
-	//unpack_results_and_plot(optimizer.values(), MK, info, show_plots_for);
+	
+	////ConjugateGradientParameters params;
+	////NonlinearConjugateGradientOptimizer optimizer(*graph, vals);
+	////optimizer.optimize(); // Can't iterate over this one w/ the same code
+	////unpack_results_and_plot(optimizer.values(), MK, info, show_plots_for);
 
-	LevenbergMarquardtParams params;
-	LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
+	//LevenbergMarquardtParams params;
+	//LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
 
-	//GaussNewtonParams params;
-	//GaussNewtonOptimizer optimizer(*graph, vals, params);
+	////GaussNewtonParams params;
+	////GaussNewtonOptimizer optimizer(*graph, vals, params);
 
-	double last_error;
-	do {
-		last_error = optimizer.error();
-		optimizer.iterate();
+	//double last_error;
+	//do {
+	//	last_error = optimizer.error();
+	//	optimizer.iterate();
 
-		unpack_results_and_plot(optimizer.values(), MK, info, show_plots_for);
+	//	unpack_results_and_plot(optimizer.values(), MK, info, show_plots_for);
 
-		// clear all est_poses to start the next loop
-		for (auto& [user, user_info] : info) {
-			for (int i = 0; i < user_info.I; i++) {
-				if (!user_info.is_beacon) {
-					user_info.est_poses.clear();
-				}
-			}
-		}
-	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
+	//	// clear all est_poses to start the next loop
+	//	for (auto& [user, user_info] : info) {
+	//		for (int i = 0; i < user_info.I; i++) {
+	//			if (!user_info.is_beacon) {
+	//				user_info.est_poses.clear();
+	//			}
+	//		}
+	//	}
+	//} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
 
+	//cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
 
-	GraphvizFormatting vizp;
-	vizp.plotFactorPoints = true;
-	//vizp.mergeSimilarFactors = true;
-	vizp.binaryEdges = true;
+	
+	//GraphvizFormatting vizp;
+	//vizp.plotFactorPoints = true;
+	////vizp.mergeSimilarFactors = true;
+	//vizp.binaryEdges = true;
 
-	graph->saveGraph("/home/admitriev/Research/gtsam_test/factor_graphs/factor_graph.dot", optimizer.values(), vizp);
-
-	cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
-
+	//graph->saveGraph("/home/admitriev/Research/gtsam_test/factor_graphs/factor_graph.dot", optimizer.values(), vizp);
+	//graph->print();
 
 	show();
 

@@ -92,7 +92,6 @@ void draw_points(vector<Pose3> points, string color) {
 void unpack_results_and_plot(Values results, const function<Key(string, int)>& MK, map<string, user_info> info, vector<string> show_list){
 
 	// Plotting code
-	using namespace matplot;
 
 	for (const auto& [user_name, user_info] : info) {
 		if (!user_info.is_beacon) {
