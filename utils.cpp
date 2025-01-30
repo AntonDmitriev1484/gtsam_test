@@ -86,10 +86,22 @@ void draw_points(vector<Pose3> points, string color) {
 		ys.push_back(pose.y());
 		zs.push_back(pose.z());
 	}
-	scatter3(xs, ys, zs)->color(color);
+	scatter3(xs, ys, zs)->marker_face_color({0.0,1.0,0.0}); // Hard coded to green
 }
 
-void unpack_results_and_plot(Values results, const function<Key(string, int)>& MK, map<string, user_info> info, vector<string> show_list){
+void unpack_results(Values results, const function<Key(string, int)>& MK, map<string, tracking_info>& info) {
+	for (auto& [user, user_info] : info) {
+		for (int i = 0; i < user_info.I; i++) {
+			if (!user_info.is_beacon) {
+				Key k = MK(user, i);
+				Pose3 estimated_pose = results.at<Pose3>(k);
+				user_info.est_poses.push_back(estimated_pose);
+			}
+		}
+	}
+}
+
+void unpack_results_and_plot(Values results, const function<Key(string, int)>& MK, map<string, tracking_info> info, vector<string> show_list){
 
 	// Plotting code
 
@@ -124,6 +136,16 @@ void unpack_results_and_plot(Values results, const function<Key(string, int)>& M
 				zlabel("Y (m)");
 
 				show();
+			}
+		}
+	}
+}
+
+void clear_results(map<string, tracking_info>& info) {
+	for (auto& [user, user_info] : info) {
+		for (int i = 0; i < user_info.I; i++) {
+			if (!user_info.is_beacon) {
+				user_info.est_poses.clear();
 			}
 		}
 	}

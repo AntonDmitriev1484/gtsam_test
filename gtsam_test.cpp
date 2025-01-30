@@ -336,17 +336,7 @@ void run_euroc() {
 	show();
 }
 
-#define UNPACK_RESULTS_AND_PLOT(RESULTS, MK, INFO, SHOW_LIST) {            \
-    for (auto& [user, user_info] : INFO) {                                 \
-        for (int i = 0; i < user_info.I; i++) {                            \
-            if (!user_info.is_beacon) {                                    \
-                Key k = MK(user, i);                                       \
-                Pose3 estimated_pose = RESULTS.at<Pose3>(k);               \
-                user_info.est_poses.push_back(estimated_pose);             \
-            }                                                              \
-        }                                                                  \
-    }                                                                      \
-                                                                           \
+#define PLOT_FOR_USERS(INFO, SHOW_LIST) {						           \
     for (const auto& [user_name, user_info] : INFO) {                      \
         if (!user_info.is_beacon) {                                        \
             if (find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
@@ -357,12 +347,9 @@ void run_euroc() {
                 hold(on);                                                  \
                 draw_trajectory(user_info.vio_poses, "red");               \
                 hold(on);                                                  \
-                draw_points(user_info.gt_poses, "green");                  \
+                draw_points(user_info.gt_poses, "g");                      \
                 hold(on);                                                  \
                 draw_trajectory(user_info.est_poses, "blue");              \
-                                                                           \
-                cout << "vio size " << user_info.vio_poses.size()          \
-                     << " estimated size " << user_info.est_poses.size() << endl; \
                                                                            \
                 xlabel("X (m)");                                           \
                 ylabel("Z (m)");                                           \
@@ -379,10 +366,10 @@ int run_cappella() {
 	ifstream fs(filename);
 
 	json sensor_stream = json::parse(fs);
-	map<string, user_info> info;
+	map<string, tracking_info> info;
 	get_info(sensor_stream, info);
 
-	// Data is collected with Z as the up-axis, adjust data for Y to be on the up-axis
+	// Data is collected with Y as the up-axis, adjust data for Z to be on the up-axis
 	Matrix44 vis_rotation = Matrix::Zero(4, 4);
 	vis_rotation(0, 0) = 1;
 	vis_rotation(2, 1) = 1;
@@ -393,21 +380,15 @@ int run_cappella() {
 
 	// VIO Prior Noise Model
 
-	//noiseModel::Diagonal::shared_ptr poseNoise = noiseModel::Diagonal::Sigmas(
-	//	(Vector(6) << Vector3::Constant(0.3), Vector3::Constant(0.1)).finished());
-
-	double os = 0.275;
-	double ps = 0.5; // Am I sure its orientation first, and not position? IT IS POSITION FIRST: SOURCE: https://github.com/haidai/gtsam/blob/master/examples/VisualISAMExample.cpp
-	noiseModel::Diagonal::shared_ptr a = noiseModel::Diagonal::Sigmas(Vector6(ps, ps, ps, os, os, os));
+	//double os = 0.275;
+	//double ps = 0.5; // Am I sure its orientation first, and not position? IT IS POSITION FIRST: SOURCE: https://github.com/haidai/gtsam/blob/master/examples/VisualISAMExample.cpp
+	//noiseModel::Diagonal::shared_ptr a = noiseModel::Diagonal::Sigmas(Vector6(ps, ps, ps, os, os, os));
 
 	// VIO noise model
 
-	double orientation_stdev = 0.175; // rad->~10degrees
-	double position_stdev = 0.25;
-
-	Vector6 sigmas;
-	sigmas << position_stdev, position_stdev, position_stdev, orientation_stdev, orientation_stdev, orientation_stdev;
-	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(sigmas);
+	double vio_ori_stdev = 0.175; // rad->~10degrees
+	double vio_pos_stdev = 0.2;
+	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
 
 	// UWB noise model
 
@@ -420,10 +401,6 @@ int run_cappella() {
 	double gt_ori_stdev = 0.0174533;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6( gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
 
-	// Transform Global->Universal noise model
-	//double Mat_GU_pos_stdev = 0.8;
-	//double Mat_GU_ori_stdev = 0.5;
-	//noiseModel::Diagonal::shared_ptr Mat_GU_noise_model = noiseModel::Diagonal::Sigmas(Vector6(Mat_GU_ori_stdev, Mat_GU_ori_stdev, Mat_GU_ori_stdev, Mat_GU_pos_stdev, Mat_GU_pos_stdev, Mat_GU_pos_stdev));
 
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
 
@@ -461,20 +438,17 @@ int run_cappella() {
 			Pose3 prior_VIO_pose(prior_pose_matrix);
 			userinfo.vio_poses.push_back(prior_VIO_pose);
 			vals.insert(userinfo.pose_key, prior_VIO_pose);
-			graph->addPrior(userinfo.pose_key, prior_VIO_pose, a);
+			graph->addPrior(userinfo.pose_key, prior_VIO_pose, VIO_pose_noise_model);
 		}
 
 	}
 
-	ISAM2Params isam_params;
-	isam_params.factorization = ISAM2Params::CHOLESKY;
-	isam_params.relinearizeSkip = 10;
-	ISAM2DoglegParams dogleg;
-	isam_params.optimizationParams = dogleg;
-	ISAM2* isam = new ISAM2(isam_params);
-	// iSam can either be configured to use DogLeg or GaussNewton, but uses GaussNewton by default...
-	
-	// Should I be calling update within each loop?
+	//ISAM2Params isam_params;
+	//isam_params.factorization = ISAM2Params::CHOLESKY;
+	//isam_params.relinearizeSkip = 10;
+	//ISAM2DoglegParams dogleg;
+	//isam_params.optimizationParams = dogleg;
+	//ISAM2* isam = new ISAM2(isam_params);
 
 	int max_VIO_measurements = 1000*5;
 	int VIO_measurements = 0;
@@ -491,14 +465,14 @@ int run_cappella() {
 			string user;
 			get_pose_matrix(mes, user, HTM_L_G);
 
-			user_info& u = info.at(user);
+			tracking_info& u = info.at(user);
 			u.I++;
 
 			u.last_HTM_L_G = HTM_L_G;
 			Matrix44 pose_matrix_U = vis_rotation * u.last_HTM_G_U * HTM_L_G;
 
 			Pose3 pose(pose_matrix_U);
-			Pose3 last_pose = u.vio_poses[u.vio_poses.size() - 1];
+			Pose3 last_pose = u.vio_poses.back(); // segfault
 			u.vio_poses.push_back(pose);
 
 			graph->add(BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), pose, VIO_pose_noise_model));
@@ -524,68 +498,64 @@ int run_cappella() {
 			get_GT(mes, users, HTM_L_U_per_user);
 
 			for (int i = 0; i < users.size(); i++) {
-				user_info& u = info.at(users[i]);
-				//u.I++;
+				tracking_info& u = info.at(users[i]);
+				u.I++;
 
 				Matrix44 pose_matrix_U = vis_rotation * HTM_L_U_per_user[i];
 				Pose3 GT_pose(pose_matrix_U);
 				u.gt_poses.push_back(GT_pose);
 
 				graph->add(PriorFactor<Pose3>(MK(users[i], u.I), GT_pose, GT_noise_model));
+				// Adding a prior factor does not influence the path whatsoever
 
+				vals.insert(MK(users[i], u.I), GT_pose); // vio pose gets bound as the initial estimate to this key.
 			}
 
 		}
 
-		// What key do we add to the graph, vs what key do we fail linearization on/
-		// It might be that when we add then ex 600th key, we fail an earlier linearization, which is better than failing immediately off the bat.
-
-		isam->update(*graph, vals);
-		graph->resize(0); // According to example
-		vals.clear(); // Still don't quite get why we need this vals.clear();
+		//isam->update(*graph, vals);
+		//graph->resize(0); // According to example
+		//vals.clear(); // Still don't quite get why we need this vals.clear();
 
 	}
 
 
-	vector<string> show_plots_for = { "nuno" , "elahe" };
+	vector<string> show_plots_for = { "elahe" };
+
+	//unpack_results(isam->calculateBestEstimate(), MK, info);
+	//cout << info["elahe"].gt_poses.size() << " " << info["elahe"].vio_poses.size() << " " << info["elahe"].est_poses.size() << endl;
+	//PLOT_FOR_USERS(info, show_plots_for);
+	//show();
+
+
+
 	// Once graph is complete, optimize it offline
 
-	// Ok for some reason putting this in a macro freezes everything
-	// but putting it in a function messes up the plotting colors, so idk
-	UNPACK_RESULTS_AND_PLOT(isam->calculateBestEstimate(), MK, info, show_plots_for);
-	show();
-
-
-	
 	////ConjugateGradientParameters params;
 	////NonlinearConjugateGradientOptimizer optimizer(*graph, vals);
 	////optimizer.optimize(); // Can't iterate over this one w/ the same code
 	////unpack_results_and_plot(optimizer.values(), MK, info, show_plots_for);
 
-	//LevenbergMarquardtParams params;
-	//LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
+	LevenbergMarquardtParams params;
+	LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
 
 	////GaussNewtonParams params;
 	////GaussNewtonOptimizer optimizer(*graph, vals, params);
 
-	//double last_error;
-	//do {
-	//	last_error = optimizer.error();
-	//	optimizer.iterate();
+	double last_error;
+	do {
+		last_error = optimizer.error();
+		optimizer.iterate();
 
-	//	unpack_results_and_plot(optimizer.values(), MK, info, show_plots_for);
+		unpack_results(optimizer.values(), MK, info);
+		PLOT_FOR_USERS(info, show_plots_for);
+		clear_results(info); // clear Est_poses trajectory
 
-	//	// clear all est_poses to start the next loop
-	//	for (auto& [user, user_info] : info) {
-	//		for (int i = 0; i < user_info.I; i++) {
-	//			if (!user_info.is_beacon) {
-	//				user_info.est_poses.clear();
-	//			}
-	//		}
-	//	}
-	//} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
+	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
 
-	//cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
+	show();
+
+	cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
 
 	
 	//GraphvizFormatting vizp;

@@ -21,7 +21,7 @@ bool parse_EuRoC_gt_line(ifstream& gt_file, Point3& position, Rot3& rotation,
 bool parse_EuRoC_imu_line(ifstream& imu_file, Vector3& V_angular, Vector3& A_axial);
 
 // Cappella parsing code
-struct user_info {
+struct tracking_info {
 
 	// Computed in get_info
 	bool is_beacon;
@@ -42,7 +42,7 @@ struct user_info {
 void get_pose_matrix(json d, string& user, Matrix44& pose_matrix);
 void get_GT(json d, vector<string>& users, vector<Matrix44>& pose_matrices);
 void get_UWB(json d, string& src_user, string& dst_user, double& range);
-void get_info(json data, map<string, user_info>& info);
+void get_info(json data, map<string, tracking_info>& info);
 
 chrono::system_clock::time_point iso_string_to_time(string timeString);
 

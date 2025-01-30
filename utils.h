@@ -17,4 +17,6 @@ void draw_basis(Matrix33 basis, Vector3 loc, bool as_reference_frame);
 void draw_trajectory(vector<Pose3> trajectory, string color);
 void draw_points(vector<Pose3> points, string color);
 
-void unpack_results_and_plot(Values results, const function<Key(string, int)>& MK, map<string, user_info> info, vector<string> show_list);
+void unpack_results_and_plot(Values results, const function<Key(string, int)>& MK, map<string, tracking_info> info, vector<string> show_list);
+void unpack_results(Values results, const function<Key(string, int)>& MK, map<string, tracking_info>& info);
+void clear_results(map<string, tracking_info>& info);

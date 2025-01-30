@@ -110,7 +110,7 @@ void get_UWB(json d, string& src_user, string& dst_user, double& range) {
 	range = d["range"];
 }
 
-void update_info_with_VIO(json d, map<string, user_info>& info) {
+void update_info_with_VIO(json d, map<string, tracking_info>& info) {
 	Matrix44 HTM_L_G;
 	string user;
 	get_pose_matrix(d, user, HTM_L_G);
@@ -118,7 +118,7 @@ void update_info_with_VIO(json d, map<string, user_info>& info) {
 
 	if (info.find(user) == info.end()) {
 		// No data registered under VIO should be a beacon
-		user_info u;
+		tracking_info u;
 		if (!is_beacon) {
 			u = { is_beacon, HTM_L_G, HTM_L_G, I_4x4, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), Key() ,0};
 		}
@@ -134,7 +134,7 @@ void update_info_with_VIO(json d, map<string, user_info>& info) {
 	}
 }
 
-void update_info_with_GT(json d, map<string, user_info>& info) {
+void update_info_with_GT(json d, map<string, tracking_info>& info) {
 
 	auto gt_collected_poses = d["poses"];
 	for (auto gt_collect : gt_collected_poses) {
@@ -147,7 +147,7 @@ void update_info_with_GT(json d, map<string, user_info>& info) {
 			// Users that don't have VO collected for them are always static beacons
 			// All beacons appear in the GT measurement
 			// So if they are not yet in the map, then they are beacons
-			user_info u;
+			tracking_info u;
 			if (!is_beacon) {
 				// This case should never run
 				cout << "what2" << endl;
@@ -159,7 +159,7 @@ void update_info_with_GT(json d, map<string, user_info>& info) {
 			info.insert(make_pair(user, u));
 		}
 
-		user_info& u = info.at(user);
+		tracking_info& u = info.at(user);
 		//u.is_beacon = is_beacon; // just to be safe
 
 		u.last_HTM_L_U = HTM_L_U;
@@ -172,7 +172,7 @@ void update_info_with_GT(json d, map<string, user_info>& info) {
 
 }
 
-void get_info(json data, map<string, user_info>& info) {
+void get_info(json data, map<string, tracking_info>& info) {
 
 
 	for (json mes : data) {
