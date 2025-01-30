@@ -336,20 +336,42 @@ void run_euroc() {
 	show();
 }
 
-//Key MK(string username, int I) {
-//	Key k;
-//	if (username.find("static") != std::string::npos) {
-//		regex numberRegex(R"(\d+$)");
-//		smatch match;
-//		regex_search(username, match, numberRegex);
-//		k = symbol('s', stoi(match.str())); // e.x. s11 if 'static11'
-//	}
-//	else {
-//		k = symbol(username[0], I);
-//		if (username == "jeff") k = symbol('f', I);
-//	}
-//	return k;
-//};
+#define UNPACK_RESULTS_AND_PLOT(RESULTS, MK, INFO, SHOW_LIST) {            \
+    for (auto& [user, user_info] : INFO) {                                 \
+        for (int i = 0; i < user_info.I; i++) {                            \
+            if (!user_info.is_beacon) {                                    \
+                Key k = MK(user, i);                                       \
+                Pose3 estimated_pose = RESULTS.at<Pose3>(k);               \
+                user_info.est_poses.push_back(estimated_pose);             \
+            }                                                              \
+        }                                                                  \
+    }                                                                      \
+                                                                           \
+    for (const auto& [user_name, user_info] : INFO) {                      \
+        if (!user_info.is_beacon) {                                        \
+            if (find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
+                auto fig = figure();                                       \
+                fig->name(user_name + " trajectory");                      \
+                title(user_name);                                          \
+                                                                           \
+                hold(on);                                                  \
+                draw_trajectory(user_info.vio_poses, "red");               \
+                hold(on);                                                  \
+                draw_points(user_info.gt_poses, "green");                  \
+                hold(on);                                                  \
+                draw_trajectory(user_info.est_poses, "blue");              \
+                                                                           \
+                cout << "vio size " << user_info.vio_poses.size()          \
+                     << " estimated size " << user_info.est_poses.size() << endl; \
+                                                                           \
+                xlabel("X (m)");                                           \
+                ylabel("Z (m)");                                           \
+                zlabel("Y (m)");                                           \
+                                                                           \
+            }                                                              \
+        }                                                                  \
+    }                                                                      \
+}
 
 
 int run_cappella() {
@@ -454,7 +476,7 @@ int run_cappella() {
 	
 	// Should I be calling update within each loop?
 
-	int max_VIO_measurements = 1000 *5;
+	int max_VIO_measurements = 1000*5;
 	int VIO_measurements = 0;
 
 	int VIO_show = 1000;
@@ -527,7 +549,11 @@ int run_cappella() {
 
 	vector<string> show_plots_for = { "nuno" , "elahe" };
 	// Once graph is complete, optimize it offline
-	unpack_results_and_plot(isam->calculateBestEstimate(), MK, info, show_plots_for);
+
+	// Ok for some reason putting this in a macro freezes everything
+	// but putting it in a function messes up the plotting colors, so idk
+	UNPACK_RESULTS_AND_PLOT(isam->calculateBestEstimate(), MK, info, show_plots_for);
+	show();
 
 
 	
@@ -570,7 +596,7 @@ int run_cappella() {
 	//graph->saveGraph("/home/admitriev/Research/gtsam_test/factor_graphs/factor_graph.dot", optimizer.values(), vizp);
 	//graph->print();
 
-	show();
+	//show();
 
 
 	return 0;
