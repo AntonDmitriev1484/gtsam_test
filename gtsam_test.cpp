@@ -35,6 +35,7 @@ using namespace std;
 
 int run_cappella() {
 	string filename = "/home/admitriev/Datasets/cappella_data/set_1/bigtest-1floor_sorted.json";
+	string output_filename = "/home/admitriev/Datasets/cappella_data/set_1/bigtest-1floor_gt_reconstructed.json";
 	ifstream fs(filename);
 
 	json sensor_stream = json::parse(fs);
@@ -115,12 +116,6 @@ int run_cappella() {
 
 	}
 
-	//ISAM2Params isam_params;
-	//isam_params.factorization = ISAM2Params::CHOLESKY;
-	//isam_params.relinearizeSkip = 10;
-	//ISAM2DoglegParams dogleg;
-	//isam_params.optimizationParams = dogleg;
-	//ISAM2* isam = new ISAM2(isam_params);
 
 	int max_VIO_measurements = 1000*5;
 	int VIO_measurements = 0;
@@ -151,6 +146,9 @@ int run_cappella() {
 			graph->add(BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), odometry, VIO_pose_noise_model));
 
 			vals.insert(MK(user, u.I), pose); // vio pose gets bound as the initial estimate to this key.
+
+			string assoc_timestamp = mes["timestamp"];
+			u.est_poses_iso_timestamp.push_back(assoc_timestamp); // Each key in vals, is associated with a timestamp, which will be associated with a refined pose estimate.
 
 			cout << "Added Key " << user << " " << u.I << endl;
 
@@ -186,9 +184,6 @@ int run_cappella() {
 
 		}
 
-		//isam->update(*graph, vals);
-		//graph->resize(0); // According to example
-		//vals.clear(); // Still don't quite get why we need this vals.clear();
 
 	}
 
@@ -215,21 +210,23 @@ int run_cappella() {
 	////GaussNewtonParams params;
 	////GaussNewtonOptimizer optimizer(*graph, vals, params);
 
-	double last_error;
-	do {
-		last_error = optimizer.error();
-		optimizer.iterate();
+	// NOTE: Comment this out if you're going to write the data. Keep it in if you want to visualize each optimization step.
+	//double last_error;
+	//do {
+	//	last_error = optimizer.error();
+	//	optimizer.iterate();
 
-		unpack_results(optimizer.values(), MK, info);
-		PLOT_FOR_USERS(info, show_plots_for);
-		clear_results(info); // clear Est_poses trajectory
+	//	unpack_results(optimizer.values(), MK, info);
+	//	PLOT_FOR_USERS(info, show_plots_for);
+	//	clear_results(info); // clear Est_poses trajectory
 
-	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
+	//} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
+	//show();
+	//cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
 
-	show();
 
-	cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
-
+	// NOTE: Comment this in when you're ready to write the data
+	optimizer.optimize();
 	
 	//GraphvizFormatting vizp;
 	//vizp.plotFactorPoints = true;
@@ -240,6 +237,8 @@ int run_cappella() {
 	//graph->print();
 
 	//show();
+	unpack_results(optimizer.values(), MK, info);
+	dump_reconstructed_trajectories(info, output_filename);
 
 
 	return 0;

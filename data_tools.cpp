@@ -54,12 +54,12 @@ void update_info_with_VIO(json d, map<string, tracking_info>& info) {
 		// No data registered under VIO should be a beacon
 		tracking_info u;
 		if (!is_beacon) {
-			u = { is_beacon, HTM_L_G, HTM_L_G, I_4x4, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), Key() ,0};
+			u = { is_beacon, HTM_L_G, HTM_L_G, I_4x4, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), vector<string>(), Key() ,0};
 		}
 		else {
 			// This case should never run
 			cout << "what" << endl;
-			u = { is_beacon, I_4x4, I_4x4, HTM_L_G, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), Key() ,0 };
+			u = { is_beacon, I_4x4, I_4x4, HTM_L_G, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), vector<string>(), Key() ,0 };
 		}
 		info.insert(make_pair(user, u));
 	}
@@ -85,10 +85,10 @@ void update_info_with_GT(json d, map<string, tracking_info>& info) {
 			if (!is_beacon) {
 				// This case should never run
 				cout << "what2" << endl;
-				u = { is_beacon, I_4x4, HTM_L_U, I_4x4, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), Key() ,0};
+				u = { is_beacon, I_4x4, HTM_L_U, I_4x4, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), vector<string>(), Key() ,0};
 			}
 			else {
-				u = { is_beacon, I_4x4, I_4x4, HTM_L_U, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), Key() ,0};
+				u = { is_beacon, I_4x4, I_4x4, HTM_L_U, I_4x4, vector<Pose3>(), vector<Pose3>(), vector<Pose3>(), vector<string>(), Key() ,0};
 			}
 			info.insert(make_pair(user, u));
 		}
@@ -143,4 +143,41 @@ chrono::system_clock::time_point iso_string_to_time(string timeString) {
 	// Convert the microseconds part (up to 6 digits)
 	int microseconds = std::stoi(microsecondsStr.substr(0, 6)); // Get first 6 digits as microseconds
 	tp += std::chrono::microseconds(microseconds);
+}
+
+void dump_reconstructed_trajectories(map<string, tracking_info> info, string filename) {
+	// Write the reconstructed GT trajectories for each user to a json file
+	// Run a python script to sort entries into chronological order
+
+	// TODO: Might need to add a starter curly brace and ending curly brace that wrap around all items?
+	std::ofstream fs(filename);
+	json jarray = json::array();
+	for (auto& [user, user_info] : info) {
+		vector<string> timestamps = user_info.est_poses_iso_timestamp;
+		vector<Pose3> trajectory = user_info.est_poses;
+
+		for (int i = 0; i < trajectory.size(); i++) {
+			Pose3 pose_U = trajectory[i];
+			Matrix4 m = pose_U.matrix();
+			json jdata = {
+					{"timestamp", timestamps[i]},
+					{"type", "gt_reconstruct"},
+					{"user", user},
+					{"pose", {
+						{ {m(0,0),m(0,1), m(0,2), m(0,3)}},
+						{ {m(1,0),m(1,1), m(1,2), m(1,3)}},
+						{ {m(2,0),m(2,1), m(2,2), m(2,3)}},
+						{ {m(3,0),m(3,1), m(3,2), m(3,3)}},
+					}
+			}
+			};
+			jarray.push_back(jdata);
+		}
+	}
+
+	fs << jarray.dump(1);
+
+	fs.close();
+
+
 }

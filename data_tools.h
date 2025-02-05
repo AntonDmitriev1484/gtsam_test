@@ -30,6 +30,8 @@ struct tracking_info {
 	vector<Pose3> vio_poses;
 	vector<Pose3> gt_poses;
 	vector<Pose3> est_poses; // Estimated poses
+	vector<string> est_poses_iso_timestamp;
+	// Index i in est_poses_iso_timestamp corresponds to pose i in est_poses
 
 	Key pose_key;
 	int I;
@@ -42,4 +44,5 @@ void get_info(json data, map<string, tracking_info>& info);
 
 chrono::system_clock::time_point iso_string_to_time(string timeString);
 
+void dump_reconstructed_trajectories(map<string, tracking_info> info, string filename);
 
