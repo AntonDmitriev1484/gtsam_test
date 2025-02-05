@@ -105,7 +105,6 @@ int run_cappella() {
 	vector<Pose3> gt_points;
 	for (int i = 0; i < N_poses; i += 3) {
 		gt_points.push_back(true_trajectory[i]);
-		graph->add(PriorFactor<Pose3>(MK("a", i), true_trajectory[i], GT_noise_model));
 	}
 
 
@@ -142,9 +141,18 @@ int run_cappella() {
 
 	for (int i = 1; i < N_poses; i++) {
 		Pose3 vio_pose = (d_pose * drift_vio) * vio_trajectory.back();
-		vio_trajectory.push_back( vio_pose);
+
 		vals.insert(MK("a", i), vio_pose);
-		graph->add(BetweenFactor<Pose3>(MK("a", i - 1), MK("a", i), vio_pose, VIO_pose_noise_model));
+		// I think odometry should be a pose thats the PHYSICAL DIFFERENCE between two vio_poses!
+		Pose3 odometry = vio_trajectory.back().between(vio_pose);
+		graph->add(BetweenFactor<Pose3>(MK("a", i - 1), MK("a", i), odometry, VIO_pose_noise_model));
+
+
+		vio_trajectory.push_back(vio_pose);
+	}
+
+	for (int i = 0; i < N_poses; i += 3) {
+		graph->add(PriorFactor<Pose3>(MK("a", i), true_trajectory[i], GT_noise_model));
 	}
 
 
@@ -157,9 +165,9 @@ int run_cappella() {
 		last_error = optimizer.error();
 		optimizer.iterate();
 
-		unpack_results(optimizer.values(), MK, info);
-		PLOT_FOR_USERS(info, show_plots_for);
-		clear_results(info); // clear Est_poses trajectory
+		vector<Pose3> est_trajectory;
+		for (int i = 0; i < N_poses; i++) est_trajectory.push_back(optimizer.values().at<Pose3>(MK("a",i)));
+		PLOT(true_trajectory, gt_points, est_trajectory, vio_trajectory);
 
 	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
 
