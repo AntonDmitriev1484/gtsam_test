@@ -475,7 +475,8 @@ int run_cappella() {
 			Pose3 last_pose = u.vio_poses.back(); // segfault
 			u.vio_poses.push_back(pose);
 
-			graph->add(BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), pose, VIO_pose_noise_model));
+			Pose3 odometry = last_pose.between(pose);
+			graph->add(BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), odometry, VIO_pose_noise_model));
 
 			vals.insert(MK(user, u.I), pose); // vio pose gets bound as the initial estimate to this key.
 
@@ -489,7 +490,7 @@ int run_cappella() {
 			string src_user, dst_user;
 			get_UWB(mes, src_user, dst_user, range);
 
-			graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), range, UWB_noise_model));
+			//graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), range, UWB_noise_model));
 
 		}
 		else if (mes["type"] == "gt") {
@@ -499,7 +500,7 @@ int run_cappella() {
 
 			for (int i = 0; i < users.size(); i++) {
 				tracking_info& u = info.at(users[i]);
-				u.I++;
+				//u.I++;
 
 				Matrix44 pose_matrix_U = vis_rotation * HTM_L_U_per_user[i];
 				Pose3 GT_pose(pose_matrix_U);
@@ -508,7 +509,7 @@ int run_cappella() {
 				graph->add(PriorFactor<Pose3>(MK(users[i], u.I), GT_pose, GT_noise_model));
 				// Adding a prior factor does not influence the path whatsoever
 
-				vals.insert(MK(users[i], u.I), GT_pose); // vio pose gets bound as the initial estimate to this key.
+				//vals.insert(MK(users[i], u.I), GT_pose); // vio pose gets bound as the initial estimate to this key.
 			}
 
 		}
@@ -520,7 +521,7 @@ int run_cappella() {
 	}
 
 
-	vector<string> show_plots_for = { "elahe" };
+	vector<string> show_plots_for = { "elahe", "nuno" };
 
 	//unpack_results(isam->calculateBestEstimate(), MK, info);
 	//cout << info["elahe"].gt_poses.size() << " " << info["elahe"].vio_poses.size() << " " << info["elahe"].est_poses.size() << endl;
