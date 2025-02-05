@@ -41,6 +41,7 @@ int run_cappella() {
 	map<string, tracking_info> info;
 	get_info(sensor_stream, info);
 
+
 	// Data is collected with Y as the up-axis, adjust data for Z to be on the up-axis
 	Matrix44 vis_rotation = Matrix::Zero(4, 4);
 	vis_rotation(0, 0) = 1;
