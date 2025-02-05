@@ -34,8 +34,10 @@ using namespace std;
 
 
 int run_cappella() {
-	string filename = "/home/admitriev/Datasets/cappella_data/set_1/bigtest-1floor_sorted.json";
-	ifstream fs(filename);
+	string raw_filename = "/home/admitriev/Datasets/cappella_data/set_1/bigtest-1floor_sorted.json";
+	string gt_reconstructed_filename = "/home/admitriev/Datasets/cappella_data/set_1/bigtest-1floor_gt_reconstructed_sorted.json";
+
+	ifstream fs(raw_filename);
 
 	json sensor_stream = json::parse(fs);
 	map<string, tracking_info> info;
@@ -50,12 +52,6 @@ int run_cappella() {
 	vis_rotation(3, 3) = 1;
 
 	// --- Noise Models ---
-
-	// VIO Prior Noise Model
-
-	//double os = 0.275;
-	//double ps = 0.5; // Am I sure its orientation first, and not position? IT IS POSITION FIRST: SOURCE: https://github.com/haidai/gtsam/blob/master/examples/VisualISAMExample.cpp
-	//noiseModel::Diagonal::shared_ptr a = noiseModel::Diagonal::Sigmas(Vector6(ps, ps, ps, os, os, os));
 
 	// VIO noise model
 

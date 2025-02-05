@@ -106,6 +106,7 @@ void update_info_with_GT(json d, map<string, tracking_info>& info) {
 
 }
 
+// Used in cappella-gt-reconstruct
 void get_info(json data, map<string, tracking_info>& info) {
 
 
@@ -123,6 +124,59 @@ void get_info(json data, map<string, tracking_info>& info) {
 		}
 
 	}
+}
+
+// Used in cappella, for loading in data w.r.t the reconstructed ground truth
+void get_info2(json raw_data, json gt_data, map<string, tracking_info>& info) {
+
+	/// Acutally all we need to do is parse out the first poses in the reconstrcuted gt data. -> HTM_G_U per user
+	// and the first apriltag GT point of the raw data -> Static beacon pose.
+
+	// Load in raw vio_poses -> M_L_G
+	vector<Pose3> raw_vio;
+	for (json mes : raw_data) {
+		if (mes["type"] == "vio") {
+			update_info_with_VIO(mes, info); // Only users have VIO, this adds all users to the map.
+		}
+		else if (mes["type"] == "gt") {
+			// All static beacons should be given with the GT
+			update_info_with_GT(mes, info);
+			break;
+		}
+
+	}
+
+	// Load in processed gt_poses -> M_L_U
+
+	// If this is our first time seeing this user in the file
+	// set last_HTM_G_U;
+	map<string, Matrix44> set_users_M_G_U;
+
+	for (json mes : gt_data) {
+		if (mes["type"] == "gt_reconstruct") {
+			Matrix44 M_L_U;
+			string user;
+			get_pose_matrix(mes, user, M_L_U);
+
+			if (set_users_M_G_U.find(user) == set_users_M_G_U.end()) {
+				set_users_M_G_U.insert(make_pair(user, M_L_U));
+			} // Only add each user's initial pose
+
+			info[user].gt_poses.push_back(Pose3(M_L_U));
+		}
+	}
+
+	for (auto& [user, M_L_U] : set_users_M_G_U) {
+		info.at(user).last_HTM_G_U = M_L_U;
+	} // Set their HTM_L_U to be the one derived from reconstructed GT.
+
+	//for (auto& [user, ui] : info) {
+	//	for (int i = 0; i < ui.vio_poses.size(); i++) {
+	//		ui.vio_poses[i] = Pose3(ui.last_HTM_G_U) * ui.vio_poses[i];
+	//	}
+	//} // Convert all VIO poses to the universal frame.
+	// Note: realistically we will have to do this on the go as we replay the raw data.
+
 }
 
 chrono::system_clock::time_point iso_string_to_time(string timeString) {
