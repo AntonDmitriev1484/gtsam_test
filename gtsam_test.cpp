@@ -19,7 +19,7 @@ using namespace std;
                 hold(on);                                                  \
                 draw_trajectory(user_info.vio_poses, "red");               \
                 hold(on);                                                  \
-                draw_points(user_info.gt_poses, "g");                      \
+                draw_trajectory(user_info.gt_poses, "green");              \
                 hold(on);                                                  \
                 draw_trajectory(user_info.est_poses, "blue");              \
                                                                            \
@@ -37,19 +37,24 @@ int run_cappella() {
 	string raw_filename = "/home/admitriev/Datasets/cappella_data/set_1/bigtest-1floor_sorted.json";
 	string gt_reconstructed_filename = "/home/admitriev/Datasets/cappella_data/set_1/bigtest-1floor_gt_reconstructed_sorted.json";
 
-	ifstream fs(raw_filename);
+	ifstream raw_fs(raw_filename);
+	ifstream gt_fs(gt_reconstructed_filename);
 
-	json sensor_stream = json::parse(fs);
+	json sensor_stream = json::parse(raw_fs); 
+	// I think this reads the entire filestream in at once, and stores it in memory
+	// So iterating over sensor_stream partially, then iterating again, the second iteration should start back at 0.
+	// So json::parse uses up the entire iterator, and reads everything into a program memory array ezpz
 	map<string, tracking_info> info;
 	get_info(sensor_stream, info);
+	// Isn't sensor stream already partially read? Wouldn't this cause problems with running it in the main iterator?
+	get_gt_info(info, json::parse(gt_fs)); // fill user_info with gt_pose trajectory
+	//get_info2(sensor_stream, json::parse(gt_fs), info);
+
+	// FOR THE UWB RANGES, make sure to double check that distance is preserved after I transform to the universal frame...
+	// I'm 99% sure it is...
 
 
 	// Data is collected with Y as the up-axis, adjust data for Z to be on the up-axis
-	Matrix44 vis_rotation = Matrix::Zero(4, 4);
-	vis_rotation(0, 0) = 1;
-	vis_rotation(2, 1) = 1;
-	vis_rotation(1, 2) = 1;
-	vis_rotation(3, 3) = 1;
 
 	// --- Noise Models ---
 
@@ -69,7 +74,6 @@ int run_cappella() {
 	double gt_pos_stdev = 0.01;
 	double gt_ori_stdev = 0.0174533;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6( gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
-
 
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
 
@@ -102,9 +106,25 @@ int run_cappella() {
 		else {
 			userinfo.pose_key = MK(username, userinfo.I);
 
-			Matrix44 prior_pose_matrix(vis_rotation * userinfo.last_HTM_G_U * userinfo.first_HTM_L_G);
+			Pose3 prior_VIO_pose(userinfo.gt_poses[0]);
 
-			Pose3 prior_VIO_pose(prior_pose_matrix);
+			// You would think that in addition to setting a prior on the first gt_pose
+			// You would also have to set the M_G_U of each user to be their first GT pose.
+			// Because that gives them a proper starting point
+			// Whereas by default get_info is still seeking out the drifted starting point.
+			// I really need to re-vise my parsing code, it's atrocious
+
+			// Really thing I should be setting this here:
+
+			userinfo.last_HTM_L_G = Matrix44::Identity();
+			userinfo.last_HTM_G_U = userinfo.gt_poses[0].matrix();
+			userinfo.last_HTM_L_U = userinfo.gt_poses[0].matrix();
+			// Adding this seems like its applying a double rotation.
+			// Could it be because of the filstream wrapped in json::parse()
+			// 
+			//maybe just add a separate field ... instead of last_HTM_G_U change verything to be around M_G_U.
+			// M_G_U should be our first GT pose. im sure of it
+
 			userinfo.vio_poses.push_back(prior_VIO_pose);
 			vals.insert(userinfo.pose_key, prior_VIO_pose);
 			graph->addPrior(userinfo.pose_key, prior_VIO_pose, VIO_pose_noise_model);
@@ -123,7 +143,6 @@ int run_cappella() {
 	int VIO_measurements = 0;
 
 	int VIO_show = 1000;
-
 	for (json mes : sensor_stream) {
 
 		chrono::system_clock::time_point tp = iso_string_to_time(mes["timestamp"]);
@@ -138,7 +157,7 @@ int run_cappella() {
 			u.I++;
 
 			u.last_HTM_L_G = HTM_L_G;
-			Matrix44 pose_matrix_U = vis_rotation * u.last_HTM_G_U * HTM_L_G;
+			Matrix44 pose_matrix_U = u.last_HTM_G_U * HTM_L_G;
 
 			Pose3 pose(pose_matrix_U);
 			Pose3 last_pose = u.vio_poses.back(); // segfault
@@ -163,23 +182,6 @@ int run_cappella() {
 
 		}
 		else if (mes["type"] == "gt") {
-			vector<Matrix44> HTM_L_U_per_user;
-			vector<string> users;
-			get_GT(mes, users, HTM_L_U_per_user);
-
-			for (int i = 0; i < users.size(); i++) {
-				tracking_info& u = info.at(users[i]);
-				//u.I++;
-
-				Matrix44 pose_matrix_U = vis_rotation * HTM_L_U_per_user[i];
-				Pose3 GT_pose(pose_matrix_U);
-				u.gt_poses.push_back(GT_pose);
-
-				graph->add(PriorFactor<Pose3>(MK(users[i], u.I), GT_pose, GT_noise_model));
-				// Adding a prior factor does not influence the path whatsoever
-
-				//vals.insert(MK(users[i], u.I), GT_pose); // vio pose gets bound as the initial estimate to this key.
-			}
 
 		}
 
@@ -190,7 +192,7 @@ int run_cappella() {
 	}
 
 
-	vector<string> show_plots_for = { "elahe", "nuno" };
+	vector<string> show_plots_for = { "nuno" };
 
 	//unpack_results(isam->calculateBestEstimate(), MK, info);
 	//cout << info["elahe"].gt_poses.size() << " " << info["elahe"].vio_poses.size() << " " << info["elahe"].est_poses.size() << endl;
@@ -215,7 +217,7 @@ int run_cappella() {
 	double last_error;
 	do {
 		last_error = optimizer.error();
-		optimizer.iterate();
+		optimizer.iterate();     
 
 		unpack_results(optimizer.values(), MK, info);
 		PLOT_FOR_USERS(info, show_plots_for);

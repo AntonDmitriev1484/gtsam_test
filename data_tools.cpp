@@ -179,6 +179,17 @@ void get_info2(json raw_data, json gt_data, map<string, tracking_info>& info) {
 
 }
 
+void get_gt_info(map<string, tracking_info>& info, json gt_data) {
+	for (json mes : gt_data) {
+		if (mes["type"] == "gt_reconstruct") {
+			Matrix44 M_L_U;
+			string user;
+			get_pose_matrix(mes, user, M_L_U);
+			info.at(user).gt_poses.push_back(Pose3(M_L_U));
+		}
+	}
+}
+
 chrono::system_clock::time_point iso_string_to_time(string timeString) {
 
 	// Separate the fractional part (microseconds) from the rest of the string

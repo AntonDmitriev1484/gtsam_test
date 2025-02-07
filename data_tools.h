@@ -42,4 +42,8 @@ void get_info(json data, map<string, tracking_info>& info);
 
 chrono::system_clock::time_point iso_string_to_time(string timeString);
 
+void get_info2(json raw_data, json gt_data, map<string, tracking_info>& info);
+
+void get_gt_info(map<string, tracking_info>& info, json gt_data);
+
 
