@@ -25,6 +25,7 @@ struct tracking_info {
 	Matrix44 last_HTM_L_G; // most recent VIO pose
 	Matrix44 last_HTM_L_U; // most recent GT pose
 	Matrix44 last_HTM_G_U; // most recent estimate of what Universal -> Global transform is
+	Matrix44 M_G_U;
 
 	// Used to store trajectory at runtime
 	vector<Pose3> vio_poses;

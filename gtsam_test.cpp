@@ -8,6 +8,27 @@
 using namespace gtsam;
 using namespace std;
 
+//#define PLOT_FOR_USERS(INFO, SHOW_LIST) {						           \
+//    for (const auto& [user_name, user_info] : INFO) {                      \
+//        if (!user_info.is_beacon) {                                        \
+//            if (find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
+//                                                                           \
+//                hold(on);                                                  \
+//                draw_trajectory(user_info.vio_poses, "red");               \
+//                hold(on);                                                  \
+//                draw_trajectory(user_info.gt_poses, "green");              \
+//                hold(on);                                                  \
+//                draw_trajectory(user_info.est_poses, "blue");              \
+//                                                                           \
+//                xlabel("X (m)");                                           \
+//                ylabel("Z (m)");                                           \
+//                zlabel("Y (m)");                                           \
+//                                                                           \
+//            }                                                              \
+//        }                                                                  \
+//    }                                                                      \
+//}
+
 #define PLOT_FOR_USERS(INFO, SHOW_LIST) {						           \
     for (const auto& [user_name, user_info] : INFO) {                      \
         if (!user_info.is_beacon) {                                        \
@@ -93,6 +114,7 @@ int run_cappella() {
 		return k;
 	};
 
+	int pose_num = 0;
 	Values vals; // a, e, f (jeff), j, n, s (static)
 	for (auto& [username, userinfo] : info) {
 		if (userinfo.is_beacon) {
@@ -106,24 +128,17 @@ int run_cappella() {
 		else {
 			userinfo.pose_key = MK(username, userinfo.I);
 
-			Pose3 prior_VIO_pose(userinfo.gt_poses[0]);
+			Pose3 gt_pose = userinfo.gt_poses[pose_num];
 
-			// You would think that in addition to setting a prior on the first gt_pose
-			// You would also have to set the M_G_U of each user to be their first GT pose.
-			// Because that gives them a proper starting point
-			// Whereas by default get_info is still seeking out the drifted starting point.
-			// I really need to re-vise my parsing code, it's atrocious
 
-			// Really thing I should be setting this here:
+			//Matrix44 HTM_G_U = HTM_L_U * HTM_L_G.inverse();
+			userinfo.M_G_U = userinfo.gt_poses[0].matrix() * userinfo.first_HTM_L_G.inverse();
 
-			userinfo.last_HTM_L_G = Matrix44::Identity();
-			userinfo.last_HTM_G_U = userinfo.gt_poses[0].matrix();
-			userinfo.last_HTM_L_U = userinfo.gt_poses[0].matrix();
-			// Adding this seems like its applying a double rotation.
-			// Could it be because of the filstream wrapped in json::parse()
-			// 
-			//maybe just add a separate field ... instead of last_HTM_G_U change verything to be around M_G_U.
-			// M_G_U should be our first GT pose. im sure of it
+			// Maybe need to apply the full original formula here as youhad it. i.e. first GT pose is NOT M_G_U for whatever reason
+			// i.e. the one to calculate HTM_G_U from an inverse
+			Pose3 prior_VIO_pose(userinfo.gt_poses[pose_num]);
+
+			//userinfo.M_G_U = gt_pose.matrix().inverse();
 
 			userinfo.vio_poses.push_back(prior_VIO_pose);
 			vals.insert(userinfo.pose_key, prior_VIO_pose);
@@ -131,6 +146,17 @@ int run_cappella() {
 		}
 
 	}
+
+	// Doubing the length of VIO trajectory?
+
+	//auto fig = figure(); 
+	//fig->name("nuno trajectory");
+	//title("nuno");
+	//// Also note that these aren't getting rotated by vis_rotation.
+	//draw_basis(Pose3(info["nuno"].M_G_U).rotation().matrix(), info["nuno"].vio_poses[pose_num].translation(), true);
+	//draw_basis(Pose3(info["nuno"].last_HTM_G_U).rotation().matrix(), info["nuno"].vio_poses[pose_num].translation(), false);
+
+	//hold(on);
 
 	//ISAM2Params isam_params;
 	//isam_params.factorization = ISAM2Params::CHOLESKY;
@@ -157,10 +183,11 @@ int run_cappella() {
 			u.I++;
 
 			u.last_HTM_L_G = HTM_L_G;
-			Matrix44 pose_matrix_U = u.last_HTM_G_U * HTM_L_G;
+			Matrix44 pose_matrix_U = u.M_G_U * HTM_L_G;
+			//Matrix44 pose_matrix_U = u.last_HTM_G_U * HTM_L_G;
 
 			Pose3 pose(pose_matrix_U);
-			Pose3 last_pose = u.vio_poses.back(); // segfault
+			Pose3 last_pose = u.vio_poses.back();
 			u.vio_poses.push_back(pose);
 
 			Pose3 odometry = last_pose.between(pose);

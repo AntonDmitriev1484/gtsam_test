@@ -1,5 +1,14 @@
 #include "utils.h"
 
+Matrix44 get_vis_rotation() {
+	Matrix44 vis_rotation = Matrix::Zero(4, 4);
+	vis_rotation(0, 0) = 1;
+	vis_rotation(2, 1) = 1;
+	vis_rotation(1, 2) = 1;
+	vis_rotation(3, 3) = 1;
+	return vis_rotation;
+}
+
 void draw_vector(Vector3 start, Vector3 end, string color) {
 
 	hold(on);
@@ -18,7 +27,6 @@ void draw_coordinate_frame_axes(Rot3 rot_S_to_R, Vector3 loc_R) {
 	hold(on);
 
 	Rot3 T = rot_S_to_R;
-	Matrix33 M = rot_S_to_R.matrix();
 	// I think the rotator is somehow re-scaling the vectors in transform?
 
 	Rot3 x_axis();
@@ -45,7 +53,13 @@ void draw_coordinate_frame_axes(Rot3 rot_S_to_R, Vector3 loc_R) {
 
 void draw_basis(Matrix33 basis, Vector3 loc, bool as_reference_frame) {
 	//hold(on);
-	double length = 0.25;
+
+	Matrix44 vis_rotation(get_vis_rotation());
+
+	basis = Pose3(vis_rotation).rotation().matrix() * basis;
+	loc = Pose3(vis_rotation).rotation().matrix() * loc;
+
+	double length = 1;
 	if (as_reference_frame) {
 		string color = "black";
 		draw_vector(loc, loc + length * basis.col(0), color);
@@ -65,11 +79,7 @@ void draw_trajectory(vector<Pose3> trajectory, string color) {
 	//hold(on);
 
 	// For cappella (AND ONLY CAPPELLA) we rotate every trajectory s.t. y is facing up
-	Matrix44 vis_rotation = Matrix::Zero(4, 4);
-	vis_rotation(0, 0) = 1;
-	vis_rotation(2, 1) = 1;
-	vis_rotation(1, 2) = 1;
-	vis_rotation(3, 3) = 1;
+	Matrix44 vis_rotation = get_vis_rotation();
 	vector<Pose3> trajectory_cp(trajectory); // Deep copy and rotate each element
 	for (int i = 0; i < trajectory_cp.size(); i++) trajectory_cp[i] = Pose3(vis_rotation) * trajectory_cp[i];
 
@@ -89,11 +99,7 @@ void draw_points(vector<Pose3> points, string color) {
 	//hold(on);
 
 		// For cappella (AND ONLY CAPPELLA) we rotate every trajectory s.t. y is facing up
-	Matrix44 vis_rotation = Matrix::Zero(4, 4);
-	vis_rotation(0, 0) = 1;
-	vis_rotation(2, 1) = 1;
-	vis_rotation(1, 2) = 1;
-	vis_rotation(3, 3) = 1;
+	Matrix44 vis_rotation = get_vis_rotation();
 	vector<Pose3> trajectory_cp(points); // Deep copy and rotate each element
 	for (int i = 0; i < trajectory_cp.size(); i++) trajectory_cp[i] = Pose3(vis_rotation) * trajectory_cp[i];
 
