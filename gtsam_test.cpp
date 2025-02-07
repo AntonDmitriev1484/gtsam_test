@@ -42,13 +42,6 @@ int run_cappella() {
 	map<string, tracking_info> info;
 	get_info(sensor_stream, info);
 
-	// Data is collected with Y as the up-axis, adjust data for Z to be on the up-axis
-	Matrix44 vis_rotation = Matrix::Zero(4, 4);
-	vis_rotation(0, 0) = 1;
-	vis_rotation(2, 1) = 1;
-	vis_rotation(1, 2) = 1;
-	vis_rotation(3, 3) = 1;
-
 	// --- Noise Models ---
 
 	// VIO Prior Noise Model
@@ -106,7 +99,7 @@ int run_cappella() {
 		else {
 			userinfo.pose_key = MK(username, userinfo.I);
 
-			Matrix44 prior_pose_matrix(vis_rotation * userinfo.last_HTM_G_U * userinfo.first_HTM_L_G);
+			Matrix44 prior_pose_matrix(userinfo.last_HTM_G_U * userinfo.first_HTM_L_G);
 
 			Pose3 prior_VIO_pose(prior_pose_matrix);
 			userinfo.vio_poses.push_back(prior_VIO_pose);
@@ -136,7 +129,7 @@ int run_cappella() {
 			u.I++;
 
 			u.last_HTM_L_G = HTM_L_G;
-			Matrix44 pose_matrix_U = vis_rotation * u.last_HTM_G_U * HTM_L_G;
+			Matrix44 pose_matrix_U =  u.last_HTM_G_U * HTM_L_G;
 
 			Pose3 pose(pose_matrix_U);
 			Pose3 last_pose = u.vio_poses.back(); // segfault
@@ -170,16 +163,13 @@ int run_cappella() {
 
 			for (int i = 0; i < users.size(); i++) {
 				tracking_info& u = info.at(users[i]);
-				//u.I++;
 
-				Matrix44 pose_matrix_U = vis_rotation * HTM_L_U_per_user[i];
+				Matrix44 pose_matrix_U = HTM_L_U_per_user[i];
+
 				Pose3 GT_pose(pose_matrix_U);
 				u.gt_poses.push_back(GT_pose);
 
 				graph->add(PriorFactor<Pose3>(MK(users[i], u.I), GT_pose, GT_noise_model));
-				// Adding a prior factor does not influence the path whatsoever
-
-				//vals.insert(MK(users[i], u.I), GT_pose); // vio pose gets bound as the initial estimate to this key.
 			}
 
 		}
@@ -212,18 +202,18 @@ int run_cappella() {
 	////GaussNewtonOptimizer optimizer(*graph, vals, params);
 
 	// NOTE: Comment this out if you're going to write the data. Keep it in if you want to visualize each optimization step.
-	//double last_error;
-	//do {
-	//	last_error = optimizer.error();
-	//	optimizer.iterate();
+	double last_error;
+	do {
+		last_error = optimizer.error();
+		optimizer.iterate();
 
-	//	unpack_results(optimizer.values(), MK, info);
-	//	PLOT_FOR_USERS(info, show_plots_for);
-	//	clear_results(info); // clear Est_poses trajectory
+		unpack_results(optimizer.values(), MK, info);
+		PLOT_FOR_USERS(info, show_plots_for);
+		clear_results(info); // clear Est_poses trajectory
 
-	//} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
-	//show();
-	//cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
+	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
+	show();
+	cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
 
 
 	// NOTE: Comment this in when you're ready to write the data
@@ -238,8 +228,10 @@ int run_cappella() {
 	//graph->print();
 
 	//show();
-	unpack_results(optimizer.values(), MK, info);
-	dump_reconstructed_trajectories(info, output_filename);
+
+
+	//unpack_results(optimizer.values(), MK, info);
+	//dump_reconstructed_trajectories(info, output_filename);
 
 
 	return 0;
