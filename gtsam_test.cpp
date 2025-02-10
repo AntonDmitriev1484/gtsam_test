@@ -250,16 +250,16 @@ void mini_uwb_static_anchors() {
 
 	// Generate drifted VIO poses
 	vector<Pose3> vio_trajectory;
-	Pose3 offset_vio(initial_rot, Point3(0,0,0)); // Assume VIO starts at some initial offset, like is present in my U-rotated data
+	Pose3 offset_vio(Rot3::Identity(), Point3(0, 0, 0)); // Assume no offset from initial GT pose
 	vio_trajectory.push_back(offset_vio * initial_pose);
 
 	// VIO noise model
-	//double vio_ori_stdev = 0.175; // rad->~10degrees
-	//double vio_pos_stdev = 0.2;
+	double vio_ori_stdev = 0.175; // rad->~10degrees
+	double vio_pos_stdev = 0.2;
 	//double vio_ori_stdev = 0.075;
 	//double vio_pos_stdev = 0.1;
-	double vio_ori_stdev = 0.0075;
-	double vio_pos_stdev = 0.01;
+	//double vio_ori_stdev = 0.0075;
+	//double vio_pos_stdev = 0.01;
 	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
 
 
@@ -286,14 +286,17 @@ void mini_uwb_static_anchors() {
 	}
 
 
-	// Generate UWB Anchor locations
+	// Generate (3) UWB Anchor locations
 	// Maybe just use one anchor for this example
-	Point3 anchor(0, 0, 0);
-	vals.insert(MK("a", 0), anchor);
-	graph->addPrior<Point3>(MK("a", 0), anchor, noiseModel::Diagonal::Sigmas(Vector3(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev)));
+	vector<Point3> anchors = { Point3(0, 0, 0), Point3(10,20,20), Point3(-5,10,30), Point3(10, 0 , 8)};
+	for (int i = 0; i < anchors.size(); i++) {
+		vals.insert(MK("a", i), anchors[i]);
+		graph->addPrior<Point3>(MK("a", i), anchors[i], noiseModel::Diagonal::Sigmas(Vector3(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev)));
+	}
+
 
 	// UWB noise model
-	double uwb_stdev = 0.1;
+	double uwb_stdev = 0.01;
 	// These actually both behave the same way
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev); // Apparently this is the correct noise model for a range
 	//noiseModel::Diagonal::shared_ptr UWB_noise_model = noiseModel::Diagonal::Sigmas(Vector1(uwb_stdev));
@@ -310,9 +313,14 @@ void mini_uwb_static_anchors() {
 		if (i % 3 == 0) {
 			// Add UWB ranging factor
 
-			double true_distance = distance3(true_trajectory[i].translation(), anchor);
-			graph->add(RangeFactor<Pose3, Point3, double>(MK("x", i), MK("a",0), true_distance, UWB_noise_model));
+			for (int j = 0; j < anchors.size(); j++) {
 
+				double true_distance = distance3(true_trajectory[i].translation(), anchors[j]);
+				// Maybe the distance vector between points isn't what's supposed to get passed in????
+
+				graph->add(RangeFactor<Pose3, Point3>(MK("x", i), MK("a", j), true_distance, UWB_noise_model));
+
+			}
 			//hold(on);
 			//draw_vector(anchor, true_trajectory[i].translation(), "black");
 		}
