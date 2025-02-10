@@ -236,27 +236,38 @@ void mini_uwb_static_anchors() {
 		true_trajectory.push_back(d_pose * true_trajectory.back());
 	}
 
-	// Generate GT points that we would like to fuse to
+	
+	// GT Noise model
 	double gt_pos_stdev = 0.01;
 	double gt_ori_stdev = 0.0174533;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
 
+	// Discrete GT points
 	vector<Pose3> gt_points;
 	for (int i = 0; i < N_poses; i += 3) {
 		gt_points.push_back(true_trajectory[i]);
 	}
 
-
 	// Generate drifted VIO poses
 	vector<Pose3> vio_trajectory;
-	Pose3 offset_vio(initial_rot, Point3(-0.5, 0.25, 0.2)); // Assume VIO starts at some initial offset, like is present in my U-rotated data
+	Pose3 offset_vio(initial_rot, Point3(0,0,0)); // Assume VIO starts at some initial offset, like is present in my U-rotated data
 	vio_trajectory.push_back(offset_vio * initial_pose);
 
 	// VIO noise model
-	double vio_ori_stdev = 0.175; // rad->~10degrees
-	double vio_pos_stdev = 0.2;
+	//double vio_ori_stdev = 0.175; // rad->~10degrees
+	//double vio_pos_stdev = 0.2;
+	//double vio_ori_stdev = 0.075;
+	//double vio_pos_stdev = 0.1;
+	double vio_ori_stdev = 0.0075;
+	double vio_pos_stdev = 0.01;
 	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
-	graph->addPrior<Pose3>(MK("x", 0), vio_trajectory[0], VIO_pose_noise_model);
+
+
+	// Seems the first VIO point gets moved very far off from where its supposed to be.
+	// Adding a stronger prior on the first pose, does seem to keep our trajectory locked on to that point.
+	// I think maybe this is just showing that one anchor isn't enough to properly constrain the trajectory
+
+	graph->addPrior<Pose3>(MK("x", 0), vio_trajectory[0], GT_noise_model); 
 	Values vals;
 	vals.insert(MK("x", 0), vio_trajectory[0]);
 
@@ -267,11 +278,9 @@ void mini_uwb_static_anchors() {
 		sin(theta_drift), cos(theta_drift), 0,
 		0, 0, 1;
 	Rot3 drift_rot(drift_rot_mat);
-
 	Pose3 drift_vio(drift_rot, Point3(+0.0, +0.02, 0));
 
 	for (int i = 1; i < N_poses; i++) {
-
 		Pose3 vio_pose = (d_pose * drift_vio) * vio_trajectory.back();
 		vio_trajectory.push_back(vio_pose);
 	}
@@ -279,25 +288,21 @@ void mini_uwb_static_anchors() {
 
 	// Generate UWB Anchor locations
 	// Maybe just use one anchor for this example
-	// 
-	//Pose3 anchor(Rot3::Identity(), Point3(0, 0, 0))
 	Point3 anchor(0, 0, 0);
 	vals.insert(MK("a", 0), anchor);
 	graph->addPrior<Point3>(MK("a", 0), anchor, noiseModel::Diagonal::Sigmas(Vector3(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev)));
 
-
-
 	// UWB noise model
 	double uwb_stdev = 0.1;
+	// These actually both behave the same way
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev); // Apparently this is the correct noise model for a range
-
+	//noiseModel::Diagonal::shared_ptr UWB_noise_model = noiseModel::Diagonal::Sigmas(Vector1(uwb_stdev));
 
 
 	// Main loop !
 
 	for (int i = 1; i < N_poses; i++) {
 
-		
 		vals.insert(MK("x", i), vio_trajectory[i]);
 		Pose3 odometry = vio_trajectory.back().between(vio_trajectory[i]);
 		graph->add(BetweenFactor<Pose3>(MK("x", i - 1), MK("x", i), odometry, VIO_pose_noise_model));
@@ -305,27 +310,31 @@ void mini_uwb_static_anchors() {
 		if (i % 3 == 0) {
 			// Add UWB ranging factor
 
-			double true_distance = norm3(anchor - true_trajectory[i].translation()); // make sure norm3 is correct
+			double true_distance = distance3(true_trajectory[i].translation(), anchor);
 			graph->add(RangeFactor<Pose3, Point3, double>(MK("x", i), MK("a",0), true_distance, UWB_noise_model));
-			//graph->add(RangeFactor<Pose3, Pose3, double>(MK("a", 0), MK("x", i), true_distance, UWB_noise_model));
 
+			//hold(on);
+			//draw_vector(anchor, true_trajectory[i].translation(), "black");
 		}
 	}
-
-
 
 	LevenbergMarquardtParams params;
 	LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
 
-	// TODO: FIX this plotting code for the showing optimizer results, but I believe I've set up all priors / factors
 	double last_error;
 	do {
 		last_error = optimizer.error();
 		optimizer.iterate();
 
+		Values v = optimizer.values();
+
 		vector<Pose3> est_trajectory;
-		for (int i = 0; i < N_poses; i++) est_trajectory.push_back(optimizer.values().at<Pose3>(MK("x", i)));
-		//PLOT(true_trajectory, gt_points, est_trajectory, vio_trajectory);
+		for (int i = 0; i < N_poses; i++) est_trajectory.push_back(v.at<Pose3>(MK("x", i)));
+		PLOT(true_trajectory, gt_points, est_trajectory, vio_trajectory);
+
+		Marginals marg(*graph, v);
+
+		cout << "a0 covariance: \n" << marg.marginalCovariance(MK("a", 0)) << endl;
 
 	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
 
@@ -334,19 +343,23 @@ void mini_uwb_static_anchors() {
 	cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
 
 
-	// Matplot has very buggy interactions with functions and macros
-	//PLOT(true_trajectory, gt_points, vio_trajectory, vio_trajectory);
-	//show();
+	vector<Pose3> est_trajectory;
+	for (int i = 0; i < N_poses; i++) est_trajectory.push_back(optimizer.values().at<Pose3>(MK("x", i)));
+	PLOT(true_trajectory, gt_points, est_trajectory, vio_trajectory);
+	show();
 
-	GraphvizFormatting vizp;
-	vizp.plotFactorPoints = true;
-	//vizp.mergeSimilarFactors = true;
-	vizp.binaryEdges = true;
+	//GraphvizFormatting vizp;
+	//vizp.plotFactorPoints = true;
+	////vizp.mergeSimilarFactors = true;
+	//vizp.binaryEdges = true;
 
-	graph->saveGraph("/home/admitriev/Research/gtsam_test/factor_graphs/factor_graph.dot", optimizer.values(), vizp);
+	//graph->saveGraph("/home/admitriev/Research/gtsam_test/factor_graphs/factor_graph.dot", optimizer.values(), vizp);
 	//graph->print();
 
 	//show();
+
+	// Increasing anchors should bring us closer to GT
+	// Increasing VIO noise , decreasing UWB noise should bring us closer to GT
 }
 
 
