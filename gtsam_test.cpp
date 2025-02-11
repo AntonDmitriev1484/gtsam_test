@@ -254,10 +254,12 @@ void mini_uwb_static_anchors() {
 	vio_trajectory.push_back(offset_vio * initial_pose);
 
 	// VIO noise model
-	double vio_ori_stdev = 0.175; // rad->~10degrees
-	double vio_pos_stdev = 0.2;
-	//double vio_ori_stdev = 0.075;
-	//double vio_pos_stdev = 0.1;
+	//double vio_ori_stdev = 0.175; // rad->~10degrees
+	//double vio_pos_stdev = 0.2;
+	//double vio_ori_stdev = 0.05; // rad->~10degrees
+	//double vio_pos_stdev = 0.2;
+	double vio_ori_stdev = 0.1;
+	double vio_pos_stdev = 0.1;
 	//double vio_ori_stdev = 0.0075;
 	//double vio_pos_stdev = 0.01;
 	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
@@ -288,10 +290,12 @@ void mini_uwb_static_anchors() {
 
 	// Generate (3) UWB Anchor locations
 	// Maybe just use one anchor for this example
-	vector<Point3> anchors = { Point3(0, 0, 0), Point3(10,20,20), Point3(-5,10,30), Point3(10, 0 , 8)};
+	//vector<Point3> anchors = { Point3(0, 0, 0), Point3(10,20,20), Point3(-5,10,30), Point3(10, 0 , 8)};
+	vector<Point3> anchors = { Point3(0,0,0) };
 	for (int i = 0; i < anchors.size(); i++) {
 		vals.insert(MK("a", i), anchors[i]);
-		graph->addPrior<Point3>(MK("a", i), anchors[i], noiseModel::Diagonal::Sigmas(Vector3(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev)));
+		graph->add(NonlinearEquality<Point3>(MK("a", i), anchors[i]));
+		//graph->addPrior<Point3>(MK("a", i), anchors[i], noiseModel::Diagonal::Sigmas(Vector3(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev)));
 	}
 
 
