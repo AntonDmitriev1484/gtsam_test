@@ -213,7 +213,6 @@ void mini_uwb_static_anchors() {
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
 	//Make Mini-Cappella Graph
 
-
 	// Generate GT path
 	vector<Pose3> true_trajectory;
 	Point3 initial_pos(0, 0, 2);
@@ -236,7 +235,6 @@ void mini_uwb_static_anchors() {
 		true_trajectory.push_back(d_pose * true_trajectory.back());
 	}
 
-	
 	// GT Noise model
 	double gt_pos_stdev = 0.01;
 	double gt_ori_stdev = 0.0174533;
@@ -254,14 +252,8 @@ void mini_uwb_static_anchors() {
 	vio_trajectory.push_back(offset_vio * initial_pose);
 
 	// VIO noise model
-	//double vio_ori_stdev = 0.175; // rad->~10degrees
-	//double vio_pos_stdev = 0.2;
-	//double vio_ori_stdev = 0.05; // rad->~10degrees
-	//double vio_pos_stdev = 0.2;
-	double vio_ori_stdev = 0.1;
-	double vio_pos_stdev = 0.1;
-	//double vio_ori_stdev = 0.0075;
-	//double vio_pos_stdev = 0.01;
+	double vio_ori_stdev = 0.1; // 5.7deg
+	double vio_pos_stdev = 0.1; // 0.1m
 	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
 
 
@@ -288,47 +280,40 @@ void mini_uwb_static_anchors() {
 	}
 
 
-	// Generate (3) UWB Anchor locations
-	// Maybe just use one anchor for this example
-	//vector<Point3> anchors = { Point3(0, 0, 0), Point3(10,20,20), Point3(-5,10,30), Point3(10, 0 , 8)};
-	vector<Point3> anchors = { Point3(0,0,0) };
+	// Generate UWB Anchor location(s)
+	vector<Point3> anchors = { Point3(0, 0, 0), Point3(10,20,20), Point3(-5,10,30), Point3(10, 0 , 8)};
+	//vector<Point3> anchors = { Point3(0,0,0) };
 	for (int i = 0; i < anchors.size(); i++) {
 		vals.insert(MK("a", i), anchors[i]);
 		graph->add(NonlinearEquality<Point3>(MK("a", i), anchors[i]));
 		//graph->addPrior<Point3>(MK("a", i), anchors[i], noiseModel::Diagonal::Sigmas(Vector3(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev)));
 	}
 
-
 	// UWB noise model
-	double uwb_stdev = 0.01;
-	// These actually both behave the same way
-	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev); // Apparently this is the correct noise model for a range
-	//noiseModel::Diagonal::shared_ptr UWB_noise_model = noiseModel::Diagonal::Sigmas(Vector1(uwb_stdev));
-
+	double uwb_stdev = 0.1;
+	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
 	// Main loop !
-
 	for (int i = 1; i < N_poses; i++) {
 
+		// Add odometry factor
 		vals.insert(MK("x", i), vio_trajectory[i]);
 		Pose3 odometry = vio_trajectory.back().between(vio_trajectory[i]);
 		graph->add(BetweenFactor<Pose3>(MK("x", i - 1), MK("x", i), odometry, VIO_pose_noise_model));
 
-		if (i % 3 == 0) {
+		if (i % 1 == 0) {
 			// Add UWB ranging factor
-
 			for (int j = 0; j < anchors.size(); j++) {
-
 				double true_distance = distance3(true_trajectory[i].translation(), anchors[j]);
-				// Maybe the distance vector between points isn't what's supposed to get passed in????
-
 				graph->add(RangeFactor<Pose3, Point3>(MK("x", i), MK("a", j), true_distance, UWB_noise_model));
-
 			}
-			//hold(on);
-			//draw_vector(anchor, true_trajectory[i].translation(), "black");
 		}
 	}
+
+	// The zig-zag shape might be happening because our initial VIO estimate is so far off from the GT
+	// maybe running online here, and basing our VIO estimate off of previous result would fix?
+	// But I tried the same thing to fix the GT reconstruction and it didn't work :(
+
 
 	LevenbergMarquardtParams params;
 	LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
@@ -345,20 +330,44 @@ void mini_uwb_static_anchors() {
 		PLOT(true_trajectory, gt_points, est_trajectory, vio_trajectory);
 
 		Marginals marg(*graph, v);
-
-		cout << "a0 covariance: \n" << marg.marginalCovariance(MK("a", 0)) << endl;
+		//cout << "a0 covariance: \n" << marg.marginalCovariance(MK("a", 0)) << endl;
 
 	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
 
-	//show();
+	cout << " Converged LM in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
 
-	cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
+	DoglegParams DL_params;
+	DoglegOptimizer DL_optimizer(*graph, optimizer.values(), DL_params);
+	last_error=0;
+	do {
+		last_error = DL_optimizer.error();
+		DL_optimizer.iterate();
+
+		Values v = DL_optimizer.values();
+
+		vector<Pose3> est_trajectory;
+		for (int i = 0; i < N_poses; i++) est_trajectory.push_back(v.at<Pose3>(MK("x", i)));
+		PLOT(true_trajectory, gt_points, est_trajectory, vio_trajectory);
+
+		Marginals marg(*graph, v);
+		//cout << "a0 covariance: \n" << marg.marginalCovariance(MK("a", 0)) << endl;
+
+	} while (!checkConvergence(DL_params.relativeErrorTol, DL_params.absoluteErrorTol, DL_params.errorTol, last_error, DL_optimizer.error()));
+
+	cout << " Converged DL in " << DL_optimizer.iterations() << " iterations, with " << DL_optimizer.error() << " final error." << endl; // Currently doing 4 iterations
+
 
 
 	vector<Pose3> est_trajectory;
 	for (int i = 0; i < N_poses; i++) est_trajectory.push_back(optimizer.values().at<Pose3>(MK("x", i)));
 	PLOT(true_trajectory, gt_points, est_trajectory, vio_trajectory);
+	for (int i = 0; i < N_poses; i++) {
+		double true_distance = distance3(true_trajectory[i].translation(), anchors[0]);
+		//cout << "distance3 " << true_distance << "norm3 " << norm3(true_trajectory[i].translation() - anchors[0]) << endl;
+		draw_vector(anchors[0], true_trajectory[i].translation(), "black");
+	}
 	show();
+
 
 	//GraphvizFormatting vizp;
 	//vizp.plotFactorPoints = true;
@@ -369,9 +378,6 @@ void mini_uwb_static_anchors() {
 	//graph->print();
 
 	//show();
-
-	// Increasing anchors should bring us closer to GT
-	// Increasing VIO noise , decreasing UWB noise should bring us closer to GT
 }
 
 
