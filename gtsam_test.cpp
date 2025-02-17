@@ -152,8 +152,11 @@ void mini_gt_reconstruction() {
 		vio_trajectory.push_back(vio_pose);
 	}
 
+	noiseModel::Diagonal::shared_ptr GT_noise_model_test = noiseModel::Diagonal::Sigmas(Vector3(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev));
 	for (int i = 0; i < N_poses; i += 3) {
+		// Cant use Points to initialize prior's on poses.
 		graph->add(PriorFactor<Pose3>(MK("x", i), true_trajectory[i], GT_noise_model));
+		//graph->add(PriorFactor<Point3>(MK("x", i), true_trajectory[i].translation(), GT_noise_model_test));
 	}
 
 
@@ -391,6 +394,8 @@ void mini_uwb_static_anchors() {
 	//}
 	show();
 
+	// IS THIS HAPPENING BECAUSE TRILATERATION CAN CONSTRAIN TO A POINT3, BUT NOT A POSE3?
+
 
 	//GraphvizFormatting vizp;
 	//vizp.plotFactorPoints = true;
@@ -407,6 +412,7 @@ void mini_uwb_static_anchors() {
 int main(int argc, char* argv[]) {
 
 	mini_uwb_static_anchors();
+	//mini_gt_reconstruction();
 
 	return 0;
 }
