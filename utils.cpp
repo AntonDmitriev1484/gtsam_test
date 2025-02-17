@@ -71,6 +71,8 @@ void draw_trajectory(vector<Pose3> trajectory, string color) {
 		xs.push_back(pose.x());
 		ys.push_back(pose.y());
 		zs.push_back(pose.z());
+
+		draw_vector(pose.translation(), pose.translation() + pose.rotation() * Vector3(1, 0, 0), "black");
 	}
 	plot3(xs, ys, zs)->color(color);
 }

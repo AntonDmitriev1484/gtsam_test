@@ -62,7 +62,7 @@ void mini_uwb_static_anchors() {
 	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
 
 	// UWB noise model
-	double uwb_stdev = 0.1;
+	double uwb_stdev = 0.01;
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
 
@@ -120,7 +120,8 @@ void mini_uwb_static_anchors() {
 
 
 	// Generate UWB Anchor location(s)
-	vector<Point3> anchors = { Point3(0, 0, 0), Point3(10,20,20), Point3(-5,10,30), Point3(10, 0 , 8)};
+	//vector<Point3> anchors = { Point3(-10, 0, 0), Point3(0,10,0), Point3(10,0,0), Point3(0, -10 , 20)};
+	vector<Point3> anchors = { Point3(0,0,0) };
 
 	for (int i = 0; i < anchors.size(); i++) {
 		vals.insert(MK("a", i), anchors[i]);
@@ -147,8 +148,12 @@ void mini_uwb_static_anchors() {
 	}
 
 
-	LevenbergMarquardtParams params;
-	LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
+	//LevenbergMarquardtParams params;
+	//LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
+
+	GaussNewtonParams params;
+	GaussNewtonOptimizer optimizer(*graph, vals, params);
+
 	double last_error;
 	do {
 		last_error = optimizer.error();
