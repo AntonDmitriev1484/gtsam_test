@@ -193,7 +193,7 @@ void mini_gt_reconstruction() {
 }
 
 void mini_uwb_static_anchors() {
-
+	freopen("/dev/null", "w", stderr); // To mute Matplot++ errors in output stream
 
 	// Make Key
 	const function<Key(string, int)> MK = [](string username, int I) {
@@ -289,12 +289,12 @@ void mini_uwb_static_anchors() {
 	double uwb_stdev = 0.1;
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
-	ISAM2Params isam_params;
-	isam_params.factorization = ISAM2Params::CHOLESKY;
-	isam_params.relinearizeSkip = 10;
-	ISAM2DoglegParams dogleg;
-	isam_params.optimizationParams = dogleg;
-	ISAM2* isam = new ISAM2(isam_params);
+	//ISAM2Params isam_params;
+	//isam_params.factorization = ISAM2Params::CHOLESKY;
+	//isam_params.relinearizeSkip = 10;
+	//ISAM2DoglegParams dogleg;
+	//isam_params.optimizationParams = dogleg;
+	//ISAM2* isam = new ISAM2(isam_params);
 
 	// Main loop !
 	for (int i = 1; i < N_poses; i++) {
@@ -312,33 +312,52 @@ void mini_uwb_static_anchors() {
 			}
 		}
 
-		isam->update(*graph, vals);
+		//isam->update(*graph, vals);
 		//graph->resize(0); // According to example
 		//vals.clear(); // Still don't quite get why we need this vals.clear();
 	}
 
 
+	// Per this suggestion: https://github.com/borglab/gtsam/issues/248
+	LevenbergMarquardtParams params;
+	LevenbergMarquardtParams::SetCeresDefaults(&params);
+	params.linearSolverType = NonlinearOptimizerParams::MULTIFRONTAL_QR;
+	gtsam::PCGSolverParameters::shared_ptr Pcg =
+		boost::make_shared<gtsam::PCGSolverParameters>();
+	Pcg->preconditioner_ =
+		boost::make_shared<gtsam::BlockJacobiPreconditionerParameters>();
+	// Following is crucial:
+	Pcg->setEpsilon_abs(1e-10);
+	Pcg->setEpsilon_rel(1e-10);
+	params.iterativeParams = Pcg;
 
-	//LevenbergMarquardtParams params;
-	//LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
+	LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
 
-	//double last_error;
-	//do {
-	//	last_error = optimizer.error();
-	//	optimizer.iterate();
+	double last_error;
+	do {
+		last_error = optimizer.error();
+		optimizer.iterate();
 
-	//	Values v = optimizer.values();
+		Values v = optimizer.values();
 
-	//	vector<Pose3> est_trajectory;
-	//	for (int i = 0; i < N_poses; i++) est_trajectory.push_back(v.at<Pose3>(MK("x", i)));
-	//	PLOT(true_trajectory, gt_points, est_trajectory, vio_trajectory);
+		vector<Pose3> est_trajectory;
+		for (int i = 0; i < N_poses; i++) est_trajectory.push_back(v.at<Pose3>(MK("x", i)));
+		PLOT(true_trajectory, gt_points, est_trajectory, vio_trajectory);
 
-	//	Marginals marg(*graph, v);
-	//	//cout << "a0 covariance: \n" << marg.marginalCovariance(MK("a", 0)) << endl;
+		Marginals marg(*graph, v);
 
-	//} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
+		cout << "------------" << endl;
+		for (int i = 0; i < N_poses; i++) {
+			if ( i == 10) cout << "x" << i << " \n" << marg.marginalCovariance(MK("x", i)) << ", ";
+		}
+		cout << endl;
 
-	//cout << " Converged LM in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
+		cout << "Error " << optimizer.error() << endl;
+
+	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
+
+	cout << " Converged LM in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl;
+
 
 	//DoglegParams DL_params;
 	//DoglegOptimizer DL_optimizer(*graph, optimizer.values(), DL_params);
@@ -354,22 +373,22 @@ void mini_uwb_static_anchors() {
 	//	PLOT(true_trajectory, gt_points, est_trajectory, vio_trajectory);
 
 	//	Marginals marg(*graph, v);
-	//	//cout << "a0 covariance: \n" << marg.marginalCovariance(MK("a", 0)) << endl;
 
 	//} while (!checkConvergence(DL_params.relativeErrorTol, DL_params.absoluteErrorTol, DL_params.errorTol, last_error, DL_optimizer.error()));
 
-	//cout << " Converged DL in " << DL_optimizer.iterations() << " iterations, with " << DL_optimizer.error() << " final error." << endl; // Currently doing 4 iterations
+	//cout << " Converged DL in " << DL_optimizer.iterations() << " iterations, with " << DL_optimizer.error() << " final error." << endl;
 
 
+	Values final_vals = optimizer.values();
 	vector<Pose3> est_trajectory;
-	for (int i = 0; i < N_poses; i++) est_trajectory.push_back(isam->calculateBestEstimate().at<Pose3>(MK("x", i)));
+	for (int i = 0; i < N_poses; i++) est_trajectory.push_back(final_vals.at<Pose3>(MK("x", i)));
 	PLOT(true_trajectory, gt_points, est_trajectory, vio_trajectory);
 
-	for (int i = 0; i < N_poses; i++) {
-		double true_distance = distance3(true_trajectory[i].translation(), anchors[0]);
-		//cout << "distance3 " << true_distance << "norm3 " << norm3(true_trajectory[i].translation() - anchors[0]) << endl;
-		draw_vector(anchors[0], true_trajectory[i].translation(), "black");
-	}
+	//for (int i = 0; i < N_poses; i++) {
+	//	double true_distance = distance3(true_trajectory[i].translation(), anchors[0]);
+	//	//cout << "distance3 " << true_distance << "norm3 " << norm3(true_trajectory[i].translation() - anchors[0]) << endl;
+	//	draw_vector(anchors[0], true_trajectory[i].translation(), "black");
+	//}
 	show();
 
 
@@ -379,7 +398,7 @@ void mini_uwb_static_anchors() {
 	//vizp.binaryEdges = true;
 
 	//graph->saveGraph("/home/admitriev/Research/gtsam_test/factor_graphs/factor_graph.dot", optimizer.values(), vizp);
-	//graph->print();
+	graph->print();
 
 	//show();
 }

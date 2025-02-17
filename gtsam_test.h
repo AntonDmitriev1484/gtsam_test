@@ -22,6 +22,9 @@
 #include <gtsam/nonlinear/NonlinearEquality.h>
 #include <gtsam/nonlinear/DoglegOptimizer.h>
 
+#include <gtsam/linear/PCGSolver.h>
+#include <gtsam/linear/Preconditioner.h>
+
 #include <gtsam/nonlinear/Marginals.h>
 
 
