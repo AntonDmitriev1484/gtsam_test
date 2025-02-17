@@ -8,30 +8,6 @@
 using namespace gtsam;
 using namespace std;
 
-#define PLOT_FOR_USERS(INFO, SHOW_LIST) {						           \
-    for (const auto& [user_name, user_info] : INFO) {                      \
-        if (!user_info.is_beacon) {                                        \
-            if (find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
-                auto fig = figure();                                       \
-                fig->name(user_name + " trajectory");                      \
-                title(user_name);                                          \
-                                                                           \
-                hold(on);                                                  \
-                draw_trajectory(user_info.vio_poses, "red");               \
-                hold(on);                                                  \
-                draw_points(user_info.gt_poses, "g");                      \
-                hold(on);                                                  \
-                draw_trajectory(user_info.est_poses, "blue");              \
-                                                                           \
-                xlabel("X (m)");                                           \
-                ylabel("Z (m)");                                           \
-                zlabel("Y (m)");                                           \
-                                                                           \
-            }                                                              \
-        }                                                                  \
-    }                                                                      \
-}
-
 #define PLOT(GT_TRAJECTORY, GT_POINTS, EST_TRAJECTORY, VIO_TRAJECTORY) {			   \
                 auto fig = figure();                                       \
                 fig->name("Trajectory");                      \
@@ -53,149 +29,10 @@ using namespace std;
 				zlim({0,4});												\
 }
 
-
-void mini_gt_reconstruction() {
-
-
-	// Make Key
-	const function<Key(string, int)> MK = [](string username, int I) {
-		Key k;
-		if (username.find("static") != std::string::npos) {
-			regex numberRegex(R"(\d+$)");
-			smatch match;
-			regex_search(username, match, numberRegex);
-			k = symbol('s', stoi(match.str())); // e.x. s11 if 'static11'
-		}
-		else {
-			k = symbol(username[0], I);
-			if (username == "jeff") k = symbol('f', I);
-		}
-		return k;
-	};
-	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
-	//Make Mini-Cappella Graph
-
-
-	// Generate GT path
-	vector<Pose3> true_trajectory;
-	Point3 initial_pos(0, 0, 2);
-
-	Rot3 initial_rot = Rot3::Identity(); // along the +x axis
-	Pose3 initial_pose(initial_rot, initial_pos);
-	true_trajectory.push_back(initial_pose);
-
-	double theta = 0.125; // rad
-	// Rotation about the z-axis by some theta
-	Matrix3 d_rot_mat;
-	d_rot_mat << cos(theta), -sin(theta), 0,
-		sin(theta), cos(theta), 0,
-		0, 0, 1;
-
-	Pose3 d_pose(Rot3(d_rot_mat), Point3(1, 0, 0)); // change in pose is a rotation about z, and movement one unit along the local x-axis
-
-	int N_poses = 25;
-	for (int i = 0; i < N_poses; i++) {
-		true_trajectory.push_back(d_pose * true_trajectory.back());
-	}
-
-	// Generate GT points that we would like to fuse to
-	double gt_pos_stdev = 0.01;
-	double gt_ori_stdev = 0.0174533;
-	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
-
-	vector<Pose3> gt_points;
-	for (int i = 0; i < N_poses; i += 3) {
-		gt_points.push_back(true_trajectory[i]);
-	}
-
-
-
-	// Generate drifted VIO poses
-	vector<Pose3> vio_trajectory;
-	Pose3 offset_vio(Rot3::Identity(), Point3(-0.5, 0.25, 0.2)); // Assume VIO starts at some initial offset, like is present in my U-rotated data
-	vio_trajectory.push_back(offset_vio * initial_pose);
-
-	// VIO Prior Noise Model
-
-	//double os = 0.275;
-	//double ps = 0.5; // Am I sure its orientation first, and not position? IT IS POSITION FIRST: SOURCE: https://github.com/haidai/gtsam/blob/master/examples/VisualISAMExample.cpp
-	//noiseModel::Diagonal::shared_ptr a = noiseModel::Diagonal::Sigmas(Vector6(ps, ps, ps, os, os, os));
-
-	// VIO noise model
-
-	double vio_ori_stdev = 0.175; // rad->~10degrees
-	double vio_pos_stdev = 0.2;
-	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
-	graph->addPrior<Pose3>(MK("x", 0), vio_trajectory[0], VIO_pose_noise_model);
-	Values vals;
-	vals.insert(MK("x", 0), vio_trajectory[0]);
-
-
-	double theta_drift = 0.03;
-	Matrix3 drift_rot_mat;
-	drift_rot_mat << cos(theta_drift), -sin(theta_drift), 0,
-		sin(theta_drift), cos(theta_drift), 0,
-		0, 0, 1;
-	Rot3 drift_rot(drift_rot_mat);
-
-	Pose3 drift_vio(Rot3::Identity(), Point3(-0.1, 0.07, -0.07));
-
-	for (int i = 1; i < N_poses; i++) {
-		Pose3 vio_pose = (d_pose * drift_vio) * vio_trajectory.back();
-
-		vals.insert(MK("x", i), vio_pose);
-		// I think odometry should be a pose thats the PHYSICAL DIFFERENCE between two vio_poses!
-		Pose3 odometry = vio_trajectory.back().between(vio_pose);
-		graph->add(BetweenFactor<Pose3>(MK("x", i - 1), MK("x", i), odometry, VIO_pose_noise_model));
-
-
-		vio_trajectory.push_back(vio_pose);
-	}
-
-	for (int i = 0; i < N_poses; i += 3) {
-		graph->add(PriorFactor<Pose3>(MK("x", i), true_trajectory[i], GT_noise_model));
-	}
-
-
-	LevenbergMarquardtParams params;
-	LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
-
-	// TODO: FIX this plotting code for the showing optimizer results, but I believe I've set up all priors / factors
-	double last_error;
-	do {
-		last_error = optimizer.error();
-		optimizer.iterate();
-
-		vector<Pose3> est_trajectory;
-		for (int i = 0; i < N_poses; i++) est_trajectory.push_back(optimizer.values().at<Pose3>(MK("x", i)));
-		PLOT(true_trajectory, gt_points, est_trajectory, vio_trajectory);
-
-	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
-
-	show();
-
-	cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
-
-
-
-	PLOT(true_trajectory, gt_points, vio_trajectory, vio_trajectory);
-	show();
-
-	//GraphvizFormatting vizp;
-	//vizp.plotFactorPoints = true;
-	////vizp.mergeSimilarFactors = true;
-	//vizp.binaryEdges = true;
-
-	//graph->saveGraph("/home/admitriev/Research/gtsam_test/factor_graphs/factor_graph.dot", optimizer.values(), vizp);
-	//graph->print();
-
-	//show();
-}
-
 void mini_uwb_static_anchors() {
 	freopen("/dev/null", "w", stderr); // To mute Matplot++ errors in output stream
 
-	// Make Key
+	// Make Key lambda
 	const function<Key(string, int)> MK = [](string username, int I) {
 		Key k;
 		if (username.find("static") != std::string::npos) {
@@ -211,34 +48,46 @@ void mini_uwb_static_anchors() {
 		return k;
 	};
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
-	//Make Mini-Cappella Graph
 
-	// Generate GT path
-	vector<Pose3> true_trajectory;
-	Point3 initial_pos(0, 0, 2);
-
-	Rot3 initial_rot = Rot3::Identity(); // along the +x axis
-	Pose3 initial_pose(initial_rot, initial_pos);
-	true_trajectory.push_back(initial_pose);
-
-	double theta = 0.125; // rad
-	// Rotation about the z-axis by some theta
-	Matrix3 d_rot_mat;
-	d_rot_mat << cos(theta), -sin(theta), 0,
-		sin(theta), cos(theta), 0,
-		0, 0, 1;
-
-	Pose3 d_pose(Rot3(d_rot_mat), Point3(1, 0, 0)); // change in pose is a rotation about z, and movement one unit along the local x-axis
-
-	int N_poses = 25;
-	for (int i = 0; i < N_poses; i++) {
-		true_trajectory.push_back(d_pose * true_trajectory.back());
-	}
+	// Define noise models:
 
 	// GT Noise model
 	double gt_pos_stdev = 0.01;
 	double gt_ori_stdev = 0.0174533;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
+
+	// VIO noise model
+	double vio_ori_stdev = 0.1; // 5.7deg
+	double vio_pos_stdev = 0.05; // 5cm
+	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
+
+	// UWB noise model
+	double uwb_stdev = 0.1;
+	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
+
+
+
+
+	// -> Generate GT trajectory
+	vector<Pose3> true_trajectory;
+	Point3 initial_pos(0, 0, 2);
+
+	Rot3 initial_rot = Rot3::Identity(); // along the +x axis
+	Pose3 initial_pose(initial_rot, initial_pos);
+	true_trajectory.push_back(initial_pose);
+
+	double theta = 0.125; // Rotation about the z-axis by some radians
+	Matrix3 d_rot_mat;
+	d_rot_mat << cos(theta), -sin(theta), 0,
+		sin(theta), cos(theta), 0,
+		0, 0, 1;
+
+	Pose3 d_pose(Rot3(d_rot_mat), Point3(1, 0, 0));
+
+	int N_poses = 25;
+	for (int i = 0; i < N_poses; i++) {
+		true_trajectory.push_back(d_pose * true_trajectory.back());
+	}
 
 	// Discrete GT points
 	vector<Pose3> gt_points;
@@ -246,21 +95,15 @@ void mini_uwb_static_anchors() {
 		gt_points.push_back(true_trajectory[i]);
 	}
 
-	// Generate drifted VIO poses
+	// -> Generate drifted VIO trajectory
 	vector<Pose3> vio_trajectory;
 	Pose3 offset_vio(Rot3::Identity(), Point3(0, 0, 0)); // Assume no offset from initial GT pose
 	vio_trajectory.push_back(offset_vio * initial_pose);
-
-	// VIO noise model
-	double vio_ori_stdev = 0.1; // 5.7deg
-	double vio_pos_stdev = 0.05; // 5cm
-	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
 
 
 	graph->addPrior<Pose3>(MK("x", 0), vio_trajectory[0], GT_noise_model); 
 	Values vals;
 	vals.insert(MK("x", 0), vio_trajectory[0]);
-
 
 	double theta_drift = -0.04;
 	Matrix3 drift_rot_mat;
@@ -278,27 +121,16 @@ void mini_uwb_static_anchors() {
 
 	// Generate UWB Anchor location(s)
 	vector<Point3> anchors = { Point3(0, 0, 0), Point3(10,20,20), Point3(-5,10,30), Point3(10, 0 , 8)};
-	//vector<Point3> anchors = { Point3(0,0,0) };
+
 	for (int i = 0; i < anchors.size(); i++) {
 		vals.insert(MK("a", i), anchors[i]);
+		// Per suggestion at: https://groups.google.com/g/gtsam-users/c/vgczSzeYdoM/m/d7_b_WzYAQAJ
 		graph->add(NonlinearEquality<Point3>(MK("a", i), anchors[i]));
 		//graph->addPrior<Point3>(MK("a", i), anchors[i], noiseModel::Diagonal::Sigmas(Vector3(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev)));
 	}
 
-	// UWB noise model
-	double uwb_stdev = 0.1;
-	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
-
-	//ISAM2Params isam_params;
-	//isam_params.factorization = ISAM2Params::CHOLESKY;
-	//isam_params.relinearizeSkip = 10;
-	//ISAM2DoglegParams dogleg;
-	//isam_params.optimizationParams = dogleg;
-	//ISAM2* isam = new ISAM2(isam_params);
-
-	// Main loop !
+	// Main loop: Building the graph !
 	for (int i = 1; i < N_poses; i++) {
-
 		// Add odometry factor
 		vals.insert(MK("x", i), vio_trajectory[i]);
 		Pose3 odometry = vio_trajectory.back().between(vio_trajectory[i]);
@@ -312,27 +144,11 @@ void mini_uwb_static_anchors() {
 			}
 		}
 
-		//isam->update(*graph, vals);
-		//graph->resize(0); // According to example
-		//vals.clear(); // Still don't quite get why we need this vals.clear();
 	}
 
 
-	// Per this suggestion: https://github.com/borglab/gtsam/issues/248
 	LevenbergMarquardtParams params;
-	LevenbergMarquardtParams::SetCeresDefaults(&params);
-	params.linearSolverType = NonlinearOptimizerParams::MULTIFRONTAL_QR;
-	gtsam::PCGSolverParameters::shared_ptr Pcg =
-		boost::make_shared<gtsam::PCGSolverParameters>();
-	Pcg->preconditioner_ =
-		boost::make_shared<gtsam::BlockJacobiPreconditionerParameters>();
-	// Following is crucial:
-	Pcg->setEpsilon_abs(1e-10);
-	Pcg->setEpsilon_rel(1e-10);
-	params.iterativeParams = Pcg;
-
 	LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
-
 	double last_error;
 	do {
 		last_error = optimizer.error();
@@ -359,48 +175,14 @@ void mini_uwb_static_anchors() {
 	cout << " Converged LM in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl;
 
 
-	//DoglegParams DL_params;
-	//DoglegOptimizer DL_optimizer(*graph, optimizer.values(), DL_params);
-	//last_error=0;
-	//do {
-	//	last_error = DL_optimizer.error();
-	//	DL_optimizer.iterate();
-
-	//	Values v = DL_optimizer.values();
-
-	//	vector<Pose3> est_trajectory;
-	//	for (int i = 0; i < N_poses; i++) est_trajectory.push_back(v.at<Pose3>(MK("x", i)));
-	//	PLOT(true_trajectory, gt_points, est_trajectory, vio_trajectory);
-
-	//	Marginals marg(*graph, v);
-
-	//} while (!checkConvergence(DL_params.relativeErrorTol, DL_params.absoluteErrorTol, DL_params.errorTol, last_error, DL_optimizer.error()));
-
-	//cout << " Converged DL in " << DL_optimizer.iterations() << " iterations, with " << DL_optimizer.error() << " final error." << endl;
-
-
 	Values final_vals = optimizer.values();
 	vector<Pose3> est_trajectory;
 	for (int i = 0; i < N_poses; i++) est_trajectory.push_back(final_vals.at<Pose3>(MK("x", i)));
 	PLOT(true_trajectory, gt_points, est_trajectory, vio_trajectory);
 
-	//for (int i = 0; i < N_poses; i++) {
-	//	double true_distance = distance3(true_trajectory[i].translation(), anchors[0]);
-	//	//cout << "distance3 " << true_distance << "norm3 " << norm3(true_trajectory[i].translation() - anchors[0]) << endl;
-	//	draw_vector(anchors[0], true_trajectory[i].translation(), "black");
-	//}
 	show();
 
-
-	//GraphvizFormatting vizp;
-	//vizp.plotFactorPoints = true;
-	////vizp.mergeSimilarFactors = true;
-	//vizp.binaryEdges = true;
-
-	//graph->saveGraph("/home/admitriev/Research/gtsam_test/factor_graphs/factor_graph.dot", optimizer.values(), vizp);
 	graph->print();
-
-	//show();
 }
 
 
