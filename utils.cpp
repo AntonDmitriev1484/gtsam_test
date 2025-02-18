@@ -75,6 +75,22 @@ void draw_trajectory(vector<Pose3> trajectory, string color) {
 	plot3(xs, ys, zs)->color(color);
 }
 
+void draw_trajectory_with_orientation(vector<Pose3> trajectory, string color) {
+	//hold(on);
+
+	vector<float> xs;
+	vector<float> ys;
+	vector<float> zs;
+	for (Pose3 pose : trajectory) {
+		xs.push_back(pose.x());
+		ys.push_back(pose.y());
+		zs.push_back(pose.z());
+
+		draw_vector(pose.translation(), pose.translation() + pose.rotation() * Vector3(1, 0, 0), "black");
+	}
+	plot3(xs, ys, zs)->color(color);
+}
+
 void draw_points(vector<Pose3> points, string color) {
 	//hold(on);
 
