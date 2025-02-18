@@ -26,7 +26,7 @@ using namespace std;
                 ylabel("Y (m)");                                           \
                 zlabel("Z (m)");                                           \
                                                                            \
-				zlim({0,4});												\
+				zlim({-30,30});												\
 }
 
 void mini_uwb_static_anchors() {
@@ -62,7 +62,7 @@ void mini_uwb_static_anchors() {
 	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
 
 	// UWB noise model
-	double uwb_stdev = 0.01;
+	double uwb_stdev = 0.1;
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
 
@@ -144,15 +144,18 @@ void mini_uwb_static_anchors() {
 				graph->add(RangeFactor<Pose3, Point3>(MK("x", i), MK("a", j), true_distance, UWB_noise_model));
 			}
 		}
-
 	}
 
 
-	//LevenbergMarquardtParams params;
-	//LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
+	LevenbergMarquardtParams params;
+	//params.lambdaInitial = 1.0;   // Initial damping value
+	//params.lambdaFactor = 10.0;   // Factor by which lambda is increased/decreased
+	//params.lambdaUpperBound = 1e10; // Maximum lambda value
+	//params.lambdaLowerBound = 1e-10; // Minimum lambda value
+	LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
 
-	GaussNewtonParams params;
-	GaussNewtonOptimizer optimizer(*graph, vals, params);
+	//GaussNewtonParams params;
+	//GaussNewtonOptimizer optimizer(*graph, vals, params);
 
 	double last_error;
 	do {
