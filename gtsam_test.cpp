@@ -350,11 +350,11 @@ void mini_uwb_collaborative() {
 	// Generate UWB Anchor location(s)
 	//vector<Point3> anchors = { Point3(-10, 0, 0), Point3(0,10,0), Point3(10,0,0), Point3(0, -10 , 20) };
 	//vector<Point3> anchors = { Point3(0,0,0) };
-	vector<Point3> anchors = {};
+	vector<Pose3> anchors = {};
 
 	for (int i = 0; i < anchors.size(); i++) {
 		vals.insert(MK(-1, i), anchors[i]);
-		graph->add(NonlinearEquality<Point3>(MK(-1, i), anchors[i]));
+		graph->add(NonlinearEquality<Pose3>(MK(-1, i), anchors[i]));
 	}
 
 	// Main loop !
@@ -363,6 +363,7 @@ void mini_uwb_collaborative() {
 		// Add odometry factor to each user path
 		for (int usr = 0; usr < N_users; usr++) {
 			vals.insert(MK(usr, i), vio_trajectory[usr][i]);
+			
 			Pose3 odometry = vio_trajectory[usr].back().between(vio_trajectory[usr][i]);
 			graph->add(BetweenFactor<Pose3>(MK(usr, i - 1), MK(usr, i), odometry, VIO_pose_noise_model));
 		}
@@ -372,14 +373,14 @@ void mini_uwb_collaborative() {
 			// Add UWB ranging factor between each pose pair
 
 			double true_distance = distance3(true_trajectory[0][i].translation(), true_trajectory[1][i].translation());
-			graph->add(RangeFactor<Pose3, Point3>(MK(0, i), MK(1, i), true_distance, UWB_noise_model));
+			graph->add(RangeFactor<Pose3, Pose3>(MK(0, i), MK(1, i), true_distance, UWB_noise_model));
 
 			// And to whatever anchors exist
 
 			for (int usr = 0; usr < N_users; usr++) {
 				for (int j = 0; j < anchors.size(); j++) {
-					double true_distance = distance3(true_trajectory[usr][i].translation(), anchors[j]);
-					graph->add(RangeFactor<Pose3, Point3>(MK(usr, i), MK(-1, j), true_distance, UWB_noise_model));
+					double true_distance = distance3(true_trajectory[usr][i].translation(), anchors[j].translation());
+					graph->add(RangeFactor<Pose3, Pose3>(MK(usr, i), MK(-1, j), true_distance, UWB_noise_model));
 				}
 			}
 
@@ -388,6 +389,9 @@ void mini_uwb_collaborative() {
 
 	}
 
+	graph->print();
+
+	LM_lambda_search_multiuser_graph(graph, vals, vio_trajectory, gt_points, true_trajectory);
 	//LM_lambda_search(graph, vals, vio_trajectory, gt_points, true_trajectory);
 
 

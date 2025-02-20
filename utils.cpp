@@ -145,22 +145,21 @@ void LM_lambda_search_multiuser_graph(NonlinearFactorGraph* graph, Values vals, 
 	// Make Key
 	const function<Key(int, int)> MK = [](int userid, int I) {
 		Key k;
-		string username;
-		if (userid == -1) username = "a";
-		if (userid == 0)  username = "x";
-		if (userid == 1) username = "y";
-
-		regex numberRegex(R"(\d+$)");
-		smatch match;
-		regex_search(username, match, numberRegex);
-		k = symbol('s', stoi(match.str())); // e.x. s11 if 'static11'
+		char username;
+		if (userid == -1) username = 'a';
+		if (userid == 0)  username = 'x';
+		if (userid == 1) username = 'y';
+		k = symbol(username, I); // e.x. s11 if 'static11'
 
 		return k;
 	};
 
 	// Run 1
+	//vector<double> attempt_lambdaInitial = { 10, 1, 0.1, 0.001, 0.0001, 0.00001 };
+	//vector<double> attempt_lambdaFactor = { 100000, 10000, 1000, 100, 10, 7, 5, 3 };
+
 	vector<double> attempt_lambdaInitial = { 10, 1, 0.1, 0.001, 0.0001, 0.00001 };
-	vector<double> attempt_lambdaFactor = { 100000, 10000, 1000, 100, 10, 7, 5, 3 };
+	vector<double> attempt_lambdaFactor = { 7, 5, 3.5, 3 , 2.5, 2, 1.5};
 
 	for (double lambdaInitial : attempt_lambdaInitial) {
 
@@ -172,6 +171,7 @@ void LM_lambda_search_multiuser_graph(NonlinearFactorGraph* graph, Values vals, 
 			lm_params.lambdaFactor = lambdaFactor;
 			lm_params.linearSolverType = NonlinearOptimizerParams::LinearSolverType::MULTIFRONTAL_QR;
 			LevenbergMarquardtOptimizer lm_optimizer(*graph, vals, lm_params);
+
 			Values final_vals = lm_optimizer.optimize();
 
 			int N_users = true_trajectory.size();
@@ -179,7 +179,7 @@ void LM_lambda_search_multiuser_graph(NonlinearFactorGraph* graph, Values vals, 
 			for (int usr = 0; usr < N_users; usr++) {
 
 				vector<Pose3> usr_est_trajectory;
-				for (int i = 0; i < true_trajectory.size() - 1; i++) usr_est_trajectory.push_back(final_vals.at<Pose3>(MK(usr, i)));
+				for (int i = 0; i < true_trajectory[usr].size() - 1; i++) usr_est_trajectory.push_back(final_vals.at<Pose3>(MK(usr, i)));
 				est_trajectory.push_back(usr_est_trajectory);
 				
 			}
