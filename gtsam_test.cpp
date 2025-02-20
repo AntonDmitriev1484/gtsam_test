@@ -247,9 +247,9 @@ void LM_lambda_search(NonlinearFactorGraph* graph, Values vals, vector<Pose3> vi
 
 	// What happens when we limit lambda lower and upper bound?
 
+	// Run 3
 	vector<double> attempt_lambdaInitial = { 10, 5, 1};
 	vector<double> attempt_lambdaFactor = { 100000, 50000 , 1000 };
-
 
 	// Maybe because it does some writing to the graph per solve?
 	// Do i need to make a deep copy of the graph per iteration?
@@ -270,6 +270,51 @@ void LM_lambda_search(NonlinearFactorGraph* graph, Values vals, vector<Pose3> vi
 			Values final_vals = lm_optimizer.optimize();
 			vector<Pose3> est_trajectory;
 			for (int i = 0; i < true_trajectory.size()-1; i++) est_trajectory.push_back(final_vals.at<Pose3>(MK("x", i)));
+
+			PLOT_W_OPT_PARAMS(true_trajectory, gt_points, est_trajectory, vio_trajectory, lambdaInitial, lambdaFactor);
+		}
+	}
+
+	show();
+}
+
+void iSAM_DL_hyperparameter_search(NonlinearFactorGraph* graph, Values vals, vector<Pose3> vio_trajectory, vector<Pose3> gt_points, vector<Pose3> true_trajectory) {
+	const function<Key(string, int)> MK = [](string username, int I) {
+		Key k;
+		if (username.find("static") != std::string::npos) {
+			regex numberRegex(R"(\d+$)");
+			smatch match;
+			regex_search(username, match, numberRegex);
+			k = symbol('s', stoi(match.str())); // e.x. s11 if 'static11'
+		}
+		else {
+			k = symbol(username[0], I);
+			if (username == "jeff") k = symbol('f', I);
+		}
+		return k;
+	};
+
+	// Run 1
+	vector<double> attempt_lambdaInitial = { 10, 1, 0.1, 0.001, 0.0001, 0.00001 };
+	vector<double> attempt_lambdaFactor = { 100000, 10000, 1000, 100, 10, 7, 5, 3 }; // Won't run with 1
+
+
+	for (double lambdaInitial : attempt_lambdaInitial) {
+
+		for (double lambdaFactor : attempt_lambdaFactor) {
+
+			LevenbergMarquardtParams lm_params;
+			lm_params.diagonalDamping = true;
+			lm_params.setlambdaInitial(lambdaInitial);
+			lm_params.lambdaFactor = lambdaFactor;
+			lm_params.linearSolverType = NonlinearOptimizerParams::LinearSolverType::MULTIFRONTAL_QR;
+			LevenbergMarquardtOptimizer lm_optimizer(*graph, vals, lm_params);
+
+
+
+			Values final_vals = lm_optimizer.optimize();
+			vector<Pose3> est_trajectory;
+			for (int i = 0; i < true_trajectory.size() - 1; i++) est_trajectory.push_back(final_vals.at<Pose3>(MK("x", i)));
 
 			PLOT_W_OPT_PARAMS(true_trajectory, gt_points, est_trajectory, vio_trajectory, lambdaInitial, lambdaFactor);
 		}
@@ -311,8 +356,6 @@ void mini_uwb_static_anchors() {
 	double vio_pos_stdev = 0.5; // 5cm
 	//double vio_ori_stdev = 0.1; // 5.7deg
 	//double vio_pos_stdev = 0.05; // 5cm
-	//double vio_ori_stdev = 0.01; // 5.7deg
-	//double vio_pos_stdev = 0.01; // 5cm
 	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
 
 
@@ -381,6 +424,8 @@ void mini_uwb_static_anchors() {
 		graph->add(NonlinearEquality<Point3>(MK("a", i), anchors[i]));
 		//graph->addPrior<Point3>(MK("a", i), anchors[i], noiseModel::Diagonal::Sigmas(Vector3(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev)));
 	}
+
+
 
 	// Main loop !
 	for (int i = 1; i < N_poses; i++) {
