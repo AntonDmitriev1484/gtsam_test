@@ -53,6 +53,78 @@ using namespace std;
     }                                                                      \
 }
 
+#define PLOT_W_OPTIMIZER_PARAMS_FOR_USERS(INFO, SHOW_LIST, LAMBDA, LAMBDA_FACTOR) {			   \
+	 for (const auto& [user_name, user_info] : INFO) {                      \
+			if (!user_info.is_beacon) {                                        \
+				if (find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
+					auto fig = figure();                                       \
+					fig->name("Trajectory");                      \
+					title(user_name+" L="+to_string(LAMBDA)+" LF="+to_string(LAMBDA_FACTOR));                                          \
+																			   \
+					hold(on);                                                  \
+					draw_trajectory(user_info.vio_poses, "red");               \
+					hold(on);													\
+					draw_trajectory(user_info.gt_poses, "green");                      \
+					hold(on);                                                  \
+					draw_trajectory(user_info.est_poses, "blue");              \
+																			   \
+					xlabel("X (m)");                                           \
+					ylabel("Y (m)");                                           \
+					zlabel("Z (m)");                                           \
+																			   \
+				} \
+			} \
+	 } \
+}
+
+// Pass this the graph constructed from our dataset
+void LM_lambda_search(NonlinearFactorGraph* graph, Values vals, map<string, tracking_info> info) {
+	const function<Key(string, int)> MK = [](string username, int I) {
+		Key k;
+		if (username.find("static") != std::string::npos) {
+			regex numberRegex(R"(\d+$)");
+			smatch match;
+			regex_search(username, match, numberRegex);
+			k = symbol('s', stoi(match.str())); // e.x. s11 if 'static11'
+		}
+		else {
+			k = symbol(username[0], I);
+			if (username == "jeff") k = symbol('f', I);
+		}
+		return k;
+	};
+
+	// Run 1
+	vector<double> attempt_lambdaInitial = { 20, 15, 10 };
+	//vector<double> attempt_lambdaInitial = { 10, 1, 0.1, 0.001, 0.0001, 0.00001 };
+	vector<double> attempt_lambdaFactor = { 100000, 10000, 1000, 100, 10, 7, 5, 3 }; // Won't run with 1
+
+	vector<string> show_list = { "nuno" };
+
+	for (double lambdaInitial : attempt_lambdaInitial) {
+
+		for (double lambdaFactor : attempt_lambdaFactor) {
+
+			LevenbergMarquardtParams lm_params;
+			lm_params.diagonalDamping = true;
+			lm_params.setlambdaInitial(lambdaInitial);
+			lm_params.lambdaFactor = lambdaFactor;
+			lm_params.linearSolverType = NonlinearOptimizerParams::LinearSolverType::MULTIFRONTAL_QR;
+			LevenbergMarquardtOptimizer lm_optimizer(*graph, vals, lm_params);
+
+
+			unpack_results(lm_optimizer.optimize(), MK, info);
+			PLOT_W_OPTIMIZER_PARAMS_FOR_USERS(info, show_list, lambdaInitial, lambdaFactor);
+			clear_results(info); // clear Est_poses trajectory
+		}
+	}
+
+	show();
+}
+
+
+
+
 
 int run_cappella() {
 	string raw_filename = "/home/admitriev/Datasets/cappella_data/set_1/bigtest-1floor_sorted.json";
@@ -83,6 +155,8 @@ int run_cappella() {
 
 	double vio_ori_stdev = 0.175; // rad->~10degrees
 	double vio_pos_stdev = 0.2;
+	//double vio_ori_stdev = 0.05; // rad->~10degrees
+	//double vio_pos_stdev = 0.05;
 	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
 
 	// UWB noise model
@@ -123,7 +197,9 @@ int run_cappella() {
 			Pose3 prior_beacon_pose(userinfo.last_HTM_L_U); // Position of beacon in U frame extracted from GT
 
 			vals.insert(userinfo.pose_key, prior_beacon_pose);
-			graph->addPrior(userinfo.pose_key, prior_beacon_pose, GT_noise_model);
+			//graph->addPrior(userinfo.pose_key, prior_beacon_pose, GT_noise_model);
+			graph->add(NonlinearEquality<Pose3>(userinfo.pose_key, prior_beacon_pose)); // Pose or point?
+		
 		}
 		else {
 			userinfo.pose_key = MK(username, userinfo.I);
@@ -146,17 +222,6 @@ int run_cappella() {
 		}
 
 	}
-
-	// Doubing the length of VIO trajectory?
-
-	//auto fig = figure(); 
-	//fig->name("nuno trajectory");
-	//title("nuno");
-	//// Also note that these aren't getting rotated by vis_rotation.
-	//draw_basis(Pose3(info["nuno"].M_G_U).rotation().matrix(), info["nuno"].vio_poses[pose_num].translation(), true);
-	//draw_basis(Pose3(info["nuno"].last_HTM_G_U).rotation().matrix(), info["nuno"].vio_poses[pose_num].translation(), false);
-
-	//hold(on);
 
 	//ISAM2Params isam_params;
 	//isam_params.factorization = ISAM2Params::CHOLESKY;
@@ -205,7 +270,9 @@ int run_cappella() {
 			string src_user, dst_user;
 			get_UWB(mes, src_user, dst_user, range);
 
-			//graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), range, UWB_noise_model));
+			graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), range, UWB_noise_model));
+
+
 
 		}
 		else if (mes["type"] == "gt") {
@@ -218,6 +285,7 @@ int run_cappella() {
 
 	}
 
+	LM_lambda_search(graph, vals, info);
 
 	vector<string> show_plots_for = { "nuno" };
 
@@ -230,31 +298,27 @@ int run_cappella() {
 
 	// Once graph is complete, optimize it offline
 
-	////ConjugateGradientParameters params;
-	////NonlinearConjugateGradientOptimizer optimizer(*graph, vals);
-	////optimizer.optimize(); // Can't iterate over this one w/ the same code
-	////unpack_results_and_plot(optimizer.values(), MK, info, show_plots_for);
 
-	LevenbergMarquardtParams params;
-	LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
+	//LevenbergMarquardtParams params;
+	//LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
 
-	////GaussNewtonParams params;
-	////GaussNewtonOptimizer optimizer(*graph, vals, params);
+	//////GaussNewtonParams params;
+	//////GaussNewtonOptimizer optimizer(*graph, vals, params);
 
-	double last_error;
-	do {
-		last_error = optimizer.error();
-		optimizer.iterate();     
+	//double last_error;
+	//do {
+	//	last_error = optimizer.error();
+	//	optimizer.iterate();     
 
-		unpack_results(optimizer.values(), MK, info);
-		PLOT_FOR_USERS(info, show_plots_for);
-		clear_results(info); // clear Est_poses trajectory
+	//	unpack_results(optimizer.values(), MK, info);
+	//	PLOT_FOR_USERS(info, show_plots_for);
+	//	clear_results(info); // clear Est_poses trajectory
 
-	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
+	//} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
 
-	show();
+	//show();
 
-	cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
+	//cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
 
 	
 	//GraphvizFormatting vizp;

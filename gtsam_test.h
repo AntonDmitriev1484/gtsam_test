@@ -24,6 +24,7 @@
 #include <gtsam/slam/RangeFactor.h>
 #include <gtsam/nonlinear/GaussNewtonOptimizer.h>
 #include <gtsam/nonlinear/NonlinearConjugateGradientOptimizer.h>
+#include <gtsam/nonlinear/NonlinearEquality.h>
 
 
 #include <cctype>
