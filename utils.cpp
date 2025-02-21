@@ -133,7 +133,7 @@ void LM_lambda_search(NonlinearFactorGraph* graph, Values vals, vector<Pose3> vi
 			vector<Pose3> est_trajectory;
 			for (int i = 0; i < true_trajectory.size() - 1; i++) est_trajectory.push_back(final_vals.at<Pose3>(MK("x", i)));
 
-			PLOT_W_OPT_PARAMS(true_trajectory, gt_points, est_trajectory, vio_trajectory, lambdaInitial, lambdaFactor);
+			PLOT_W_LM_PARAMS(true_trajectory, gt_points, est_trajectory, vio_trajectory, lambdaInitial, lambdaFactor);
 		}
 	}
 
@@ -183,56 +183,14 @@ void LM_lambda_search_multiuser_graph(NonlinearFactorGraph* graph, Values vals, 
 				est_trajectory.push_back(usr_est_trajectory);
 				
 			}
-			PLOT_MULTI_W_OPT_PARAMS(N_users, true_trajectory, gt_points, est_trajectory, vio_trajectory, lambdaInitial, lambdaFactor);
+			PLOT_MULTI_W_LM_PARAMS(N_users, true_trajectory, gt_points, est_trajectory, vio_trajectory, lambdaInitial, lambdaFactor);
 		}
 	}
 	show();
 }
 
-void iSAM_DL_hyperparameter_search(NonlinearFactorGraph* graph, Values vals, vector<Pose3> vio_trajectory, vector<Pose3> gt_points, vector<Pose3> true_trajectory) {
-	const function<Key(string, int)> MK = [](string username, int I) {
-		Key k;
-		if (username.find("static") != std::string::npos) {
-			regex numberRegex(R"(\d+$)");
-			smatch match;
-			regex_search(username, match, numberRegex);
-			k = symbol('s', stoi(match.str())); // e.x. s11 if 'static11'
-		}
-		else {
-			k = symbol(username[0], I);
-			if (username == "jeff") k = symbol('f', I);
-		}
-		return k;
-	};
-
-	// Run 1
-	vector<double> attempt_lambdaInitial = { 10, 1, 0.1, 0.001, 0.0001, 0.00001 };
-	vector<double> attempt_lambdaFactor = { 100000, 10000, 1000, 100, 10, 7, 5, 3 }; // Won't run with 1
 
 
-	for (double lambdaInitial : attempt_lambdaInitial) {
-
-		for (double lambdaFactor : attempt_lambdaFactor) {
-
-			LevenbergMarquardtParams lm_params;
-			lm_params.diagonalDamping = true;
-			lm_params.setlambdaInitial(lambdaInitial);
-			lm_params.lambdaFactor = lambdaFactor;
-			lm_params.linearSolverType = NonlinearOptimizerParams::LinearSolverType::MULTIFRONTAL_QR;
-			LevenbergMarquardtOptimizer lm_optimizer(*graph, vals, lm_params);
-
-
-
-			Values final_vals = lm_optimizer.optimize();
-			vector<Pose3> est_trajectory;
-			for (int i = 0; i < true_trajectory.size() - 1; i++) est_trajectory.push_back(final_vals.at<Pose3>(MK("x", i)));
-
-			PLOT_W_OPT_PARAMS(true_trajectory, gt_points, est_trajectory, vio_trajectory, lambdaInitial, lambdaFactor);
-		}
-	}
-
-	show();
-}
 
 
 

@@ -338,7 +338,7 @@ void mini_uwb_collaborative() {
 	gen_multi_user_vio_trajectory_scenario(N_poses, true_trajectory, gt_points, vio_trajectory);
 	int N_users = true_trajectory.size();
 
-	PLOT_MULTI_W_OPT_PARAMS(N_users, true_trajectory, gt_points, vio_trajectory, vio_trajectory, 0, 0);
+	PLOT_MULTI_W_LM_PARAMS(N_users, true_trajectory, gt_points, vio_trajectory, vio_trajectory, 0, 0);
 
 	Values vals;
 	for (int usr = 0 ; usr < N_users; usr++) {
@@ -460,11 +460,164 @@ void mini_uwb_collaborative() {
 	////show();
 }
 
+void iSAM_DL_run(
+	NonlinearFactorGraph* graph, ISAM2* dl_isam, vector<vector<Pose3>>& est_trajectory,
+
+	vector<vector<Pose3>> vio_trajectory, vector<vector<Pose3>> gt_points, vector<vector<Pose3>> true_trajectory,
+	int poses_per_range, int N_poses, int N_users,
+	noiseModel::Diagonal::shared_ptr GT_noise_model,
+	noiseModel::Diagonal::shared_ptr VIO_noise_model,
+	noiseModel::Diagonal::shared_ptr UWB_noise_model) {
+
+	// Make Key
+	const function<Key(int, int)> MK = [](int userid, int I) {
+		Key k;
+		char username;
+		if (userid == -1) username = 'a';
+		if (userid == 0)  username = 'x';
+		if (userid == 1) username = 'y';
+		k = symbol(username, I); // e.x. s11 if 'static11'
+
+		return k;
+	};
+
+	Values initial_estimate;
+
+	// Add priors
+	for (int usr = 0; usr < N_users; usr++) {
+		graph->addPrior<Pose3>(MK(usr, 0), vio_trajectory[usr][0], GT_noise_model);
+		initial_estimate.insert(MK(usr, 0), vio_trajectory[usr][0]);
+		vector<Pose3> et = { vio_trajectory[usr][0] };
+		est_trajectory.push_back(et); // This may crash since the array hasnt been initd yet?
+	}
+
+	vector<Pose3> anchors = {};
+	for (int i = 0; i < anchors.size(); i++) {
+		initial_estimate.insert(MK(-1, i), anchors[i]);
+		graph->add(NonlinearEquality<Pose3>(MK(-1, i), anchors[i]));
+	}
+
+	// Main loop !
+	for (int i = 1; i < N_poses; i++) {
+
+		// Add odometry factor to each user path
+		for (int usr = 0; usr < N_users; usr++) {
+			initial_estimate.insert(MK(usr, i), vio_trajectory[usr][i]);
+
+			Pose3 odometry = vio_trajectory[usr].back().between(vio_trajectory[usr][i]);
+			graph->add(BetweenFactor<Pose3>(MK(usr, i - 1), MK(usr, i), odometry, VIO_noise_model));
+		}
+
+
+		if (i % poses_per_range == 0) {
+			// Add UWB ranging factor between each pose pair
+
+			double true_distance = distance3(true_trajectory[0][i].translation(), true_trajectory[1][i].translation());
+			graph->add(RangeFactor<Pose3, Pose3>(MK(0, i), MK(1, i), true_distance, UWB_noise_model));
+
+			// And to whatever anchors exist
+
+			for (int usr = 0; usr < N_users; usr++) {
+				for (int j = 0; j < anchors.size(); j++) {
+					double true_distance = distance3(true_trajectory[usr][i].translation(), anchors[j].translation());
+					graph->add(RangeFactor<Pose3, Pose3>(MK(usr, i), MK(-1, j), true_distance, UWB_noise_model));
+				}
+			}
+
+		}
+
+		// https://github.com/haidai/gtsam/blob/master/examples/VisualISAM2Example.cpp
+		// Update iSAM with the new factors
+		dl_isam->update(*graph, initial_estimate);
+		// Each call to iSAM2 update(*) performs one iteration of the iterative nonlinear solver.
+		// If accuracy is desired at the expense of time, update(*) can be called additional times
+		// to perform multiple optimizer iterations every step.
+		dl_isam->update();
+		dl_isam->update();
+		Values current_estimate = dl_isam->calculateEstimate();
+
+		for (int usr = 0; usr < N_users; usr++) {
+			est_trajectory[usr].push_back(current_estimate.at<Pose3>(MK(usr, i)));
+		}
+
+		// Clear the factor graph and values for the next iteration
+		graph->resize(0);
+		initial_estimate.clear();
+
+	}
+}
+
+
+void iSAM_DL_hyperparameter_search() {
+	// Make Key
+	const function<Key(int, int)> MK = [](int userid, int I) {
+		Key k;
+		char username;
+		if (userid == -1) username = 'a';
+		if (userid == 0)  username = 'x';
+		if (userid == 1) username = 'y';
+		k = symbol(username, I); // e.x. s11 if 'static11'
+
+		return k;
+	};
+	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
+
+	// Noise models
+	double gt_pos_stdev = 0.01;
+	double gt_ori_stdev = 0.0174533;
+	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
+	double vio_ori_stdev = 0.5; // 5.7deg
+	double vio_pos_stdev = 0.5; // 5cm
+	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
+	double uwb_stdev = 0.1;
+	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
+
+	// Generate data
+	int N_poses = 25;
+	int N_users = 2;
+	vector<vector<Pose3>> true_trajectory, gt_points, vio_trajectory;
+	gen_multi_user_vio_trajectory_scenario(N_poses, true_trajectory, gt_points, vio_trajectory);
+
+	//// Run 1
+	//vector<double> attempt_lambdaInitial = { 10, 1, 0.1, 0.001, 0.0001, 0.00001 };
+	//vector<double> attempt_lambdaFactor = { 100000, 10000, 1000, 100, 10, 7, 5, 3 }; // Won't run with 1
+
+	// Set up D-iSam instance
+	ISAM2Params isam_params;
+	isam_params.factorization = ISAM2Params::QR;
+	isam_params.relinearizeThreshold = 0.1;
+	isam_params.relinearizeSkip = 10;
+	ISAM2DoglegParams dogleg;
+	isam_params.optimizationParams = dogleg;
+	ISAM2* isam = new ISAM2(isam_params);
+
+	// Call function to run online optimization
+
+	vector<vector<Pose3>> est_trajectory; // Will be filled as data is replayed
+	iSAM_DL_run(graph, isam, est_trajectory,
+		vio_trajectory, gt_points, true_trajectory,
+		1, N_poses, N_users,
+		GT_noise_model, VIO_pose_noise_model, UWB_noise_model);
+
+
+	// Plot results
+	PLOT_MULTI(N_users, true_trajectory, gt_points, est_trajectory, vio_trajectory)
+	//PLOT_MULTI_W_LM_PARAMS(N_users, true_trajectory, gt_points, est_trajectory, vio_trajectory, lambdaInitial, lambdaFactor);
+
+	show();
+}
+
+
+
+
+
 int main(int argc, char* argv[]) {
 
 	//mini_uwb_static_anchors();
 	//mini_gt_reconstruction();
-	mini_uwb_collaborative();
+	//mini_uwb_collaborative();
+
+	iSAM_DL_hyperparameter_search();
 
 	return 0;
 }
