@@ -460,11 +460,12 @@ void mini_uwb_collaborative() {
 	////show();
 }
 
+// Intended for the uwb_collaborative, but could probably run it with static anchors also
 void iSAM_DL_run(
 	NonlinearFactorGraph* graph, ISAM2* dl_isam, vector<vector<Pose3>>& est_trajectory,
 
 	vector<vector<Pose3>> vio_trajectory, vector<vector<Pose3>> gt_points, vector<vector<Pose3>> true_trajectory,
-	int poses_per_range, int N_poses, int N_users,
+	int poses_per_range, int N_poses, int N_users, int N_update_calls,
 	noiseModel::Diagonal::shared_ptr GT_noise_model,
 	noiseModel::Diagonal::shared_ptr VIO_noise_model,
 	noiseModel::Diagonal::shared_ptr UWB_noise_model) {
@@ -532,8 +533,7 @@ void iSAM_DL_run(
 		// Each call to iSAM2 update(*) performs one iteration of the iterative nonlinear solver.
 		// If accuracy is desired at the expense of time, update(*) can be called additional times
 		// to perform multiple optimizer iterations every step.
-		dl_isam->update();
-		dl_isam->update();
+		for (int u = 0 ; u < N_update_calls; u++) dl_isam->update();
 		Values current_estimate = dl_isam->calculateEstimate();
 
 		for (int usr = 0; usr < N_users; usr++) {
@@ -572,37 +572,61 @@ void iSAM_DL_hyperparameter_search() {
 	double uwb_stdev = 0.1;
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
-	// Generate data
+	// Generate data for collaborative scenario
 	int N_poses = 25;
 	int N_users = 2;
 	vector<vector<Pose3>> true_trajectory, gt_points, vio_trajectory;
 	gen_multi_user_vio_trajectory_scenario(N_poses, true_trajectory, gt_points, vio_trajectory);
 
 	//// Run 1
-	//vector<double> attempt_lambdaInitial = { 10, 1, 0.1, 0.001, 0.0001, 0.00001 };
-	//vector<double> attempt_lambdaFactor = { 100000, 10000, 1000, 100, 10, 7, 5, 3 }; // Won't run with 1
-
-	// Set up D-iSam instance
-	ISAM2Params isam_params;
-	isam_params.factorization = ISAM2Params::QR;
-	isam_params.relinearizeThreshold = 0.1;
-	isam_params.relinearizeSkip = 10;
-	ISAM2DoglegParams dogleg;
-	isam_params.optimizationParams = dogleg;
-	ISAM2* isam = new ISAM2(isam_params);
-
-	// Call function to run online optimization
-
-	vector<vector<Pose3>> est_trajectory; // Will be filled as data is replayed
-	iSAM_DL_run(graph, isam, est_trajectory,
-		vio_trajectory, gt_points, true_trajectory,
-		1, N_poses, N_users,
-		GT_noise_model, VIO_pose_noise_model, UWB_noise_model);
+	vector<double> try_relinearizeThreshold = { 0.3, 0.2, 0.1, 0.05 };
+	vector<int> try_relinearizeSkip = { 5, 3, 2, 1 };
+	vector<double> try_initialDelta = { 0.5, 0.4, 0.3, 0.2 }; // No clue what units the trust region is in.
+	vector<gtsam::DoglegOptimizerImpl::TrustRegionAdaptationMode> try_adaptationMode = {
+		gtsam::DoglegOptimizerImpl::TrustRegionAdaptationMode::ONE_STEP_PER_ITERATION,
+		gtsam::DoglegOptimizerImpl::TrustRegionAdaptationMode::SEARCH_EACH_ITERATION
+	};
+	vector<int> try_n_update_calls = { 2, 1 };
 
 
-	// Plot results
-	PLOT_MULTI(N_users, true_trajectory, gt_points, est_trajectory, vio_trajectory)
-	//PLOT_MULTI_W_LM_PARAMS(N_users, true_trajectory, gt_points, est_trajectory, vio_trajectory, lambdaInitial, lambdaFactor);
+	for (double relinearizeThreshold : try_relinearizeThreshold) {
+		for (double relinearizeSkip : try_relinearizeSkip) {
+			for (double initialDelta : try_initialDelta) {
+				for (int update_calls : try_n_update_calls) {
+
+					// Set up D-iSam instance
+					ISAM2Params isam_params;
+					isam_params.factorization = ISAM2Params::QR;
+					isam_params.relinearizeThreshold = relinearizeThreshold;
+					isam_params.relinearizeSkip = relinearizeSkip;
+					ISAM2DoglegParams dogleg;
+					dogleg.adaptationMode = gtsam::DoglegOptimizerImpl::TrustRegionAdaptationMode::ONE_STEP_PER_ITERATION;
+					dogleg.initialDelta = initialDelta; // No idea w
+					isam_params.optimizationParams = dogleg;
+					ISAM2* isam = new ISAM2(isam_params);
+
+					// Call function to run online optimization
+
+					vector<vector<Pose3>> est_trajectory; // Will be filled as data is replayed
+					iSAM_DL_run(graph, isam, est_trajectory,
+						vio_trajectory, gt_points, true_trajectory,
+						1, N_poses, N_users, update_calls,
+						GT_noise_model, VIO_pose_noise_model, UWB_noise_model);
+
+
+					// Plot results
+					PLOT_MULTI_W_DISAM_PARAMS(N_users, true_trajectory, gt_points, est_trajectory, vio_trajectory,
+						relinearizeThreshold, relinearizeSkip, initialDelta, update_calls);
+					//PLOT_MULTI_W_LM_PARAMS(N_users, true_trajectory, gt_points, est_trajectory, vio_trajectory, lambdaInitial, lambdaFactor);
+
+
+
+				}
+			}
+		}
+	}
+
+
 
 	show();
 }

@@ -138,3 +138,24 @@ void LM_lambda_search_multiuser_graph(NonlinearFactorGraph* graph, Values vals, 
                                                                            \
 				zlim({-30,30});												\
 }
+
+#define PLOT_MULTI_W_DISAM_PARAMS(N_USERS, GT_TRAJECTORY, GT_POINTS, EST_TRAJECTORY, VIO_TRAJECTORY, RLT, RLS, D, NU) {			   \
+                auto fig = figure();                                       \
+                fig->name("Trajectory");                      \
+				title("Trajectories RLT="+to_string(RLT)+" RLS="+to_string(RLS)+" Delta="+to_string(D)+ " Updates="+to_string(NU));                                          \
+                for (int usr = 0; usr < N_USERS; usr++) { \
+                        hold(on);                                                  \
+                        draw_trajectory(VIO_TRAJECTORY[usr], "red");               \
+                        hold(on);                                                  \
+                        draw_points(GT_POINTS[usr], "green");							\
+                        hold(on);													\
+                        draw_trajectory(GT_TRAJECTORY[usr], "green");                      \
+                        hold(on);                                                  \
+                        draw_trajectory(EST_TRAJECTORY[usr], "blue");              \
+                }                                                                 \
+                xlabel("X (m)");                                           \
+                ylabel("Y (m)");                                           \
+                zlabel("Z (m)");                                           \
+                                                                           \
+				zlim({-30,30});												\
+}
