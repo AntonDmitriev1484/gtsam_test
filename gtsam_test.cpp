@@ -212,7 +212,7 @@ void mini_uwb_static_anchors() {
 
 		// Add odometry factor
 		vals.insert(MK("x", i), vio_trajectory[i]);
-		Pose3 odometry = vio_trajectory.back().between(vio_trajectory[i]);
+		Pose3 odometry = vio_trajectory[i-1].between(vio_trajectory[i]);
 		graph->add(BetweenFactor<Pose3>(MK("x", i - 1), MK("x", i), odometry, VIO_pose_noise_model));
 
 		if (i % 1 == 0) {
@@ -230,7 +230,7 @@ void mini_uwb_static_anchors() {
 
 	}
 
-	//LM_lambda_search(graph, vals, vio_trajectory, gt_points, true_trajectory);
+	LM_lambda_search(graph, vals, vio_trajectory, gt_points, true_trajectory);
 
 
 	//LevenbergMarquardtParams lm_params;
@@ -364,7 +364,7 @@ void mini_uwb_collaborative() {
 		for (int usr = 0; usr < N_users; usr++) {
 			vals.insert(MK(usr, i), vio_trajectory[usr][i]);
 			
-			Pose3 odometry = vio_trajectory[usr].back().between(vio_trajectory[usr][i]);
+			Pose3 odometry = vio_trajectory[usr][i-1].between(vio_trajectory[usr][i]);
 			graph->add(BetweenFactor<Pose3>(MK(usr, i - 1), MK(usr, i), odometry, VIO_pose_noise_model));
 		}
 		
