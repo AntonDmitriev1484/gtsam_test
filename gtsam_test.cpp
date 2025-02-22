@@ -503,10 +503,17 @@ void iSAM_DL_run(
 
 		// Add odometry factor to each user path
 		for (int usr = 0; usr < N_users; usr++) {
-			initial_estimate.insert(MK(usr, i), vio_trajectory[usr][i]);
-
-			Pose3 odometry = vio_trajectory[usr].back().between(vio_trajectory[usr][i]);
-			graph->add(BetweenFactor<Pose3>(MK(usr, i - 1), MK(usr, i), odometry, VIO_noise_model));
+			if (usr == 0 || usr == 1) {
+				// BUG SPOTTED, was using .back() instead of i-1
+				initial_estimate.insert(MK(usr, i), vio_trajectory[usr][i]);
+				Pose3 odometry = vio_trajectory[usr][i-1].between(vio_trajectory[usr][i]);
+				graph->add(BetweenFactor<Pose3>(MK(usr, i - 1), MK(usr, i), odometry, VIO_noise_model));
+			}
+			//else if (usr == 1) { // Set one user to have a much lower noise path
+			//	initial_estimate.insert(MK(usr, i), true_trajectory[usr][i]);
+			//	Pose3 odometry = true_trajectory[usr][i - 1].between(true_trajectory[usr][i]);
+			//	graph->add(BetweenFactor<Pose3>(MK(usr, i - 1), MK(usr, i), odometry, GT_noise_model));
+			//}
 		}
 
 
@@ -566,8 +573,8 @@ void iSAM_DL_hyperparameter_search() {
 	double gt_pos_stdev = 0.01;
 	double gt_ori_stdev = 0.0174533;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
-	double vio_ori_stdev = 0.5; // 5.7deg
-	double vio_pos_stdev = 0.5; // 5cm
+	double vio_ori_stdev = 0.05; // 5.7deg
+	double vio_pos_stdev = 0.05; // 5cm
 	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
 	double uwb_stdev = 0.1;
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
