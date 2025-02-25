@@ -34,8 +34,10 @@ using namespace std;
 
 
 int run_cappella() {
-	string filename = "/home/admitriev/Datasets/cappella_data/set_1/bigtest-1floor_sorted.json";
-	string output_filename = "/home/admitriev/Datasets/cappella_data/set_1/bigtest-1floor_gt_reconstructed.json";
+	string file = "bigtest-1floor";
+	//string file = "los-1floor";
+	string filename = "/home/admitriev/Datasets/cappella_data/set_1/" + file + "_sorted.json";
+	string output_filename = "/home/admitriev/Datasets/cappella_data/set_1/" + file + "_gt_reconstructed.json";
 	ifstream fs(filename);
 
 	json sensor_stream = json::parse(fs);
@@ -202,18 +204,18 @@ int run_cappella() {
 	////GaussNewtonOptimizer optimizer(*graph, vals, params);
 
 	// NOTE: Comment this out if you're going to write the data. Keep it in if you want to visualize each optimization step.
-	double last_error;
-	do {
-		last_error = optimizer.error();
-		optimizer.iterate();
+	//double last_error;
+	//do {
+	//	last_error = optimizer.error();
+	//	optimizer.iterate();
 
-		unpack_results(optimizer.values(), MK, info);
-		PLOT_FOR_USERS(info, show_plots_for);
-		clear_results(info); // clear Est_poses trajectory
+	//	unpack_results(optimizer.values(), MK, info);
+	//	PLOT_FOR_USERS(info, show_plots_for);
+	//	clear_results(info); // clear Est_poses trajectory
 
-	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
-	show();
-	cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
+	//} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
+	//show();
+	//cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
 
 
 	// NOTE: Comment this in when you're ready to write the data
@@ -229,9 +231,8 @@ int run_cappella() {
 
 	//show();
 
-
-	//unpack_results(optimizer.values(), MK, info);
-	//dump_reconstructed_trajectories(info, output_filename);
+	unpack_results(optimizer.values(), MK, info);
+	dump_reconstructed_trajectories(info, output_filename);
 
 
 	return 0;
