@@ -114,7 +114,7 @@ void draw_points(vector<Pose3> points, string color) {
 	scatter3(xs, ys, zs)->marker_face_color({0.0,1.0,0.0}); // Hard coded to green
 }
 
-void unpack_results(Values results, const function<Key(string, int)>& MK, map<string, tracking_info>& info) {
+void unpack_results(Values results, const function<Key(string, int)>& MK, map<string, tracking>& info) {
 	for (auto& [user, user_info] : info) {
 		for (int i = 0; i < user_info.I; i++) {
 			if (!user_info.is_beacon) {
@@ -126,7 +126,7 @@ void unpack_results(Values results, const function<Key(string, int)>& MK, map<st
 	}
 }
 
-void unpack_results_and_plot(Values results, const function<Key(string, int)>& MK, map<string, tracking_info> info, vector<string> show_list){
+void unpack_results_and_plot(Values results, const function<Key(string, int)>& MK, map<string, tracking> info, vector<string> show_list){
 
 	// Plotting code
 
@@ -166,7 +166,7 @@ void unpack_results_and_plot(Values results, const function<Key(string, int)>& M
 	}
 }
 
-void clear_results(map<string, tracking_info>& info) {
+void clear_results(map<string, tracking>& info) {
 	for (auto& [user, user_info] : info) {
 		for (int i = 0; i < user_info.I; i++) {
 			if (!user_info.is_beacon) {

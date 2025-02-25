@@ -78,7 +78,7 @@ using namespace std;
 }
 
 // Pass this the graph constructed from our dataset
-void LM_lambda_search(NonlinearFactorGraph* graph, Values vals, map<string, tracking_info> info) {
+void LM_lambda_search(NonlinearFactorGraph* graph, Values vals, map<string, tracking> info) {
 	const function<Key(string, int)> MK = [](string username, int I) {
 		Key k;
 		if (username.find("static") != std::string::npos) {
@@ -127,27 +127,25 @@ void LM_lambda_search(NonlinearFactorGraph* graph, Values vals, map<string, trac
 
 
 int run_cappella() {
-	string raw_filename = "/home/admitriev/Datasets/cappella_data/set_1/bigtest-1floor_sorted.json";
-	string gt_reconstructed_filename = "/home/admitriev/Datasets/cappella_data/set_1/bigtest-1floor_gt_reconstructed_sorted.json";
 
-	ifstream raw_fs(raw_filename);
-	ifstream gt_fs(gt_reconstructed_filename);
+	string filename = "bigtest-1floor";
+	string directory = "/home/admitriev/Datasets/cappella_data/set_1/";
+
+	ifstream raw_fs(directory + filename + "_universal_frame.json");
+	ifstream gt_fs(directory + filename + "_gt_reconstructed_sorted.json");
+	ifstream beacon_fs(directory + filename + "_beacons.json");
+
 
 	json sensor_stream = json::parse(raw_fs); 
-	// I think this reads the entire filestream in at once, and stores it in memory
-	// So iterating over sensor_stream partially, then iterating again, the second iteration should start back at 0.
-	// So json::parse uses up the entire iterator, and reads everything into a program memory array ezpz
-	map<string, tracking_info> info;
-	get_info(sensor_stream, info);
-	// Isn't sensor stream already partially read? Wouldn't this cause problems with running it in the main iterator?
+	map<string, tracking> info;
+
+	//for (string user : {"elahe", "nuno", "jeff", "agr", "nuno"}) {
+	//	info.insert(pair<string, tracking>(user, tracking()));
+	//}
+
 	get_gt_info(info, json::parse(gt_fs)); // fill user_info with gt_pose trajectory
-	//get_info2(sensor_stream, json::parse(gt_fs), info);
+	get_beacon_info(info, json::parse(beacon_fs));
 
-	// FOR THE UWB RANGES, make sure to double check that distance is preserved after I transform to the universal frame...
-	// I'm 99% sure it is...
-
-
-	// Data is collected with Y as the up-axis, adjust data for Z to be on the up-axis
 
 	// --- Noise Models ---
 
@@ -161,7 +159,7 @@ int run_cappella() {
 
 	// UWB noise model
 
-	double uwb_stdev = 0.1;
+	double uwb_stdev = 1;
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev); // Apparently this is the correct noise model for a range
 
 	// GT noise model
@@ -190,35 +188,17 @@ int run_cappella() {
 
 	int pose_num = 0;
 	Values vals; // a, e, f (jeff), j, n, s (static)
-	for (auto& [username, userinfo] : info) {
-		if (userinfo.is_beacon) {
-			userinfo.pose_key = MK(username, userinfo.I);
+	for (auto& [u, track] : info) {
 
-			Pose3 prior_beacon_pose(userinfo.last_HTM_L_U); // Position of beacon in U frame extracted from GT
+		track.I = 0;
 
-			vals.insert(userinfo.pose_key, prior_beacon_pose);
-			//graph->addPrior(userinfo.pose_key, prior_beacon_pose, GT_noise_model);
-			graph->add(NonlinearEquality<Pose3>(userinfo.pose_key, prior_beacon_pose)); // Pose or point?
+		if (track.is_beacon) {
+
+			track.pose_key = MK(u, track.I);
+			Pose3 prior_beacon_pose(track.gt_poses[0]); // Position of beacon in U frame extracted from GT
+			vals.insert(track.pose_key, prior_beacon_pose);
+			graph->add(NonlinearEquality<Pose3>(track.pose_key, prior_beacon_pose)); // Pose or point?
 		
-		}
-		else {
-			userinfo.pose_key = MK(username, userinfo.I);
-
-			Pose3 gt_pose = userinfo.gt_poses[pose_num];
-
-
-			//Matrix44 HTM_G_U = HTM_L_U * HTM_L_G.inverse();
-			userinfo.M_G_U = userinfo.gt_poses[0].matrix() * userinfo.first_HTM_L_G.inverse();
-
-			// Maybe need to apply the full original formula here as youhad it. i.e. first GT pose is NOT M_G_U for whatever reason
-			// i.e. the one to calculate HTM_G_U from an inverse
-			Pose3 prior_VIO_pose(userinfo.gt_poses[pose_num]);
-
-			//userinfo.M_G_U = gt_pose.matrix().inverse();
-
-			userinfo.vio_poses.push_back(prior_VIO_pose);
-			vals.insert(userinfo.pose_key, prior_VIO_pose);
-			graph->addPrior(userinfo.pose_key, prior_VIO_pose, VIO_pose_noise_model);
 		}
 
 	}
@@ -233,6 +213,9 @@ int run_cappella() {
 	int max_VIO_measurements = 1000*5;
 	int VIO_measurements = 0;
 
+	double uwb_error = 0;
+	double n_uwb_mes = 0;
+
 	int VIO_show = 1000;
 	for (json mes : sensor_stream) {
 
@@ -240,27 +223,39 @@ int run_cappella() {
 		unsigned long timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(tp.time_since_epoch()).count();
 
 		if (mes["type"] == "vio") {
-			Matrix44 HTM_L_G;
+			Matrix44 M_L_U;
 			string user;
-			get_pose_matrix(mes, user, HTM_L_G);
+			get_pose_matrix(mes, user, M_L_U);
 
-			tracking_info& u = info.at(user);
-			u.I++;
+			tracking& track = info.at(user);
 
-			u.last_HTM_L_G = HTM_L_G;
-			Matrix44 pose_matrix_U = u.M_G_U * HTM_L_G;
-			//Matrix44 pose_matrix_U = u.last_HTM_G_U * HTM_L_G;
+			if (track.I == 0) {
+				// If this is the first VIO pose, prior that thang
 
-			Pose3 pose(pose_matrix_U);
-			Pose3 last_pose = u.vio_poses.back();
-			u.vio_poses.push_back(pose);
+				Pose3 prior_VIO_pose(M_L_U); // Assume VIO starts at same place as GT
+				track.vio_poses.push_back(prior_VIO_pose);
 
-			Pose3 odometry = last_pose.between(pose);
-			graph->add(BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), odometry, VIO_pose_noise_model));
 
-			vals.insert(MK(user, u.I), pose); // vio pose gets bound as the initial estimate to this key.
+				track.pose_key = MK(user, track.I);
+				vals.insert(track.pose_key, prior_VIO_pose);
+				graph->addPrior(track.pose_key, prior_VIO_pose, VIO_pose_noise_model);
 
-			cout << "Added Key " << user << " " << u.I << endl;
+			}
+			else {
+
+				Pose3 pose(M_L_U);
+				Pose3 last_pose = track.vio_poses.back();
+				track.vio_poses.push_back(pose);
+
+				vals.insert(MK(user, track.I), pose); // vio pose gets bound as the initial estimate to this key.
+
+				Pose3 odometry = last_pose.between(pose);
+				graph->add(BetweenFactor<Pose3>(MK(user, track.I - 1), MK(user, track.I), odometry, VIO_pose_noise_model));
+				
+			}
+
+			track.I++;
+
 
 			VIO_measurements++;
 
@@ -270,9 +265,15 @@ int run_cappella() {
 			string src_user, dst_user;
 			get_UWB(mes, src_user, dst_user, range);
 
+			Pose3 src_pose = info[src_user].gt_poses[info[src_user].I];
+			Pose3 dst_pose = info[dst_user].gt_poses[info[dst_user].I];
+			double true_range = distance3(src_pose.translation(), dst_pose.translation());
+			//graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), true_range, UWB_noise_model));
+
 			graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), range, UWB_noise_model));
 
-
+			uwb_error += abs(true_range - range);
+			n_uwb_mes++;
 
 		}
 		else if (mes["type"] == "gt") {
@@ -285,9 +286,18 @@ int run_cappella() {
 
 	}
 
-	LM_lambda_search(graph, vals, info);
+	double avg_uwb_error = uwb_error / n_uwb_mes;
+	cout << " Average dataset UWB error (m) " << avg_uwb_error << endl;
 
-	vector<string> show_plots_for = { "nuno" };
+	// To not get key out of bounds lol
+	for (auto& [u, track] : info) {
+		if (!track.is_beacon) vals.insert(MK(u, track.I), track.vio_poses.back());
+	}
+
+
+	//LM_lambda_search(graph, vals, info);
+
+	vector<string> show_plots_for = { "nuno", "elahe"};
 
 	//unpack_results(isam->calculateBestEstimate(), MK, info);
 	//cout << info["elahe"].gt_poses.size() << " " << info["elahe"].vio_poses.size() << " " << info["elahe"].est_poses.size() << endl;
@@ -299,26 +309,26 @@ int run_cappella() {
 	// Once graph is complete, optimize it offline
 
 
-	//LevenbergMarquardtParams params;
-	//LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
+	LevenbergMarquardtParams params;
+	LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
 
-	//////GaussNewtonParams params;
-	//////GaussNewtonOptimizer optimizer(*graph, vals, params);
+	////GaussNewtonParams params;
+	////GaussNewtonOptimizer optimizer(*graph, vals, params);
 
-	//double last_error;
-	//do {
-	//	last_error = optimizer.error();
-	//	optimizer.iterate();     
+	double last_error;
+	do {
+		last_error = optimizer.error();
+		optimizer.iterate();     
 
-	//	unpack_results(optimizer.values(), MK, info);
-	//	PLOT_FOR_USERS(info, show_plots_for);
-	//	clear_results(info); // clear Est_poses trajectory
+		unpack_results(optimizer.values(), MK, info);
+		PLOT_FOR_USERS(info, show_plots_for);
+		clear_results(info); // clear Est_poses trajectory
 
-	//} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
+	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
 
-	//show();
+	show();
 
-	//cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
+	cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
 
 	
 	//GraphvizFormatting vizp;
