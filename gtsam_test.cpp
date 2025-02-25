@@ -95,18 +95,19 @@ void LM_lambda_search(NonlinearFactorGraph* graph, Values vals, map<string, trac
 	};
 
 	// Run 1
-	vector<double> attempt_lambdaInitial = { 20, 15, 10 };
+	//vector<double> attempt_lambdaInitial = { 20, 15, 10 };
+	vector<double> attempt_lambdaInitial = { 10, 7, 5, 3, 2 };
 	//vector<double> attempt_lambdaInitial = { 10, 1, 0.1, 0.001, 0.0001, 0.00001 };
-	vector<double> attempt_lambdaFactor = { 100000, 10000, 1000, 100, 10, 7, 5, 3 }; // Won't run with 1
+	vector<double> attempt_lambdaFactor = { 5, 4, 3, 2, 1.5 }; // Won't run with 1
 
-	vector<string> show_list = { "nuno" };
+	vector<string> show_list = { "elahe" };
 
 	for (double lambdaInitial : attempt_lambdaInitial) {
 
 		for (double lambdaFactor : attempt_lambdaFactor) {
 
 			LevenbergMarquardtParams lm_params;
-			lm_params.diagonalDamping = true;
+			lm_params.diagonalDamping = false;
 			lm_params.setlambdaInitial(lambdaInitial);
 			lm_params.lambdaFactor = lambdaFactor;
 			lm_params.linearSolverType = NonlinearOptimizerParams::LinearSolverType::MULTIFRONTAL_QR;
@@ -200,6 +201,8 @@ int run_cappella() {
 			//graph->addPrior(userinfo.pose_key, prior_beacon_pose, GT_noise_model);
 			graph->add(NonlinearEquality<Pose3>(userinfo.pose_key, prior_beacon_pose)); // Pose or point?
 		
+			userinfo.gt_poses.push_back(Pose3(userinfo.last_HTM_L_U)); // Because apparently my get GT doesn't get any pose for beacons
+			// This should suffice for giving them a pose becuase they are immobile
 		}
 		else {
 			userinfo.pose_key = MK(username, userinfo.I);
@@ -255,12 +258,15 @@ int run_cappella() {
 			Pose3 last_pose = u.vio_poses.back();
 			u.vio_poses.push_back(pose);
 
-			Pose3 odometry = last_pose.between(pose);
-			graph->add(BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), odometry, VIO_pose_noise_model));
 
 			vals.insert(MK(user, u.I), pose); // vio pose gets bound as the initial estimate to this key.
 
-			cout << "Added Key " << user << " " << u.I << endl;
+			Pose3 odometry = last_pose.between(pose);
+			graph->add(BetweenFactor<Pose3>(MK(user, u.I - 1), MK(user, u.I), odometry, VIO_pose_noise_model));
+
+
+			// NOTE: IT SEEMS TO BE READING ALL OF THE RANGES IN FIRST, BEFORE ANY ODOMETRY? WHY?
+			//cout << "Added Key " << user << " " << u.I << endl;
 
 			VIO_measurements++;
 
@@ -270,7 +276,16 @@ int run_cappella() {
 			string src_user, dst_user;
 			get_UWB(mes, src_user, dst_user, range);
 
-			graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), range, UWB_noise_model));
+			//graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), range, UWB_noise_model));
+
+			Pose3 src_pose = info[src_user].gt_poses[info[src_user].I];
+			Pose3 dst_pose = info[dst_user].gt_poses[info[dst_user].I];
+			//if (info[src_user].I % 1000 == 0) draw_vector(src_pose.translation(), dst_pose.translation(), "purple");
+
+			double true_range = distance3(src_pose.translation(), dst_pose.translation());
+
+			//cout << " True range " << true_range << " vs. data range " << range << endl;
+			graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), true_range, UWB_noise_model));
 
 
 
@@ -285,40 +300,64 @@ int run_cappella() {
 
 	}
 
-	LM_lambda_search(graph, vals, info);
+	//LM_lambda_search(graph, vals, info);
 
-	vector<string> show_plots_for = { "nuno" };
+
+
+
+	//vector<string> show_plots_for = { "nuno" };
 
 	//unpack_results(isam->calculateBestEstimate(), MK, info);
 	//cout << info["elahe"].gt_poses.size() << " " << info["elahe"].vio_poses.size() << " " << info["elahe"].est_poses.size() << endl;
 	//PLOT_FOR_USERS(info, show_plots_for);
 	//show();
 
+	auto fig = figure();
+	fig->name(" trajectory");
+
+	for (const auto& [user_name, user_info] : info) {
+		if (!user_info.is_beacon) {
+			if (user_name == "nuno" || user_name == "elahe") {
+	
+
+				hold(on);
+				draw_trajectory(user_info.vio_poses, "red");
+				hold(on);
+				draw_trajectory(user_info.gt_poses, "green");
+				hold(on);
+				draw_trajectory(user_info.est_poses, "blue");
+
+				xlabel("X (m)");
+				ylabel("Z (m)");
+				zlabel("Y (m)");
+			}
+		}
+	}
 
 
 	// Once graph is complete, optimize it offline
 
 
-	//LevenbergMarquardtParams params;
-	//LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
+	LevenbergMarquardtParams params;
+	LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
 
-	//////GaussNewtonParams params;
-	//////GaussNewtonOptimizer optimizer(*graph, vals, params);
+	////GaussNewtonParams params;
+	////GaussNewtonOptimizer optimizer(*graph, vals, params);
 
-	//double last_error;
-	//do {
-	//	last_error = optimizer.error();
-	//	optimizer.iterate();     
+	double last_error;
+	do {
+		last_error = optimizer.error();
+		optimizer.iterate();     
 
-	//	unpack_results(optimizer.values(), MK, info);
-	//	PLOT_FOR_USERS(info, show_plots_for);
-	//	clear_results(info); // clear Est_poses trajectory
+		unpack_results(optimizer.values(), MK, info);
+		//PLOT_FOR_USERS(info, show_plots_for);
+		clear_results(info); // clear Est_poses trajectory
 
-	//} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
+	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
 
-	//show();
+	show();
 
-	//cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
+	cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
 
 	
 	//GraphvizFormatting vizp;
@@ -329,7 +368,7 @@ int run_cappella() {
 	//graph->saveGraph("/home/admitriev/Research/gtsam_test/factor_graphs/factor_graph.dot", optimizer.values(), vizp);
 	//graph->print();
 
-	//show();
+	show();
 
 
 	return 0;
