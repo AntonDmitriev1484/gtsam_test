@@ -128,7 +128,8 @@ void LM_lambda_search(NonlinearFactorGraph* graph, Values vals, map<string, trac
 
 int run_cappella() {
 
-	string filename = "bigtest-1floor";
+	//string filename = "bigtest-1floor";
+	string filename = "los-1floor";
 	string directory = "/home/admitriev/Datasets/cappella_data/set_1/";
 
 	ifstream raw_fs(directory + filename + "_universal_frame.json");
@@ -139,9 +140,6 @@ int run_cappella() {
 	json sensor_stream = json::parse(raw_fs); 
 	map<string, tracking> info;
 
-	//for (string user : {"elahe", "nuno", "jeff", "agr", "nuno"}) {
-	//	info.insert(pair<string, tracking>(user, tracking()));
-	//}
 
 	get_gt_info(info, json::parse(gt_fs)); // fill user_info with gt_pose trajectory
 	get_beacon_info(info, json::parse(beacon_fs));
@@ -159,7 +157,7 @@ int run_cappella() {
 
 	// UWB noise model
 
-	double uwb_stdev = 1;
+	double uwb_stdev = 0.1;
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev); // Apparently this is the correct noise model for a range
 
 	// GT noise model
@@ -254,6 +252,8 @@ int run_cappella() {
 				
 			}
 
+			cout << " Added key " << user << " #" << track.I << endl;
+
 			track.I++;
 
 
@@ -268,9 +268,9 @@ int run_cappella() {
 			Pose3 src_pose = info[src_user].gt_poses[info[src_user].I];
 			Pose3 dst_pose = info[dst_user].gt_poses[info[dst_user].I];
 			double true_range = distance3(src_pose.translation(), dst_pose.translation());
-			//graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), true_range, UWB_noise_model));
+			graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), true_range, UWB_noise_model));
 
-			graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), range, UWB_noise_model));
+			//graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), range, UWB_noise_model));
 
 			uwb_error += abs(true_range - range);
 			n_uwb_mes++;
