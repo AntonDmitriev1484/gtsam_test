@@ -241,7 +241,10 @@ int run_cappella() {
 				graph->addPrior(track.pose_key, prior_VIO_pose, VIO_pose_noise_model);
 
 			}
-			else {
+			
+			if (track.I >= 0) {
+
+				track.I++;
 
 				Pose3 pose(M_L_U);
 				Pose3 last_pose = track.vio_poses.back();
@@ -258,7 +261,6 @@ int run_cappella() {
 
 			//cout << " Added key " << user << " #" << track.I << endl;
 
-			track.I++;
 			VIO_measurements++;
 
 		}
