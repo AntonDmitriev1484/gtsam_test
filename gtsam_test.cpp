@@ -172,6 +172,8 @@ int run_cappella() {
 	const function<Key(string,int)> MK = [](string username, int I) {
 		Key k;
 		if (username.find("static") != std::string::npos) {
+			// Could it be that my static can't handle single digit numbers, i.e. static9
+			// Nope it can handle 9, 10 fine.
 			regex numberRegex(R"(\d+$)");
 			smatch match;
 			regex_search(username, match, numberRegex);
@@ -208,7 +210,7 @@ int run_cappella() {
 	//isam_params.optimizationParams = dogleg;
 	//ISAM2* isam = new ISAM2(isam_params);
 
-	int max_VIO_measurements = 1000*5;
+	int max_VIO_measurements = 60;
 	int VIO_measurements = 0;
 
 	double uwb_error = 0;
@@ -246,17 +248,17 @@ int run_cappella() {
 				track.vio_poses.push_back(pose);
 
 				vals.insert(MK(user, track.I), pose); // vio pose gets bound as the initial estimate to this key.
+				cout << " Added key to values " << user << track.I << endl;
 
 				Pose3 odometry = last_pose.between(pose);
 				graph->add(BetweenFactor<Pose3>(MK(user, track.I - 1), MK(user, track.I), odometry, VIO_pose_noise_model));
+				cout << " Added factor with keys " << user << track.I-1 << " -> " << user << track.I << endl;
 				
 			}
 
-			cout << " Added key " << user << " #" << track.I << endl;
+			//cout << " Added key " << user << " #" << track.I << endl;
 
 			track.I++;
-
-
 			VIO_measurements++;
 
 		}
@@ -280,20 +282,29 @@ int run_cappella() {
 
 		}
 
+		if (VIO_measurements > max_VIO_measurements) break; // TO keep the graph small and visualizable
+
 		//isam->update(*graph, vals);
 		//graph->resize(0); // According to example
 		//vals.clear(); // Still don't quite get why we need this vals.clear();
 
 	}
 
+	// We increment track.I one last time before leaving the loop? But GTSAM doesn't use that variable
+	// If you have a range at exactly the cutoff, you set a factor between a13 and a14, and then you increment a to be at 15
+	// then e range to a, and e15 tries to connect to a15 (because thats what info listed) but the actual last value added is a14
+
 	double avg_uwb_error = uwb_error / n_uwb_mes;
 	cout << " Average dataset UWB error (m) " << avg_uwb_error << endl;
 
 	// To not get key out of bounds lol
-	for (auto& [u, track] : info) {
-		if (!track.is_beacon) vals.insert(MK(u, track.I), track.vio_poses.back());
-	}
+	// This garbage may be the culprit
+	// 
 
+	//for (auto& [u, track] : info) {
+	//	if (!track.is_beacon) vals.insert(MK(u, track.I), track.vio_poses.back());
+	//}
+	// Users have uneven number of VIO poses
 
 	//LM_lambda_search(graph, vals, info);
 
@@ -304,10 +315,19 @@ int run_cappella() {
 	//PLOT_FOR_USERS(info, show_plots_for);
 	//show();
 
+	//cout << vals.at<Pose3>(MK("jeff", 0)) << endl; // Ok so Jeff is NOT in values...
+
+	//vals.print();
 
 
 	// Once graph is complete, optimize it offline
 
+
+	GraphvizFormatting vizp; // To figure out the variable misalignment issue
+	vizp.plotFactorPoints = true;
+	//vizp.mergeSimilarFactors = true;
+	vizp.binaryEdges = true;
+	graph->saveGraph("/home/admitriev/Research/gtsam_test/factor_graphs/factor_graph.dot", vals, vizp);
 
 	LevenbergMarquardtParams params;
 	LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
@@ -330,13 +350,7 @@ int run_cappella() {
 
 	cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
 
-	
-	//GraphvizFormatting vizp;
-	//vizp.plotFactorPoints = true;
-	////vizp.mergeSimilarFactors = true;
-	//vizp.binaryEdges = true;
 
-	//graph->saveGraph("/home/admitriev/Research/gtsam_test/factor_graphs/factor_graph.dot", optimizer.values(), vizp);
 	//graph->print();
 
 	//show();
