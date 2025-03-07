@@ -128,8 +128,8 @@ void LM_lambda_search(NonlinearFactorGraph* graph, Values vals, map<string, trac
 
 int run_cappella() {
 
-	//string filename = "bigtest-1floor";
-	string filename = "los-1floor";
+	string filename = "bigtest-1floor";
+	//string filename = "los-1floor";
 	string directory = "/home/admitriev/Datasets/cappella_data/set_1/";
 	string out_directory = "/home/admitriev/Research/gtsam_test/cappella_factor_graph_output/";
 
@@ -336,11 +336,6 @@ int run_cappella() {
 
 	unpack_results(optimizer.values(), MK, info);
 
-	// on changing to out_dir
-	//Size check 2599 2600 2599
-	//	Error: File stream is not open!
-	//	Error : File stream is not open!
-	//	Error : File stream is not open!
 
 	// TODO: Even trajectories
 	// TODO: Output looks wrong:
@@ -356,6 +351,7 @@ int run_cappella() {
 		<< info["nuno"].vio_poses.size() << " "
 		<< info["nuno"].est_poses.size() << endl;
 
+	info["nuno"].vio_poses.pop_back();
 	write_trajectory_KITTI_format(info["nuno"].gt_poses, out_gt_fs);
 	write_trajectory_KITTI_format(info["nuno"].vio_poses, out_vio_fs);
 	write_trajectory_KITTI_format(info["nuno"].est_poses, out_est_fs);

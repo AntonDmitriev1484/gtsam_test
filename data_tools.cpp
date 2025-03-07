@@ -106,20 +106,23 @@ void write_trajectory_KITTI_format(vector<Pose3> trajectory, ofstream& fs) {
 		return;
 	}
 
+	// Interesting, we get a non - 0 0 0 1 last row
+	// They tell you to cut off the last row anyways...
+
 	for (Pose3 pose : trajectory) {
-		for (int r = 0; r < 4; r++) {
+		Matrix44 m = pose.matrix();
+		for (int r = 0; r < 3; r++) {
 			for (int c = 0; c < 4; c++) {
-				Matrix44 m = pose.matrix();
-				if (r != 3 and c != 3) {
-					fs << m(r,c) << " ";
+
+				if (r == 2 && c == 3) {
+					fs << m(r, c) << endl;
 				}
 				else {
-					fs << m(r,c);
+					fs << m(r, c) << " ";
 				}
+
+
 			}
 		}
-		fs << endl;
 	}
-
-
 }
