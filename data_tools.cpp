@@ -98,3 +98,28 @@ chrono::system_clock::time_point iso_string_to_time(string timeString) {
 	int microseconds = std::stoi(microsecondsStr.substr(0, 6)); // Get first 6 digits as microseconds
 	tp += std::chrono::microseconds(microseconds);
 }
+
+void write_trajectory_KITTI_format(vector<Pose3> trajectory, ofstream& fs) {
+	// Take the HMT and squish into a row
+	if (!fs.is_open()) {  // Check if the file is open
+		std::cerr << "Error: File stream is not open!" << std::endl;
+		return;
+	}
+
+	for (Pose3 pose : trajectory) {
+		for (int r = 0; r < 4; r++) {
+			for (int c = 0; c < 4; c++) {
+				Matrix44 m = pose.matrix();
+				if (r != 3 and c != 3) {
+					fs << m(r,c) << " ";
+				}
+				else {
+					fs << m(r,c);
+				}
+			}
+		}
+		fs << endl;
+	}
+
+
+}

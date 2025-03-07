@@ -131,13 +131,14 @@ int run_cappella() {
 	//string filename = "bigtest-1floor";
 	string filename = "los-1floor";
 	string directory = "/home/admitriev/Datasets/cappella_data/set_1/";
+	string out_directory = "/home/admitriev/Research/gtsam_test/cappella_factor_graph_output/";
 
 	ifstream raw_fs(directory + filename + "_universal_frame.json");
 	ifstream gt_fs(directory + filename + "_gt_reconstructed_sorted.json");
 	ifstream beacon_fs(directory + filename + "_beacons.json");
 
 
-	json sensor_stream = json::parse(raw_fs); 
+	json sensor_stream = json::parse(raw_fs);
 	map<string, tracking> info;
 
 
@@ -164,12 +165,12 @@ int run_cappella() {
 
 	double gt_pos_stdev = 0.01;
 	double gt_ori_stdev = 0.0174533;
-	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6( gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
+	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
 
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
 
 	// Make Key
-	const function<Key(string,int)> MK = [](string username, int I) {
+	const function<Key(string, int)> MK = [](string username, int I) {
 		Key k;
 		if (username.find("static") != std::string::npos) {
 			// Could it be that my static can't handle single digit numbers, i.e. static9
@@ -198,7 +199,7 @@ int run_cappella() {
 			Pose3 prior_beacon_pose(track.gt_poses[0]); // Position of beacon in U frame extracted from GT
 			vals.insert(track.pose_key, prior_beacon_pose);
 			graph->add(NonlinearEquality<Pose3>(track.pose_key, prior_beacon_pose)); // Pose or point?
-		
+
 		}
 
 	}
@@ -241,7 +242,7 @@ int run_cappella() {
 				graph->addPrior(track.pose_key, prior_VIO_pose, VIO_pose_noise_model);
 
 			}
-			
+
 			if (track.I >= 0) {
 
 				track.I++;
@@ -251,12 +252,12 @@ int run_cappella() {
 				track.vio_poses.push_back(pose);
 
 				vals.insert(MK(user, track.I), pose); // vio pose gets bound as the initial estimate to this key.
-				cout << " Added key to values " << user << track.I << endl;
+				//cout << " Added key to values " << user << track.I << endl;
 
 				Pose3 odometry = last_pose.between(pose);
 				graph->add(BetweenFactor<Pose3>(MK(user, track.I - 1), MK(user, track.I), odometry, VIO_pose_noise_model));
-				cout << " Added factor with keys " << user << track.I-1 << " -> " << user << track.I << endl;
-				
+				//cout << " Added factor with keys " << user << track.I-1 << " -> " << user << track.I << endl;
+
 			}
 
 			//cout << " Added key " << user << " #" << track.I << endl;
@@ -284,7 +285,7 @@ int run_cappella() {
 
 		}
 
-		if (VIO_measurements > max_VIO_measurements) break; // TO keep the graph small and visualizable
+		//if (VIO_measurements > max_VIO_measurements) break; // TO keep the graph small and visualizable
 
 		//isam->update(*graph, vals);
 		//graph->resize(0); // According to example
@@ -292,35 +293,18 @@ int run_cappella() {
 
 	}
 
-	// We increment track.I one last time before leaving the loop? But GTSAM doesn't use that variable
-	// If you have a range at exactly the cutoff, you set a factor between a13 and a14, and then you increment a to be at 15
-	// then e range to a, and e15 tries to connect to a15 (because thats what info listed) but the actual last value added is a14
-
 	double avg_uwb_error = uwb_error / n_uwb_mes;
 	cout << " Average dataset UWB error (m) " << avg_uwb_error << endl;
 
-	// To not get key out of bounds lol
-	// This garbage may be the culprit
-	// 
-
-	//for (auto& [u, track] : info) {
-	//	if (!track.is_beacon) vals.insert(MK(u, track.I), track.vio_poses.back());
-	//}
-	// Users have uneven number of VIO poses
 
 	//LM_lambda_search(graph, vals, info);
 
-	vector<string> show_plots_for = { "nuno", "elahe"};
+	vector<string> show_plots_for = { "nuno", "elahe" };
 
 	//unpack_results(isam->calculateBestEstimate(), MK, info);
 	//cout << info["elahe"].gt_poses.size() << " " << info["elahe"].vio_poses.size() << " " << info["elahe"].est_poses.size() << endl;
 	//PLOT_FOR_USERS(info, show_plots_for);
 	//show();
-
-	//cout << vals.at<Pose3>(MK("jeff", 0)) << endl; // Ok so Jeff is NOT in values...
-
-	//vals.print();
-
 
 	// Once graph is complete, optimize it offline
 
@@ -340,22 +324,57 @@ int run_cappella() {
 	double last_error;
 	do {
 		last_error = optimizer.error();
-		optimizer.iterate();     
+		optimizer.iterate();
 
-		unpack_results(optimizer.values(), MK, info);
-		PLOT_FOR_USERS(info, show_plots_for);
-		clear_results(info); // clear Est_poses trajectory
+		//unpack_results(optimizer.values(), MK, info);
+		//PLOT_FOR_USERS(info, show_plots_for);
+		//clear_results(info); // clear Est_poses trajectory
 
 	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
 
-	show();
-
 	cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
 
+	unpack_results(optimizer.values(), MK, info);
+
+	// on changing to out_dir
+	//Size check 2599 2600 2599
+	//	Error: File stream is not open!
+	//	Error : File stream is not open!
+	//	Error : File stream is not open!
+
+	// TODO: Even trajectories
+	// TODO: Output looks wrong:
+	// HMT format last row should be 0 0 0 1
+	//0.216009 - 0.671835 0.708532 - 0.81528 - 0.229042 0.670536 0.705699 5.541 - 0.949113 - 0.314649 - 0.00904673 - 13.68030001
+	//0.216202 - 0.6718 0.708507 - 0.815325 - 0.228938 0.670542 0.705727 5.54088 - 0.949095 - 0.314712 - 0.00883794 - 13.68040001
+
+	ofstream out_gt_fs(out_directory + filename + "_out_gt.txt");
+	ofstream out_vio_fs(out_directory + filename + "_out_vio.txt");
+	ofstream out_est_fs(out_directory + filename + "_out_estimate.txt");
+
+	cout << "Size check " << info["nuno"].gt_poses.size() << " "
+		<< info["nuno"].vio_poses.size() << " "
+		<< info["nuno"].est_poses.size() << endl;
+
+	write_trajectory_KITTI_format(info["nuno"].gt_poses, out_gt_fs);
+	write_trajectory_KITTI_format(info["nuno"].vio_poses, out_vio_fs);
+	write_trajectory_KITTI_format(info["nuno"].est_poses, out_est_fs);
+
+
+	out_gt_fs.flush();
+	out_gt_fs.close();	
+	out_vio_fs.flush();
+	out_vio_fs.close();	
+	out_est_fs.flush();
+	out_est_fs.close();
+
+
+	PLOT_FOR_USERS(info, show_plots_for);
+	clear_results(info); // clear Est_poses trajectory
 
 	//graph->print();
 
-	//show();
+	show();
 
 
 	return 0;

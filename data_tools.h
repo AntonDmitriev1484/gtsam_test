@@ -40,4 +40,5 @@ chrono::system_clock::time_point iso_string_to_time(string timeString);
 void get_gt_info(map<string, tracking>& info, json gt_data);
 void get_beacon_info(map<string, tracking>& info, json beacon_data);
 
+void write_trajectory_KITTI_format(vector<Pose3> trajectory, ofstream& fs);
 
