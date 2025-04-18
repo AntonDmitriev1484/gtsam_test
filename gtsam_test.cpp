@@ -158,7 +158,8 @@ int run_cappella() {
 
 	// UWB noise model
 
-	double uwb_stdev = 0.1;
+	//double uwb_stdev = 0.1;
+	double uwb_stdev = 1;
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev); // Apparently this is the correct noise model for a range
 
 	// GT noise model
@@ -217,7 +218,6 @@ int run_cappella() {
 	double uwb_error = 0;
 	double n_uwb_mes = 0;
 
-	int VIO_show = 1000;
 	for (json mes : sensor_stream) {
 
 		chrono::system_clock::time_point tp = iso_string_to_time(mes["timestamp"]);
@@ -251,7 +251,9 @@ int run_cappella() {
 				Pose3 last_pose = track.vio_poses.back();
 				track.vio_poses.push_back(pose);
 
-				vals.insert(MK(user, track.I), pose); // vio pose gets bound as the initial estimate to this key.
+
+				track.pose_key = MK(user, track.I);
+				vals.insert(track.pose_key, pose); // vio pose gets bound as the initial estimate to this key.
 				//cout << " Added key to values " << user << track.I << endl;
 
 				Pose3 odometry = last_pose.between(pose);
@@ -285,7 +287,7 @@ int run_cappella() {
 
 		}
 
-		//if (VIO_measurements > max_VIO_measurements) break; // TO keep the graph small and visualizable
+		if (VIO_measurements > max_VIO_measurements) break; // TO keep the graph small and visualizable
 
 		//isam->update(*graph, vals);
 		//graph->resize(0); // According to example
@@ -332,9 +334,17 @@ int run_cappella() {
 
 	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
 
+	//unpack_results(optimizer.values(), MK, info);
+	//PLOT_FOR_USERS(info, show_plots_for);
+	//clear_results(info); // clear Est_poses trajectory
+
+	//show();
+
 	cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
 
 	unpack_results(optimizer.values(), MK, info);
+	PLOT_FOR_USERS(info, show_plots_for);
+	show();
 
 
 	// TODO: Even trajectories
@@ -364,13 +374,6 @@ int run_cappella() {
 	out_est_fs.flush();
 	out_est_fs.close();
 
-
-	PLOT_FOR_USERS(info, show_plots_for);
-	clear_results(info); // clear Est_poses trajectory
-
-	//graph->print();
-
-	show();
 
 
 	return 0;
