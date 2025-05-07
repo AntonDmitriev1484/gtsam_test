@@ -287,7 +287,7 @@ int run_cappella() {
 
 		}
 
-		if (VIO_measurements > max_VIO_measurements) break; // TO keep the graph small and visualizable
+		//if (VIO_measurements > max_VIO_measurements) break; // TO keep the graph small and visualizable
 
 		//isam->update(*graph, vals);
 		//graph->resize(0); // According to example
@@ -334,18 +334,13 @@ int run_cappella() {
 
 	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
 
-	//unpack_results(optimizer.values(), MK, info);
-	//PLOT_FOR_USERS(info, show_plots_for);
-	//clear_results(info); // clear Est_poses trajectory
-
-	//show();
-
-	cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
-
 	unpack_results(optimizer.values(), MK, info);
 	PLOT_FOR_USERS(info, show_plots_for);
+	clear_results(info); // clear Est_poses trajectory
+
 	show();
 
+	cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
 
 	// TODO: Even trajectories
 	// TODO: Output looks wrong:
@@ -353,26 +348,26 @@ int run_cappella() {
 	//0.216009 - 0.671835 0.708532 - 0.81528 - 0.229042 0.670536 0.705699 5.541 - 0.949113 - 0.314649 - 0.00904673 - 13.68030001
 	//0.216202 - 0.6718 0.708507 - 0.815325 - 0.228938 0.670542 0.705727 5.54088 - 0.949095 - 0.314712 - 0.00883794 - 13.68040001
 
-	ofstream out_gt_fs(out_directory + filename + "_out_gt.txt");
-	ofstream out_vio_fs(out_directory + filename + "_out_vio.txt");
-	ofstream out_est_fs(out_directory + filename + "_out_estimate.txt");
+	//ofstream out_gt_fs(out_directory + filename + "_out_gt.txt");
+	//ofstream out_vio_fs(out_directory + filename + "_out_vio.txt");
+	//ofstream out_est_fs(out_directory + filename + "_out_estimate.txt");
 
-	cout << "Size check " << info["nuno"].gt_poses.size() << " "
-		<< info["nuno"].vio_poses.size() << " "
-		<< info["nuno"].est_poses.size() << endl;
+	//cout << "Size check " << info["nuno"].gt_poses.size() << " "
+	//	<< info["nuno"].vio_poses.size() << " "
+	//	<< info["nuno"].est_poses.size() << endl;
 
-	info["nuno"].vio_poses.pop_back();
-	write_trajectory_KITTI_format(info["nuno"].gt_poses, out_gt_fs);
-	write_trajectory_KITTI_format(info["nuno"].vio_poses, out_vio_fs);
-	write_trajectory_KITTI_format(info["nuno"].est_poses, out_est_fs);
+	//info["nuno"].vio_poses.pop_back();
+	//write_trajectory_KITTI_format(info["nuno"].gt_poses, out_gt_fs);
+	//write_trajectory_KITTI_format(info["nuno"].vio_poses, out_vio_fs);
+	//write_trajectory_KITTI_format(info["nuno"].est_poses, out_est_fs);
 
 
-	out_gt_fs.flush();
-	out_gt_fs.close();	
-	out_vio_fs.flush();
-	out_vio_fs.close();	
-	out_est_fs.flush();
-	out_est_fs.close();
+	//out_gt_fs.flush();
+	//out_gt_fs.close();	
+	//out_vio_fs.flush();
+	//out_vio_fs.close();	
+	//out_est_fs.flush();
+	//out_est_fs.close();
 
 
 
