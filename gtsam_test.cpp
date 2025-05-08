@@ -8,6 +8,10 @@
 using namespace gtsam;
 using namespace std;
 
+using symbol_shorthand::B;  // Bias  (ax,ay,az,gx,gy,gz)
+using symbol_shorthand::V;  // Vel   (xdot,ydot,zdot)
+using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
+
 //#define PLOT_FOR_USERS(INFO, SHOW_LIST) {						           \
 //    for (const auto& [user_name, user_info] : INFO) {                      \
 //        if (!user_info.is_beacon) {                                        \
@@ -122,27 +126,40 @@ void LM_lambda_search(NonlinearFactorGraph* graph, Values vals, map<string, trac
 	show();
 }
 
+Rot3 rotFromDirection(const Point3& direction) {
+	// Normalize direction vector
+	Point3 z = direction / direction.norm();
 
+	// Choose arbitrary up vector
+	Point3 up(0, 0, 1);
+	if (fabs(z.dot(up)) > 0.99) {
+		up = Point3(0, 1, 0);
+	}
+
+	Point3 x = up.cross(z).normalized();
+	Point3 y = z.cross(x);
+
+	return Rot3(x, y, z);
+}
 
 
 
 int run_cappella() {
 
-	string filename = "bigtest-1floor";
-	//string filename = "los-1floor";
-	string directory = "/home/admitriev/Datasets/cappella_data/set_1/";
-	string out_directory = "/home/admitriev/Research/gtsam_test/cappella_factor_graph_output/";
+	string directory = "/home/admitriev/Datasets/UWBSLAM_pilot/";
+	string trial_name = "pilot0";
+	string out_directory = "/home/admitriev/Research/pilot_results/" + trial_name;
 
-	ifstream raw_fs(directory + filename + "_universal_frame.json");
-	ifstream gt_fs(directory + filename + "_gt_reconstructed_sorted.json");
-	ifstream beacon_fs(directory + filename + "_beacons.json");
-
+	ifstream raw_fs(directory + trial_name + "/" + "all.json");
+	ifstream beacon_fs(directory + trial_name + "/" + "anchors.json");
 
 	json sensor_stream = json::parse(raw_fs);
-	map<string, tracking> info;
+	map<string, tracking> info; // Map of username to tracking information
 
 
-	get_gt_info(info, json::parse(gt_fs)); // fill user_info with gt_pose trajectory
+	// TODO get_gt_info but with a faked trajectory
+	//get_gt_info(info, json::parse(gt_fs)); // fill user_info with gt_pose trajectory
+
 	get_beacon_info(info, json::parse(beacon_fs));
 
 
@@ -152,8 +169,6 @@ int run_cappella() {
 
 	double vio_ori_stdev = 0.175; // rad->~10degrees
 	double vio_pos_stdev = 0.2;
-	//double vio_ori_stdev = 0.05; // rad->~10degrees
-	//double vio_pos_stdev = 0.05;
 	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
 
 	// UWB noise model
@@ -162,48 +177,91 @@ int run_cappella() {
 	double uwb_stdev = 1;
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev); // Apparently this is the correct noise model for a range
 
-	// GT noise model
-
+	// GT noise model - (use to define pose prior)
 	double gt_pos_stdev = 0.01;
 	double gt_ori_stdev = 0.0174533;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
+	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 0.1);
+	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-3);
+
+	// TODO: GT_velocity, and bias noise model.
+	// Velocity noise model - used on prior - Noise in velocity updates from preintegration
+
+	// Bias noise model - used on prior. - Noise in bias updates from preintegration
+
+
+	// IMU noise model
+
+	imuBias::ConstantBias prior_imu_bias; // Assumption of no prior IMU bias
+
+	// Hard coded from IMU comparison sheet
+	double GYRO_NOISE = 0.014; // deg / s / sqrt(Hz) <- should this be rad?
+	double ACCEL_NOISE = 0.0014715; // m / s^2 / sqrt(Hz)
+
+	// Hard coded from calibration.json
+	Matrix33 accel_noise_cov = I_3x3 * pow(ACCEL_NOISE, 2);
+	Matrix33 gyro_noise_cov = I_3x3 * pow(GYRO_NOISE, 2);
+	Matrix33 noise_integration_cov = I_3x3 * 1e-8;  // error committed in integrating position from velocities
+	
+	Vector3 GYRO_BIAS(-0.00307518, 0.0003668, 0.00393268); // I sure hope these are in the same units as what GTSAM expects (Realsense doesn't label calibration output with units)
+	Vector3 ACCEL_BIAS(-0.031682, -0.0617278, 0.02699346);
+	Matrix33 accel_bias_cov = I_3x3 * Vector3(ACCEL_BIAS.array().square()); // square all elements along the diagonal
+	Matrix33 gyro_bias_cov = I_3x3 * Vector3(GYRO_BIAS.array().square());
+	Matrix66 initial_bias_cov = I_6x6 * 1e-5; // 
+
+
+	// Use our noise model to define the parameters of an IMU preintegrator
+	boost::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedD(0.0);
+	imu_preintegration_params->accelerometerCovariance = accel_noise_cov;
+	imu_preintegration_params->integrationCovariance = noise_integration_cov;
+	imu_preintegration_params->gyroscopeCovariance = gyro_noise_cov;
+	imu_preintegration_params->biasAccCovariance = accel_bias_cov;
+	imu_preintegration_params->biasOmegaCovariance = gyro_bias_cov;
+	imu_preintegration_params->biasAccOmegaInt = initial_bias_cov;
+
 
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
 
+	// Beacon info is a string, 
 	// Make Key
-	const function<Key(string, int)> MK = [](string username, int I) {
-		Key k;
-		if (username.find("static") != std::string::npos) {
-			// Could it be that my static can't handle single digit numbers, i.e. static9
-			// Nope it can handle 9, 10 fine.
-			regex numberRegex(R"(\d+$)");
-			smatch match;
-			regex_search(username, match, numberRegex);
-			k = symbol('s', stoi(match.str())); // e.x. s11 if 'static11'
-		}
-		else {
-			k = symbol(username[0], I);
-			if (username == "jeff") k = symbol('f', I);
-		}
-		return k;
+	const function<Key(string, int)> MK_Anchor = [](string name, int I) {
+		return symbol('s', stoi(name));
 	};
 
-	int pose_num = 0;
-	Values vals; // a, e, f (jeff), j, n, s (static)
-	for (auto& [u, track] : info) {
 
+	// Establish and attach priors to keys
+
+	// In the example they use 'c', this is just track.I for user 2.
+
+	int pose_num = 0;
+	Values vals;
+	for (auto& [u, track] : info) {
 		track.I = 0;
 
-		if (track.is_beacon) {
-
-			track.pose_key = MK(u, track.I);
+		if (track.is_beacon) { // Set nonlinearequality on anchors
+			track.pose_key = MK_Anchor(u,0);
 			Pose3 prior_beacon_pose(track.gt_poses[0]); // Position of beacon in U frame extracted from GT
 			vals.insert(track.pose_key, prior_beacon_pose);
-			graph->add(NonlinearEquality<Pose3>(track.pose_key, prior_beacon_pose)); // Pose or point?
-
+			graph->add(NonlinearEquality<Pose3>(track.pose_key, prior_beacon_pose));
 		}
+		else { // Since we only have one user, user 2.
 
+			Point3 prior_position(0, 0, 1.3); // I was carrying laptop at about chest level ~130cm off the ground
+
+			Vector3 start_pointing_direction(0, 1, 0);
+			Rot3 prior_rotation(rotFromDirection(start_pointing_direction)); // Pointing forward about the y-axis. Vector3(0,1,0) -> turn this into a quat 
+
+			Vector3 prior_velocity(0, 0, 0);
+
+			graph->addPrior(X(track.I), Pose3(prior_rotation, prior_position), GT_noise_model);
+			graph->addPrior(V(track.I), prior_velocity, prior_velocity_noise_model);
+			graph->addPrior(B(track.I), prior_imu_bias, prior_bias_noise_model);
+		}
 	}
+
+
+	// Use Preintegrator params, and bias prior, to create a new preintegrator object that we can use for an IMU factor.
+	PreintegrationType* imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
 
 	//ISAM2Params isam_params;
 	//isam_params.factorization = ISAM2Params::CHOLESKY;
@@ -212,78 +270,24 @@ int run_cappella() {
 	//isam_params.optimizationParams = dogleg;
 	//ISAM2* isam = new ISAM2(isam_params);
 
-	int max_VIO_measurements = 60;
-	int VIO_measurements = 0;
-
 	double uwb_error = 0;
 	double n_uwb_mes = 0;
 
 	for (json mes : sensor_stream) {
 
-		chrono::system_clock::time_point tp = iso_string_to_time(mes["timestamp"]);
-		unsigned long timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(tp.time_since_epoch()).count();
 
-		if (mes["type"] == "vio") {
-			Matrix44 M_L_U;
-			string user;
-			get_pose_matrix(mes, user, M_L_U);
+		if (mes["type"] == "imu") {
 
-			tracking& track = info.at(user);
-
-			if (track.I == 0) {
-				// If this is the first VIO pose, prior that thang
-
-				Pose3 prior_VIO_pose(M_L_U); // Assume VIO starts at same place as GT
-				track.vio_poses.push_back(prior_VIO_pose);
-
-
-				track.pose_key = MK(user, track.I);
-				vals.insert(track.pose_key, prior_VIO_pose);
-				graph->addPrior(track.pose_key, prior_VIO_pose, VIO_pose_noise_model);
-
-			}
-
-			if (track.I >= 0) {
-
-				track.I++;
-
-				Pose3 pose(M_L_U);
-				Pose3 last_pose = track.vio_poses.back();
-				track.vio_poses.push_back(pose);
-
-
-				track.pose_key = MK(user, track.I);
-				vals.insert(track.pose_key, pose); // vio pose gets bound as the initial estimate to this key.
-				//cout << " Added key to values " << user << track.I << endl;
-
-				Pose3 odometry = last_pose.between(pose);
-				graph->add(BetweenFactor<Pose3>(MK(user, track.I - 1), MK(user, track.I), odometry, VIO_pose_noise_model));
-				//cout << " Added factor with keys " << user << track.I-1 << " -> " << user << track.I << endl;
-
-			}
-
-			//cout << " Added key " << user << " #" << track.I << endl;
-
-			VIO_measurements++;
 
 		}
 		else if (mes["type"] == "uwb") {
 			double range;
-			string src_user, dst_user;
+			string src_user = "2";
+			string dst_user;
+
 			get_UWB(mes, src_user, dst_user, range);
 
-			Pose3 src_pose = info[src_user].gt_poses[info[src_user].I];
-			Pose3 dst_pose = info[dst_user].gt_poses[info[dst_user].I];
-			double true_range = distance3(src_pose.translation(), dst_pose.translation());
-			graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), true_range, UWB_noise_model));
-
-			//graph->add(RangeFactor<Pose3, Pose3, double>(MK(src_user, info[src_user].I), MK(dst_user, info[dst_user].I), range, UWB_noise_model));
-
-			uwb_error += abs(true_range - range);
-			n_uwb_mes++;
-
-		}
-		else if (mes["type"] == "gt") {
+			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].I), MK_Anchor(dst_user, info[dst_user].I), range, UWB_noise_model));
 
 		}
 

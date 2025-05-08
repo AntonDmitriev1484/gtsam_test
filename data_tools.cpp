@@ -39,9 +39,9 @@ void get_GT(json d, vector<string>& users, vector<Matrix44>& pose_matrices) {
 }
 
 void get_UWB(json d, string& src_user, string& dst_user, double& range) {
-	src_user = d["src"];
-	dst_user = d["dst"];
-	range = d["range"];
+	//src_user = "2";
+	dst_user = to_string(d["ID"]);
+	range = d["RANGE"];
 }
 
 
@@ -64,15 +64,23 @@ void get_gt_info(map<string, tracking>& info, json gt_data) {
 }
 
 void get_beacon_info(map<string, tracking>& info, json beacon_data) {
-	for (json mes : beacon_data) {
-			Matrix44 M_L_U;
-			string user;
-			get_pose_matrix(mes, user, M_L_U);
+	for (json beacon : beacon_data) {
+		Rot3 rot();
+		Vector3 v;
+		auto raw_position = beacon["position"];
+		int i = 0;
+		for (const auto& row : raw_position) {
+			v(i) = row;
+			i++;
+		}
+
+		string user = to_string(beacon["ID"]);
+		Pose3 beacon_pos(Rot3::Identity(), Point3(v));
 
 			//If beacon hasn't been added yet
-			if (info.find(user) == info.end()) {
+			if (info.find(beacon["ID"]) == info.end()) {
 				tracking t;
-				t.gt_poses.push_back(Pose3(M_L_U)); // Only need to push back once
+				t.gt_poses.push_back(beacon_pos); // Only need to push back once
 				t.is_beacon = true;
 				info.insert(make_pair(user, t));
 			}
