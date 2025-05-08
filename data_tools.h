@@ -25,7 +25,10 @@ struct tracking {
 	// Used to store trajectory at runtime
 	vector<Pose3> vio_poses;
 	vector<Pose3> gt_poses;
+
 	vector<Pose3> est_poses; // Estimated poses
+	vector<Vector3> est_velocitys; // Estimated velocity from IMU factor
+	imuBias::ConstantBias constant_bias; // Constant bias
 
 	Key pose_key;
 	int I;
@@ -34,6 +37,7 @@ struct tracking {
 void get_pose_matrix(json d, string& user, Matrix44& pose_matrix);
 void get_GT(json d, vector<string>& users, vector<Matrix44>& pose_matrices);
 void get_UWB(json d, string& src_user, string& dst_user, double& range);
+void get_IMU(json d, Vector3& accel, Vector3& gyro);
 
 chrono::system_clock::time_point iso_string_to_time(string timeString);
 

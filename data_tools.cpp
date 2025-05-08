@@ -44,6 +44,11 @@ void get_UWB(json d, string& src_user, string& dst_user, double& range) {
 	range = d["RANGE"];
 }
 
+void get_IMU(json d, Vector3& accel, Vector3& gyro) {
+	accel = Vector3(d["ax"], d["ay"], d["az"]);
+	gyro = Vector3(d["gx"], d["gy"], d["gz"]);
+}
+
 
 void get_gt_info(map<string, tracking>& info, json gt_data) {
 	for (json mes : gt_data) {
