@@ -12,26 +12,22 @@ using symbol_shorthand::B;  // Bias  (ax,ay,az,gx,gy,gz)
 using symbol_shorthand::V;  // Vel   (xdot,ydot,zdot)
 using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 
-//#define PLOT_FOR_USERS(INFO, SHOW_LIST) {						           \
-//    for (const auto& [user_name, user_info] : INFO) {                      \
-//        if (!user_info.is_beacon) {                                        \
-//            if (find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
-//                                                                           \
-//                hold(on);                                                  \
-//                draw_trajectory(user_info.vio_poses, "red");               \
-//                hold(on);                                                  \
-//                draw_trajectory(user_info.gt_poses, "green");              \
-//                hold(on);                                                  \
-//                draw_trajectory(user_info.est_poses, "blue");              \
-//                                                                           \
-//                xlabel("X (m)");                                           \
-//                ylabel("Z (m)");                                           \
-//                zlabel("Y (m)");                                           \
-//                                                                           \
-//            }                                                              \
-//        }                                                                  \
-//    }                                                                      \
-//}
+#define PLOT_ESTIMATED_FOR_USERS(INFO, SHOW_LIST) {                          \
+    for (const auto& [user_name, user_info] : INFO) {                        \
+        if (!user_info.is_beacon) {                                          \
+            if (std::find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
+                hold(on);                                                    \
+                draw_trajectory(user_info.est_poses, "blue");                \
+                                                                             \
+                xlabel("X (m)");                                             \
+                ylabel("Z (m)");                                             \
+                zlabel("Y (m)");                                             \
+            }                                                                \
+        }                                                                    \
+    }                                                                        \
+}
+
+
 
 #define PLOT_FOR_USERS(INFO, SHOW_LIST) {						           \
     for (const auto& [user_name, user_info] : INFO) {                      \
@@ -151,7 +147,7 @@ int run_cappella() {
 	string out_directory = "/home/admitriev/Research/pilot_results/" + trial_name;
 
 	ifstream raw_fs(directory + trial_name + "/" + "all.json");
-	ifstream beacon_fs(directory + trial_name + "/" + "anchors.json");
+	ifstream beacon_fs(directory + "pilot_anchors.json");
 
 	json sensor_stream = json::parse(raw_fs);
 	map<string, tracking> info; // Map of username to tracking information
@@ -162,7 +158,11 @@ int run_cappella() {
 
 	get_beacon_info(info, json::parse(beacon_fs));
 
-	dt = 1 / 200; // IMU gyro and accelerometer operate at 200Hz
+	// TODO add user to the map
+
+	info.insert(pair<string, tracking>("2", tracking()));
+
+	double dt = 1 / 200; // IMU gyro and accelerometer operate at 200Hz
 
 
 	// --- Noise Models ---
@@ -203,8 +203,16 @@ int run_cappella() {
 	// Hard coded from calibration.json
 	Vector3 GYRO_BIAS(-0.00307518, 0.0003668, 0.00393268); // I sure hope these are in the same units as what GTSAM expects (Realsense doesn't label calibration output with units)
 	Vector3 ACCEL_BIAS(-0.031682, -0.0617278, 0.02699346);
-	Matrix33 accel_bias_cov = I_3x3 * Vector3(ACCEL_BIAS.array().square()); // square all elements along the diagonal
-	Matrix33 gyro_bias_cov = I_3x3 * Vector3(GYRO_BIAS.array().square());
+	Matrix33 accel_bias_cov;
+	accel_bias_cov << pow(ACCEL_BIAS(0), 2), 0, 0,
+					0, pow(ACCEL_BIAS(1), 2), 0,
+					0, 0, pow(ACCEL_BIAS(2), 2);
+								
+	Matrix33 gyro_bias_cov;
+	gyro_bias_cov << pow(GYRO_BIAS(0), 2), 0, 0,
+				0, pow(GYRO_BIAS(1), 2), 0,
+				0, 0, pow(GYRO_BIAS(2), 2);
+
 	Matrix66 initial_bias_cov = I_6x6 * 1e-5; // 
 
 
@@ -235,7 +243,6 @@ int run_cappella() {
 	Values vals;
 
 	int pose_num = 0;
-	Values vals;
 	for (auto& [u, track] : info) {
 		track.I = 0;
 
@@ -274,9 +281,6 @@ int run_cappella() {
 
 	// Use Preintegrator params, and bias prior, to create a new preintegrator object that we can use for an IMU factor.
 	PreintegrationType* imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
-	
-
-	Values vals;
 
 	ISAM2Params isam_params;
 	isam_params.factorization = ISAM2Params::CHOLESKY;
@@ -346,72 +350,11 @@ int run_cappella() {
 
 	}
 
+	vector<string> show_list = { "2" };
 
-	//LM_lambda_search(graph, vals, info);
-
-	vector<string> show_plots_for = { "nuno", "elahe" };
-
-	//unpack_results(isam->calculateBestEstimate(), MK, info);
-	//cout << info["elahe"].gt_poses.size() << " " << info["elahe"].vio_poses.size() << " " << info["elahe"].est_poses.size() << endl;
-	//PLOT_FOR_USERS(info, show_plots_for);
-	//show();
-
-	// Once graph is complete, optimize it offline
-
-
-	GraphvizFormatting vizp; // To figure out the variable misalignment issue
-	vizp.plotFactorPoints = true;
-	//vizp.mergeSimilarFactors = true;
-	vizp.binaryEdges = true;
-	graph->saveGraph("/home/admitriev/Research/gtsam_test/factor_graphs/factor_graph.dot", vals, vizp);
-
-	LevenbergMarquardtParams params;
-	LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
-
-	////GaussNewtonParams params;
-	////GaussNewtonOptimizer optimizer(*graph, vals, params);
-
-	double last_error;
-	do {
-		last_error = optimizer.error();
-		optimizer.iterate();
-
-		//unpack_results(optimizer.values(), MK, info);
-		//PLOT_FOR_USERS(info, show_plots_for);
-		//clear_results(info); // clear Est_poses trajectory
-
-	} while (!checkConvergence(params.relativeErrorTol, params.absoluteErrorTol, params.errorTol, last_error, optimizer.error()));
-
-	unpack_results(optimizer.values(), MK, info);
-	PLOT_FOR_USERS(info, show_plots_for);
-	clear_results(info); // clear Est_poses trajectory
+	PLOT_ESTIMATED_FOR_USERS(info, show_list);
 
 	show();
-
-	cout << " Converged in " << optimizer.iterations() << " iterations, with " << optimizer.error() << " final error." << endl; // Currently doing 4 iterations
-
-	//ofstream out_gt_fs(out_directory + filename + "_out_gt.txt");
-	//ofstream out_vio_fs(out_directory + filename + "_out_vio.txt");
-	//ofstream out_est_fs(out_directory + filename + "_out_estimate.txt");
-
-	//cout << "Size check " << info["nuno"].gt_poses.size() << " "
-	//	<< info["nuno"].vio_poses.size() << " "
-	//	<< info["nuno"].est_poses.size() << endl;
-
-	//info["nuno"].vio_poses.pop_back();
-	//write_trajectory_KITTI_format(info["nuno"].gt_poses, out_gt_fs);
-	//write_trajectory_KITTI_format(info["nuno"].vio_poses, out_vio_fs);
-	//write_trajectory_KITTI_format(info["nuno"].est_poses, out_est_fs);
-
-
-	//out_gt_fs.flush();
-	//out_gt_fs.close();	
-	//out_vio_fs.flush();
-	//out_vio_fs.close();	
-	//out_est_fs.flush();
-	//out_est_fs.close();
-
-
 
 	return 0;
 }

@@ -83,7 +83,7 @@ void get_beacon_info(map<string, tracking>& info, json beacon_data) {
 		Pose3 beacon_pos(Rot3::Identity(), Point3(v));
 
 			//If beacon hasn't been added yet
-			if (info.find(beacon["ID"]) == info.end()) {
+			if (info.find(user) == info.end()) {
 				tracking t;
 				t.gt_poses.push_back(beacon_pos); // Only need to push back once
 				t.is_beacon = true;
