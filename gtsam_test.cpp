@@ -18,6 +18,8 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
             if (std::find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
                 hold(on);                                                    \
                 draw_trajectory(user_info.est_poses, "blue");                \
+                hold(on);                                                  \
+                draw_trajectory(user_info.gt_poses, "green");              \
                                                                              \
                 xlabel("X (m)");                                             \
                 ylabel("Z (m)");                                             \
@@ -181,7 +183,7 @@ int run_cappella() {
 
 	// GT noise model - (use to define pose prior)
 	double gt_pos_stdev = 0.01;
-	double gt_ori_stdev = 0.0174533;
+	double gt_ori_stdev = 0.01;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
 	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 0.01);
 	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 0.01);
@@ -237,14 +239,13 @@ int run_cappella() {
 
 	// Establish and attach priors to keys
 
-	// In the example they use 'c', this is just track.I for user 2.
-
-
 	Values vals;
 
 	int pose_num = 0;
 	for (auto& [u, track] : info) {
-		track.I = 0;
+		track.Ix = 0;
+		track.Iv = 0;
+		track.Ib = 0;
 
 		if (track.is_beacon) { // Set nonlinearequality on anchors
 			track.pose_key = MK_Anchor(u,0);
@@ -262,13 +263,13 @@ int run_cappella() {
 
 			Vector3 prior_velocity(0, 0, 0);
 
-			vals.insert(X(track.I), start_pose);
-			vals.insert(V(track.I), prior_velocity);
-			vals.insert(B(track.I), prior_imu_bias);
+			vals.insert(X(track.Ix), start_pose);
+			vals.insert(V(track.Iv), prior_velocity);
+			vals.insert(B(track.Ib), prior_imu_bias);
 
-			graph->addPrior(X(track.I), start_pose, GT_noise_model);
-			graph->addPrior(V(track.I), prior_velocity, prior_velocity_noise_model);
-			graph->addPrior(B(track.I), prior_imu_bias, prior_bias_noise_model);
+			graph->addPrior(X(track.Ix), start_pose, GT_noise_model);
+			graph->addPrior(V(track.Iv), prior_velocity, prior_velocity_noise_model);
+			graph->addPrior(B(track.Ib), prior_imu_bias, prior_bias_noise_model);
 
 			track.est_poses.push_back(start_pose); // We'll take the estimate out of values and put it here.
 			track.est_velocitys.push_back(prior_velocity);
@@ -276,7 +277,7 @@ int run_cappella() {
 
 		}
 
-		track.I++;
+		//track.I++;
 	}
 
 
@@ -295,9 +296,12 @@ int run_cappella() {
 	tracking user = info["2"];
 	NavState prev_state(user.est_poses.back(), user.est_velocitys.back());
 
+	double gt_velocity = 12.0 / 30.0;
+	Pose3 gt_pose = user.est_poses[0];
+	double middle_timestamp = 15000;
 
 	int imu_counter = 0;
-	bool initialization_complete = 0;
+	bool initialization_complete = true;
 
 	for (json mes : sensor_stream) {
 
@@ -308,30 +312,60 @@ int run_cappella() {
 			get_IMU(mes, accel, gyro);
 			imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 			imu_counter++;
+			
+			// Generate GT points
+			// Assume around 15 seconds in we go the opposite way
+
+			// Around 200 IMU measurements per second
+			double dy = gt_velocity * dt;
+
+			if (mes["t"] > middle_timestamp) { dy *= -1; }
+			Pose3 motion( Rot3::Identity(), Vector3(0, dy, 0));
+			gt_pose = gt_pose * motion;
+			user.gt_poses.push_back(gt_pose);
+
+
 		}
 		else if (mes["type"] == "uwb") {
 			double range;
 			string src_user = "2";
 			string dst_user;
 			get_UWB(mes, src_user, dst_user, range);
-			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].I), MK_Anchor(dst_user, info[dst_user].I), range, UWB_noise_model));
-		}
 
-		if (imu_counter % 200 == 0 && initialization_complete) {
+			// I should be adding a KEY HERE
+			// 
+			// Here I'm creating a key that isn't in values?
+
+			user.Ix++;
+			user.Ib++;
+			user.Iv++;
+
+			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
+
 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
 
-			auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
-			vals.insert(X(user.I), proposed.pose());
-			vals.insert(V(user.I), proposed.v());
-			vals.insert(B(user.I), user.constant_bias);
-
-			CombinedImuFactor imu_factor(X(user.I - 1), V(user.I - 1), X(user.I), V(user.I), B(user.I - 1), B(user.I), *current_imu_preintegration);
+			CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
 			graph->add(imu_factor);
+
+
+			//graph->addPrior(X(user.Ix), gt_pose, GT_noise_model); // Add the most recently added gt_pose as a prior -> Trying to avoid indeterminant linear system
+			graph->add(GPSFactor(X(user.Ix), Point3(gt_pose.x(), gt_pose.y(), gt_pose.z()), prior_velocity_noise_model));
+
+			auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
+
+			//graph->addPrior(X(user.Ix), proposed.pose(), VIO_pose_noise_model);
+			graph->addPrior(V(user.Iv), proposed.velocity(), prior_velocity_noise_model);
+			graph->addPrior(B(user.Ib), user.constant_bias, prior_bias_noise_model);
+
+			vals.insert(X(user.Ix), proposed.pose());
+			vals.insert(V(user.Iv), proposed.v());
+			vals.insert(B(user.Ib), user.constant_bias);
+
 
 			isam->update(*graph, vals);
 			Values result = isam->calculateEstimate();
-			Pose3 estimated_pose = result.at<Pose3>(X(user.I));
-			Vector3 estimated_velocity = result.at<Vector3>(V(user.I));
+			Pose3 estimated_pose = result.at<Pose3>(X(user.Ix));
+			Vector3 estimated_velocity = result.at<Vector3>(V(user.Ix));
 
 			user.est_poses.push_back(estimated_pose);
 			user.est_velocitys.push_back(estimated_velocity);
@@ -340,47 +374,85 @@ int run_cappella() {
 			graph->resize(0); // Why these 2?
 			vals.clear();
 			imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
-
-
-			user.I++;
 		}
 
-		if (imu_counter == 200 * 10) {
+		//if (imu_counter % 50 == 0 && initialization_complete) {
+			//PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
 
-			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+		//	//They increment I up here
 
-			auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
-			vals.insert(X(user.I), proposed.pose());
-			vals.insert(V(user.I), proposed.v());
-			vals.insert(B(user.I), user.constant_bias);
+		//	user.Ix++;
+		//	user.Ib++;
+		//	user.Iv++;
 
+		//	CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
+		//	graph->add(imu_factor);
 
-			CombinedImuFactor imu_factor(X(user.I - 1), V(user.I - 1), X(user.I), V(user.I), B(user.I - 1), B(user.I), *current_imu_preintegration);
-			graph->add(imu_factor);
+		//	graph->addPrior(X(user.Ix), gt_pose, GT_noise_model); // Add the most recently added gt_pose as a prior -> Trying to avoid indeterminant linear system
 
-			LevenbergMarquardtParams params;
-			LevenbergMarquardtOptimizer lm(*graph, vals, params);
-			Values result = lm.optimize();
+		//	auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
 
-			Pose3 estimated_pose = result.at<Pose3>(X(user.I));
-			Vector3 estimated_velocity = result.at<Vector3>(V(user.I));
+		//	//graph->addPrior(X(user.Ix), proposed.pose(), VIO_pose_noise_model);
+		//	graph->addPrior(V(user.Iv), proposed.velocity(), prior_velocity_noise_model);
+		//	graph->addPrior(B(user.Ib), user.constant_bias, prior_bias_noise_model);
 
-			isam->update(*graph, result); // This should either be result or vals?
-			// Re-sizing vs not re-sizing the graph makes no difference in hitting indeterminant system
-			//graph->resize(0); // Not sure if I'm initializing isam properly here... But still indeterminant
-			vals.clear();
-
-			user.est_poses.push_back(estimated_pose);
-			user.est_velocitys.push_back(estimated_velocity);
-			prev_state = NavState(estimated_pose, estimated_velocity);
-
-			imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
-
-			user.I++;
+		//	vals.insert(X(user.Ix), proposed.pose());
+		//	vals.insert(V(user.Iv), proposed.v());
+		//	vals.insert(B(user.Ib), user.constant_bias);
 
 
-			initialization_complete = true;
-		}
+		//	isam->update(*graph, vals);
+		//	Values result = isam->calculateEstimate();
+		//	Pose3 estimated_pose = result.at<Pose3>(X(user.Ix));
+		//	Vector3 estimated_velocity = result.at<Vector3>(V(user.Ix));
+
+		//	user.est_poses.push_back(estimated_pose);
+		//	user.est_velocitys.push_back(estimated_velocity);
+		//	prev_state = NavState(estimated_pose, estimated_velocity);
+
+		//	//graph->resize(0); // Why these 2?
+		//	//vals.clear();
+		//	imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
+
+
+		//}
+
+		//if (imu_counter == 200 * 10) {
+
+		//	user.Ix++;
+
+		//	PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+
+		//	auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
+		//	vals.insert(X(user.Ix), proposed.pose());
+		//	vals.insert(V(user.Ix), proposed.v());
+		//	vals.insert(B(user.Ix), user.constant_bias);
+
+
+		//	CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Ix - 1), X(user.Ix), V(user.Ix), B(user.Ix - 1), B(user.Ix), *current_imu_preintegration);
+		//	graph->add(imu_factor);
+
+		//	LevenbergMarquardtParams params;
+		//	LevenbergMarquardtOptimizer lm(*graph, vals, params);
+		//	Values result = lm.optimize();
+
+		//	Pose3 estimated_pose = result.at<Pose3>(X(user.Ix));
+		//	Vector3 estimated_velocity = result.at<Vector3>(V(user.Ix));
+
+		//	isam->update(*graph, result); // This should either be result or vals?
+		//	// Re-sizing vs not re-sizing the graph makes no difference in hitting indeterminant system
+		//	//graph->resize(0); // Not sure if I'm initializing isam properly here... But still indeterminant
+		//	vals.clear();
+
+		//	user.est_poses.push_back(estimated_pose);
+		//	user.est_velocitys.push_back(estimated_velocity);
+		//	prev_state = NavState(estimated_pose, estimated_velocity);
+
+		//	imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
+
+
+		//	initialization_complete = true;
+		//}
 
 
 

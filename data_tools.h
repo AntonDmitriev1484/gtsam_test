@@ -31,7 +31,9 @@ struct tracking {
 	imuBias::ConstantBias constant_bias; // Constant bias
 
 	Key pose_key;
-	int I;
+	int Ix;
+	int Iv;
+	int Ib;
 };
 
 void get_pose_matrix(json d, string& user, Matrix44& pose_matrix);

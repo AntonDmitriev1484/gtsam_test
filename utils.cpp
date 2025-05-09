@@ -116,7 +116,7 @@ void draw_points(vector<Pose3> points, string color) {
 
 void unpack_results(Values results, const function<Key(string, int)>& MK, map<string, tracking>& info) {
 	for (auto& [user, user_info] : info) {
-		for (int i = 0; i < user_info.I; i++) {
+		for (int i = 0; i < user_info.Ix; i++) {
 			if (!user_info.is_beacon) {
 				Key k = MK(user, i);
 				Pose3 estimated_pose = results.at<Pose3>(k);
@@ -131,7 +131,7 @@ void unpack_results_and_plot(Values results, const function<Key(string, int)>& M
 	// Plotting code
 
 	for (auto& [user, user_info] : info) {
-		for (int i = 0; i < user_info.I; i++) {
+		for (int i = 0; i < user_info.Ix; i++) {
 			if (!user_info.is_beacon) {
 				Key k = MK(user, i);
 				Pose3 estimated_pose = results.at<Pose3>(k);
@@ -168,7 +168,7 @@ void unpack_results_and_plot(Values results, const function<Key(string, int)>& M
 
 void clear_results(map<string, tracking>& info) {
 	for (auto& [user, user_info] : info) {
-		for (int i = 0; i < user_info.I; i++) {
+		for (int i = 0; i < user_info.Ix; i++) {
 			if (!user_info.is_beacon) {
 				user_info.est_poses.clear();
 			}
