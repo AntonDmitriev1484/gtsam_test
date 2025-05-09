@@ -297,6 +297,7 @@ int run_cappella() {
 
 
 	int imu_counter = 0;
+	bool initialization_complete = 0;
 
 	for (json mes : sensor_stream) {
 
@@ -306,30 +307,22 @@ int run_cappella() {
 			Vector3 gyro;
 			get_IMU(mes, accel, gyro);
 			imu_preintegrated->integrateMeasurement(accel, gyro, dt);
-
 			imu_counter++;
-
 		}
 		else if (mes["type"] == "uwb") {
 			double range;
 			string src_user = "2";
 			string dst_user;
-
 			get_UWB(mes, src_user, dst_user, range);
-
-			// Once we have an UWB measurement, integrate our IMU, so that we can have a state to connect the UWB to.
-			// Not sure if adding UWB and IMU factor in the same step is the best approach?
-
-
 			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].I), MK_Anchor(dst_user, info[dst_user].I), range, UWB_noise_model));
 		}
 
-		if (imu_counter % 200 == 0) {
+		if (imu_counter % 200 == 0 && initialization_complete) {
 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
 
 			auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
 			vals.insert(X(user.I), proposed.pose());
-			vals.insert(V(user.I), proposed.v()); // I'm guessing v is shorthand for velocity
+			vals.insert(V(user.I), proposed.v());
 			vals.insert(B(user.I), user.constant_bias);
 
 			CombinedImuFactor imu_factor(X(user.I - 1), V(user.I - 1), X(user.I), V(user.I), B(user.I - 1), B(user.I), *current_imu_preintegration);
@@ -350,7 +343,43 @@ int run_cappella() {
 
 
 			user.I++;
+		}
 
+		if (imu_counter == 200 * 10) {
+
+			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+
+			auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
+			vals.insert(X(user.I), proposed.pose());
+			vals.insert(V(user.I), proposed.v());
+			vals.insert(B(user.I), user.constant_bias);
+
+
+			CombinedImuFactor imu_factor(X(user.I - 1), V(user.I - 1), X(user.I), V(user.I), B(user.I - 1), B(user.I), *current_imu_preintegration);
+			graph->add(imu_factor);
+
+			LevenbergMarquardtParams params;
+			LevenbergMarquardtOptimizer lm(*graph, vals, params);
+			Values result = lm.optimize();
+
+			Pose3 estimated_pose = result.at<Pose3>(X(user.I));
+			Vector3 estimated_velocity = result.at<Vector3>(V(user.I));
+
+			isam->update(*graph, result); // This should either be result or vals?
+			// Re-sizing vs not re-sizing the graph makes no difference in hitting indeterminant system
+			//graph->resize(0); // Not sure if I'm initializing isam properly here... But still indeterminant
+			vals.clear();
+
+			user.est_poses.push_back(estimated_pose);
+			user.est_velocitys.push_back(estimated_velocity);
+			prev_state = NavState(estimated_pose, estimated_velocity);
+
+			imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
+
+			user.I++;
+
+
+			initialization_complete = true;
 		}
 
 
