@@ -162,7 +162,7 @@ int run_cappella() {
 
 	info.insert(pair<string, tracking>("2", tracking()));
 
-	double dt = 1 / 200; // IMU gyro and accelerometer operate at 200Hz
+	double dt = 1.0 / 200.0; // IMU gyro and accelerometer operate at 200Hz
 
 
 	// --- Noise Models ---
@@ -183,8 +183,8 @@ int run_cappella() {
 	double gt_pos_stdev = 0.01;
 	double gt_ori_stdev = 0.0174533;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
-	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 0.1);
-	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-3);
+	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 0.01);
+	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 0.01);
 
 
 	// IMU noise model
@@ -274,8 +274,9 @@ int run_cappella() {
 			track.est_velocitys.push_back(prior_velocity);
 			track.constant_bias = prior_imu_bias;
 
-
 		}
+
+		track.I++;
 	}
 
 
@@ -295,7 +296,7 @@ int run_cappella() {
 	NavState prev_state(user.est_poses.back(), user.est_velocitys.back());
 
 
-	int measurement_counter = 0;
+	int imu_counter = 0;
 
 	for (json mes : sensor_stream) {
 
@@ -306,7 +307,7 @@ int run_cappella() {
 			get_IMU(mes, accel, gyro);
 			imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 
-			measurement_counter++;
+			imu_counter++;
 
 		}
 		else if (mes["type"] == "uwb") {
@@ -318,19 +319,21 @@ int run_cappella() {
 
 			// Once we have an UWB measurement, integrate our IMU, so that we can have a state to connect the UWB to.
 			// Not sure if adding UWB and IMU factor in the same step is the best approach?
-			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
 
+
+			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].I), MK_Anchor(dst_user, info[dst_user].I), range, UWB_noise_model));
+		}
+
+		if (imu_counter % 200 == 0) {
+			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
 
 			auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
 			vals.insert(X(user.I), proposed.pose());
 			vals.insert(V(user.I), proposed.v()); // I'm guessing v is shorthand for velocity
 			vals.insert(B(user.I), user.constant_bias);
 
-			CombinedImuFactor imu_factor(X(user.I-1), V(user.I-1), X(user.I), V(user.I), B(user.I-1), B(user.I), *current_imu_preintegration);
+			CombinedImuFactor imu_factor(X(user.I - 1), V(user.I - 1), X(user.I), V(user.I), B(user.I - 1), B(user.I), *current_imu_preintegration);
 			graph->add(imu_factor);
-
-			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].I), MK_Anchor(dst_user, info[dst_user].I), range, UWB_noise_model));
-
 
 			isam->update(*graph, vals);
 			Values result = isam->calculateEstimate();
@@ -345,8 +348,12 @@ int run_cappella() {
 			vals.clear();
 			imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
 
+
 			user.I++;
+
 		}
+
+
 
 	}
 
