@@ -332,7 +332,7 @@ int run_cappella() {
 	NavState prev_state(user.est_poses.back(), user.est_velocitys.back());
 	double gt_velocity = 12.0 / 30.0;
 	Pose3 gt_pose = user.est_poses[0];
-	double middle_timestamp = 15000;
+	double middle_timestamp = 225271404.76314998;
 
 	int imu_counter = 0;
 	bool initialization_complete = true;
@@ -344,25 +344,6 @@ int run_cappella() {
 
 	for (json mes : sensor_stream) {
 
-		//// Generate GT points
-		//	// Assume around 15 seconds in we go the opposite way
-		//	// Around 200 IMU measurements per second
-		//double dx = gt_velocity * dt;
-		////if (mes["t"] >= middle_timestamp && !gt_turn) { // If I comment this out, there is no GT path entirely
-		////	//// Rotate once, 180 degrees about the +z-axis - does make it in here.
-		////	Pose3 motion(Rot3::AxisAngle(Point3(0,0,1), -pi), Vector3(dx, 0.2, 0)); // We've already rotated forward, so our 'dx' in the local frame, is 'dy' in the frame I've drawn on my iPad
-		////	gt_pose = motion * gt_pose;
-		////	gt_turn = true;
-		////}
-		//if (float(mes["t"]) >= middle_timestamp) {
-		//	Pose3 motion(Rot3::Identity(), Vector3(-dx, 0, 0));
-		//	gt_pose = motion * gt_pose;
-		//}
-		//else {
-		//	Pose3 motion(Rot3::Identity(), Vector3(dx, 0, 0));
-		//	gt_pose = motion * gt_pose;
-		//}
-		//user.gt_poses.push_back(gt_pose);
 
 
 		if (mes["type"] == "imu") { // Is it just not receiving IMU measurements?
@@ -375,20 +356,37 @@ int run_cappella() {
 			imu_counter++;
 
 			double dx = gt_velocity * dt;
+
+			//cout << float(mes["t"]) << " vs " << middle_timestamp << endl;
+			if (float(mes["t"]) >= middle_timestamp && !gt_turn) {
+
+				// This pose rotation is really not working...
+				//Pose3 turn(Rot3::AxisAngle(Point3(0, 0 , 1), -pi), Vector3(0, 0.2, 0));
+				//gt_pose = gt_pose * turn;
+				//gt_turn = true;
+			}
+
 			if (float(mes["t"]) >= middle_timestamp) {
-				Pose3 motion(Rot3::Identity(), Vector3(-dx, 0, 0));
-				gt_pose = gt_pose * motion;
-				// In my other code, I did DeltaPoseTransform * pose to get my simulated trajectory...
+				Pose3 delta_pose(Rot3::Identity(), Vector3(-dx, 0, 0));
+				gt_pose = delta_pose * gt_pose;
 			}
 			else {
-				Pose3 motion(Rot3::Identity(), Vector3(dx, 0, 0));
-				gt_pose = gt_pose * motion;
+				Pose3 delta_pose(Rot3::Identity(), Vector3(dx, 0, 0));
+				gt_pose = delta_pose * gt_pose;
 			}
+
+
+			// Although I change the orientation, I am not changing the raw xyz values in the world frame.
+				// In the "GT" frame, I am continuously moving forward, but in the global frame I should see the reversal.
+			// Need this GT to be in the absolute frame, brain is fried I'll come back to this later
+			//cout << "X " << gt_pose.x() << "Y " << gt_pose.y() << "Z " << gt_pose.z() << endl;
+
 			user.gt_poses.push_back(gt_pose);
 			
 			
 
 		}
+		
 		else if (mes["type"] == "uwb" && start_graph) {
 			double range;
 			string src_user = "2";
@@ -474,6 +472,7 @@ int run_cappella() {
 
 			imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
 		}
+		
 	}
 
 	vector<string> show_list = { "2" };
