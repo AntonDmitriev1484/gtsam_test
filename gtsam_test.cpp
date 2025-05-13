@@ -22,8 +22,8 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
                 draw_trajectory(user_info.gt_poses, "green");              \
                                                                              \
                 xlabel("X (m)");                                             \
-                ylabel("Z (m)");                                             \
-                zlabel("Y (m)");                                             \
+                ylabel("Y (m)");                                             \
+                zlabel("Z (m)");                                             \
             }                                                                \
         }                                                                    \
     }                                                                        \
@@ -47,8 +47,8 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
                 draw_trajectory(user_info.est_poses, "blue");              \
                                                                            \
                 xlabel("X (m)");                                           \
-                ylabel("Z (m)");                                           \
-                zlabel("Y (m)");                                           \
+                ylabel("Y (m)");                                           \
+                zlabel("Z (m)");                                           \
                                                                            \
             }                                                              \
         }                                                                  \
@@ -279,7 +279,11 @@ int run_cappella() {
 
 			// Problem with orientation is VERY likely here.
 
-			Rot3 initial_rot = Rot3::Identity(); // along the +x axis
+			Rot3 initial_rot = Rot3::Identity(); // along the +x axis (am I sure)
+
+
+			Vector3 start_orientation_vector = Vector3(0, 1, 0); // start pointing in +y
+
 			gtsam::Matrix3 R; // Rotation -90 degrees about the +z-axis // TODO: Fix this rotation frame !!!!
 			R << 0, 1, 0,
 				-1, 0, 0,
@@ -287,6 +291,7 @@ int run_cappella() {
 			Rot3 rot_to_plus_y(R); // TODO GT: generation incorrect here?
 			initial_rot =  rot_to_plus_y * initial_rot;
 			Rot3 prior_rotation(initial_rot); // Pointing forward about the y-axis. Vector3(0,1,0) -> turn this into a quat 
+
 			Pose3 start_pose(prior_rotation, prior_position);
 
 
@@ -339,6 +344,26 @@ int run_cappella() {
 
 	for (json mes : sensor_stream) {
 
+		//// Generate GT points
+		//	// Assume around 15 seconds in we go the opposite way
+		//	// Around 200 IMU measurements per second
+		//double dx = gt_velocity * dt;
+		////if (mes["t"] >= middle_timestamp && !gt_turn) { // If I comment this out, there is no GT path entirely
+		////	//// Rotate once, 180 degrees about the +z-axis - does make it in here.
+		////	Pose3 motion(Rot3::AxisAngle(Point3(0,0,1), -pi), Vector3(dx, 0.2, 0)); // We've already rotated forward, so our 'dx' in the local frame, is 'dy' in the frame I've drawn on my iPad
+		////	gt_pose = motion * gt_pose;
+		////	gt_turn = true;
+		////}
+		//if (float(mes["t"]) >= middle_timestamp) {
+		//	Pose3 motion(Rot3::Identity(), Vector3(-dx, 0, 0));
+		//	gt_pose = motion * gt_pose;
+		//}
+		//else {
+		//	Pose3 motion(Rot3::Identity(), Vector3(dx, 0, 0));
+		//	gt_pose = motion * gt_pose;
+		//}
+		//user.gt_poses.push_back(gt_pose);
+
 
 		if (mes["type"] == "imu") { // Is it just not receiving IMU measurements?
 
@@ -348,29 +373,20 @@ int run_cappella() {
 			get_IMU(mes, accel, gyro);
 			imu_preintegrated->integrateMeasurement(accel, gyro, dt); // TODO: Does GTSAM expect integration in radians or degrees?
 			imu_counter++;
-			
-			// Generate GT points
-			// Assume around 15 seconds in we go the opposite way
 
-			// Around 200 IMU measurements per second
-			double dy = gt_velocity * dt;
-
-			if (mes["t"] >= middle_timestamp && !gt_turn) {
-				// Rotate once, +180 degrees about the +z-axis
-				gtsam::Matrix3 R;
-				R << -1, 0, 0,
-					0, -1, 0,
-					0, 0, 1;
-				gtsam::Rot3 rot(R);
-				Pose3 motion(rot, Vector3(0, dy, 0));
+			double dx = gt_velocity * dt;
+			if (float(mes["t"]) >= middle_timestamp) {
+				Pose3 motion(Rot3::Identity(), Vector3(-dx, 0, 0));
 				gt_pose = gt_pose * motion;
-				gt_turn = true;
+				// In my other code, I did DeltaPoseTransform * pose to get my simulated trajectory...
 			}
 			else {
-				Pose3 motion(Rot3::Identity(), Vector3(0, dy, 0));
+				Pose3 motion(Rot3::Identity(), Vector3(dx, 0, 0));
 				gt_pose = gt_pose * motion;
 			}
-			user.gt_poses.push_back(gt_pose); 
+			user.gt_poses.push_back(gt_pose);
+			
+			
 
 		}
 		else if (mes["type"] == "uwb" && start_graph) {
