@@ -79,15 +79,15 @@ void draw_trajectory(vector<Pose3> trajectory, string color) {
 	//hold(on);
 
 	// For cappella (AND ONLY CAPPELLA) we rotate every trajectory s.t. y is facing up
-	Matrix44 vis_rotation = get_vis_rotation();
-	vector<Pose3> trajectory_cp(trajectory); // Deep copy and rotate each element
-	for (int i = 0; i < trajectory_cp.size(); i++) trajectory_cp[i] = Pose3(vis_rotation) * trajectory_cp[i];
+	//Matrix44 vis_rotation = get_vis_rotation();
+	//vector<Pose3> trajectory_cp(trajectory); // Deep copy and rotate each element
+	//for (int i = 0; i < trajectory_cp.size(); i++) trajectory_cp[i] = Pose3(vis_rotation) * trajectory_cp[i];
 
 
 	vector<float> xs;
 	vector<float> ys;
 	vector<float> zs;
-	for (Pose3 pose : trajectory_cp) {
+	for (Pose3 pose : trajectory) {
 		xs.push_back(pose.x());
 		ys.push_back(pose.y());
 		zs.push_back(pose.z());

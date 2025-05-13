@@ -191,7 +191,7 @@ int run_cappella() {
 
 	// IMU noise model
 
-	imuBias::ConstantBias prior_imu_bias(Vector6(1e-4, 1e-4, 1e-4, 1e-4, 1e-4, 1e-4)); // Assumption of no prior IMU bias
+	imuBias::ConstantBias prior_imu_bias; // Assumption of no prior IMU bias
 
 	// Realsense Gyro is in radians / sec: https://support.intelrealsense.com/hc/en-us/community/posts/9489403831059-d435i-gyro-data-unit 
 
@@ -219,13 +219,33 @@ int run_cappella() {
 
 
 	// Use our noise model to define the parameters of an IMU preintegrator
-	boost::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedD(0.0);
+	// With these params 'MakeSharedU' gravity points along negative z axis (which is how I defined my coordinate frame)
+
+	// Note: While I set -Z axis in my global frame to represent gravity
+	// where do I set the axis along which the Realsense IMU represents gravity????
+	// Flipping the gravity axis on the IMU might be what is currently causing my rotation problem
+	// Is the navigation frame the global frame or the IMU frame?
+
+	// g is -y in IMU frame, but -z in global frame, need to define that transform
+
+	boost::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
 	imu_preintegration_params->accelerometerCovariance = accel_noise_cov;
 	imu_preintegration_params->integrationCovariance = noise_integration_cov;
 	imu_preintegration_params->gyroscopeCovariance = gyro_noise_cov;
 	imu_preintegration_params->biasAccCovariance = accel_bias_cov;
 	imu_preintegration_params->biasOmegaCovariance = gyro_bias_cov;
 	imu_preintegration_params->biasAccOmegaInt = initial_bias_cov;
+
+	//Rot3 body_to_sensor_rotation;
+
+	gtsam::Matrix3 R; // Rotation -90 degrees about the +x-axis
+	R << 1,0, 0,
+		0, 0, 1,
+		0, -1, 0;
+	// Is this a rotation from the body to the sensor, or sensor to the body
+	// Jose : Sensor to body frame
+	Pose3 transform(Rot3(R), Vector3(0, 0, 0));
+	imu_preintegration_params->body_P_sensor= transform;
 
 
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
@@ -257,9 +277,18 @@ int run_cappella() {
 
 			Point3 prior_position(0, 0, 1.3); // I was carrying laptop at about chest level ~130cm off the ground
 
-			Vector3 start_pointing_direction(0, 1, 0);
-			Rot3 prior_rotation(rotFromDirection(start_pointing_direction)); // Pointing forward about the y-axis. Vector3(0,1,0) -> turn this into a quat 
+			// Problem with orientation is VERY likely here.
+
+			Rot3 initial_rot = Rot3::Identity(); // along the +x axis
+			gtsam::Matrix3 R; // Rotation -90 degrees about the +z-axis // TODO: Fix this rotation frame !!!!
+			R << 0, 1, 0,
+				-1, 0, 0,
+				0, 0, 1;
+			Rot3 rot_to_plus_y(R); // TODO GT: generation incorrect here?
+			initial_rot =  rot_to_plus_y * initial_rot;
+			Rot3 prior_rotation(initial_rot); // Pointing forward about the y-axis. Vector3(0,1,0) -> turn this into a quat 
 			Pose3 start_pose(prior_rotation, prior_position);
+
 
 			Vector3 prior_velocity(0, 0, 0);
 
@@ -293,9 +322,9 @@ int run_cappella() {
 	ISAM2* isam = new ISAM2(isam_params);
 
 
-	tracking user = info["2"];
-	NavState prev_state(user.est_poses.back(), user.est_velocitys.back());
+	tracking& user = info.at("2");
 
+	NavState prev_state(user.est_poses.back(), user.est_velocitys.back());
 	double gt_velocity = 12.0 / 30.0;
 	Pose3 gt_pose = user.est_poses[0];
 	double middle_timestamp = 15000;
@@ -303,14 +332,21 @@ int run_cappella() {
 	int imu_counter = 0;
 	bool initialization_complete = true;
 
+	bool start_graph = false; 
+	bool gt_turn = false;
+	// Setting a constraint that graph can only start on the first imu measurement
+	// long string of uwb measurements leads to integration on nothing ~40 times.
+
 	for (json mes : sensor_stream) {
 
 
-		if (mes["type"] == "imu") {
+		if (mes["type"] == "imu") { // Is it just not receiving IMU measurements?
+
+			start_graph = true;
 			Vector3 accel;
 			Vector3 gyro;
 			get_IMU(mes, accel, gyro);
-			imu_preintegrated->integrateMeasurement(accel, gyro, dt);
+			imu_preintegrated->integrateMeasurement(accel, gyro, dt); // TODO: Does GTSAM expect integration in radians or degrees?
 			imu_counter++;
 			
 			// Generate GT points
@@ -319,22 +355,33 @@ int run_cappella() {
 			// Around 200 IMU measurements per second
 			double dy = gt_velocity * dt;
 
-			if (mes["t"] > middle_timestamp) { dy *= -1; }
-			Pose3 motion( Rot3::Identity(), Vector3(0, dy, 0));
-			gt_pose = gt_pose * motion;
-			user.gt_poses.push_back(gt_pose);
-
+			if (mes["t"] >= middle_timestamp && !gt_turn) {
+				// Rotate once, +180 degrees about the +z-axis
+				gtsam::Matrix3 R;
+				R << -1, 0, 0,
+					0, -1, 0,
+					0, 0, 1;
+				gtsam::Rot3 rot(R);
+				Pose3 motion(rot, Vector3(0, dy, 0));
+				gt_pose = gt_pose * motion;
+				gt_turn = true;
+			}
+			else {
+				Pose3 motion(Rot3::Identity(), Vector3(0, dy, 0));
+				gt_pose = gt_pose * motion;
+			}
+			user.gt_poses.push_back(gt_pose); 
 
 		}
-		else if (mes["type"] == "uwb") {
+		else if (mes["type"] == "uwb" && start_graph) {
 			double range;
 			string src_user = "2";
 			string dst_user;
 			get_UWB(mes, src_user, dst_user, range);
 
 			user.Ix++;
-			user.Ib++;
 			user.Iv++;
+			user.Ib++;
 
 			//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
 
@@ -343,9 +390,8 @@ int run_cappella() {
 			graph->add(imu_factor);
 
 
-
 			//graph->addPrior(X(user.Ix), gt_pose, GT_noise_model); // Add the most recently added gt_pose as a prior -> Trying to avoid indeterminant linear system
-			auto correction_noise = noiseModel::Isotropic::Sigma(3, 1.0);
+			auto correction_noise = noiseModel::Isotropic::Sigma(3, 0.1); // DON"T change this?
 			graph->add(GPSFactor(X(user.Ix), gt_pose.translation(), correction_noise));
 
 
@@ -376,17 +422,21 @@ int run_cappella() {
 				LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
 				Values result = optimizer.optimize();
 
-				info["2"].est_poses.clear();
+				user.est_poses.clear();
 
-				for (auto& [user, user_info] : info) { //Unpacks results
+				for (auto& [user_name, user_info] : info) { //Unpacks results
 					for (int i = 0; i < user_info.Ix; i++) {
 						if (!user_info.is_beacon) {
 							Key k = X(i);
 							Pose3 estimated_pose = result.at<Pose3>(k);
 							user_info.est_poses.push_back(estimated_pose);
+							user_info.est_velocitys.push_back(result.at<Vector3>(V(i))); // Assuming V and X are on same index
 						}
 					}
 				}
+
+				prev_state = NavState( result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)) );
+				// Here, you need to re-insert the optimization results as the base of the next preintegration.
 
 			}
 			catch (const std::exception& e) {
@@ -408,87 +458,6 @@ int run_cappella() {
 
 			imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
 		}
-
-		//if (imu_counter % 50 == 0 && initialization_complete) {
-			//PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-
-		//	//They increment I up here
-
-		//	user.Ix++;
-		//	user.Ib++;
-		//	user.Iv++;
-
-		//	CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
-		//	graph->add(imu_factor);
-
-		//	graph->addPrior(X(user.Ix), gt_pose, GT_noise_model); // Add the most recently added gt_pose as a prior -> Trying to avoid indeterminant linear system
-
-		//	auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
-
-		//	//graph->addPrior(X(user.Ix), proposed.pose(), VIO_pose_noise_model);
-		//	graph->addPrior(V(user.Iv), proposed.velocity(), prior_velocity_noise_model);
-		//	graph->addPrior(B(user.Ib), user.constant_bias, prior_bias_noise_model);
-
-		//	vals.insert(X(user.Ix), proposed.pose());
-		//	vals.insert(V(user.Iv), proposed.v());
-		//	vals.insert(B(user.Ib), user.constant_bias);
-
-
-		//	isam->update(*graph, vals);
-		//	Values result = isam->calculateEstimate();
-		//	Pose3 estimated_pose = result.at<Pose3>(X(user.Ix));
-		//	Vector3 estimated_velocity = result.at<Vector3>(V(user.Ix));
-
-		//	user.est_poses.push_back(estimated_pose);
-		//	user.est_velocitys.push_back(estimated_velocity);
-		//	prev_state = NavState(estimated_pose, estimated_velocity);
-
-		//	//graph->resize(0); // Why these 2?
-		//	//vals.clear();
-		//	imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
-
-
-		//}
-
-		//if (imu_counter == 200 * 10) {
-
-		//	user.Ix++;
-
-		//	PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-
-		//	auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
-		//	vals.insert(X(user.Ix), proposed.pose());
-		//	vals.insert(V(user.Ix), proposed.v());
-		//	vals.insert(B(user.Ix), user.constant_bias);
-
-
-		//	CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Ix - 1), X(user.Ix), V(user.Ix), B(user.Ix - 1), B(user.Ix), *current_imu_preintegration);
-		//	graph->add(imu_factor);
-
-		//	LevenbergMarquardtParams params;
-		//	LevenbergMarquardtOptimizer lm(*graph, vals, params);
-		//	Values result = lm.optimize();
-
-		//	Pose3 estimated_pose = result.at<Pose3>(X(user.Ix));
-		//	Vector3 estimated_velocity = result.at<Vector3>(V(user.Ix));
-
-		//	isam->update(*graph, result); // This should either be result or vals?
-		//	// Re-sizing vs not re-sizing the graph makes no difference in hitting indeterminant system
-		//	//graph->resize(0); // Not sure if I'm initializing isam properly here... But still indeterminant
-		//	vals.clear();
-
-		//	user.est_poses.push_back(estimated_pose);
-		//	user.est_velocitys.push_back(estimated_velocity);
-		//	prev_state = NavState(estimated_pose, estimated_velocity);
-
-		//	imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
-
-
-		//	initialization_complete = true;
-		//}
-
-
-
 	}
 
 	vector<string> show_list = { "2" };
