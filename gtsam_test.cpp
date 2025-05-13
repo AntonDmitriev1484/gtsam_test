@@ -191,7 +191,7 @@ int run_cappella() {
 
 	// IMU noise model
 
-	imuBias::ConstantBias prior_imu_bias; // Assumption of no prior IMU bias
+	imuBias::ConstantBias prior_imu_bias(Vector6(1e-4, 1e-4, 1e-4, 1e-4, 1e-4, 1e-4)); // Assumption of no prior IMU bias
 
 	// Realsense Gyro is in radians / sec: https://support.intelrealsense.com/hc/en-us/community/posts/9489403831059-d435i-gyro-data-unit 
 
@@ -332,47 +332,80 @@ int run_cappella() {
 			string dst_user;
 			get_UWB(mes, src_user, dst_user, range);
 
-			// I should be adding a KEY HERE
-			// 
-			// Here I'm creating a key that isn't in values?
-
 			user.Ix++;
 			user.Ib++;
 			user.Iv++;
 
-			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
+			//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
 
 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-
 			CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
 			graph->add(imu_factor);
 
 
+
 			//graph->addPrior(X(user.Ix), gt_pose, GT_noise_model); // Add the most recently added gt_pose as a prior -> Trying to avoid indeterminant linear system
-			graph->add(GPSFactor(X(user.Ix), Point3(gt_pose.x(), gt_pose.y(), gt_pose.z()), prior_velocity_noise_model));
+			auto correction_noise = noiseModel::Isotropic::Sigma(3, 1.0);
+			graph->add(GPSFactor(X(user.Ix), gt_pose.translation(), correction_noise));
+
 
 			auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
 
-			//graph->addPrior(X(user.Ix), proposed.pose(), VIO_pose_noise_model);
-			graph->addPrior(V(user.Iv), proposed.velocity(), prior_velocity_noise_model);
-			graph->addPrior(B(user.Ib), user.constant_bias, prior_bias_noise_model);
+			// Note: In example, they don't add any priors at all here.
+			////graph->addPrior(X(user.Ix), proposed.pose(), VIO_pose_noise_model);
+			//graph->addPrior(V(user.Iv), proposed.velocity(), prior_velocity_noise_model);
+			//graph->addPrior(B(user.Ib), user.constant_bias, prior_bias_noise_model);
 
 			vals.insert(X(user.Ix), proposed.pose());
 			vals.insert(V(user.Iv), proposed.v());
 			vals.insert(B(user.Ib), user.constant_bias);
 
+			Values result;
+			try {
+				//isam->update(*graph, vals);
+				//Values result = isam->calculateEstimate();
+				//Pose3 estimated_pose = result.at<Pose3>(X(user.Ix));
+				//Vector3 estimated_velocity = result.at<Vector3>(V(user.Ix));
 
-			isam->update(*graph, vals);
-			Values result = isam->calculateEstimate();
-			Pose3 estimated_pose = result.at<Pose3>(X(user.Ix));
-			Vector3 estimated_velocity = result.at<Vector3>(V(user.Ix));
+				//user.est_poses.push_back(estimated_pose);
+				//user.est_velocitys.push_back(estimated_velocity);
+				//prev_state = NavState(estimated_pose, estimated_velocity);
 
-			user.est_poses.push_back(estimated_pose);
-			user.est_velocitys.push_back(estimated_velocity);
-			prev_state = NavState(estimated_pose, estimated_velocity);
 
-			graph->resize(0); // Why these 2?
-			vals.clear();
+				LevenbergMarquardtParams params;
+				LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
+				Values result = optimizer.optimize();
+
+				info["2"].est_poses.clear();
+
+				for (auto& [user, user_info] : info) { //Unpacks results
+					for (int i = 0; i < user_info.Ix; i++) {
+						if (!user_info.is_beacon) {
+							Key k = X(i);
+							Pose3 estimated_pose = result.at<Pose3>(k);
+							user_info.est_poses.push_back(estimated_pose);
+						}
+					}
+				}
+
+			}
+			catch (const std::exception& e) {
+				std::cerr << "Optimizer update failed: " << e.what() << std::endl;
+
+				// Dump factor graph to .dot file
+				std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
+				graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
+				os.close();
+
+				std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
+				//throw; // rethrow after dumping
+			}
+
+
+			//graph->resize(0); // Why these 2?
+			//vals.clear();
+
+
 			imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
 		}
 
