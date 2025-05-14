@@ -20,7 +20,7 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
                 draw_trajectory(user_info.est_poses, "blue");                \
                 hold(on);                                                  \
                 draw_trajectory(user_info.gt_poses, "green");              \
-                                                                             \
+                hold(on);                                                             \
                 xlabel("X (m)");                                             \
                 ylabel("Y (m)");                                             \
                 zlabel("Z (m)");                                             \
@@ -235,6 +235,23 @@ int run_cappella() {
 	};
 
 
+	hold(on);
+
+	Pose3 test1(Rot3::Identity(), Point3(1, 1, 0));
+	Pose3 test_rot = test1 * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), -M_PI/2), Vector3(0,0,0));
+	// So to do a relative rotation with axis angle. New Pose = Current Pose Frame * Incremental Pose <- the incremental rotation.
+	// This makes sense
+
+	//draw_vector(Vector3(0, 0, 0), Vector3(1, 0, 0), "red"); // X
+	draw_forward(test1, 1, "red");
+	draw_forward(test_rot, 1, "black");
+	draw_vector(Vector3(0, 0, 0), Vector3(1, 0, 0), "red"); // X
+	draw_vector(Vector3(0, 0, 0), Vector3(0, 1, 0), "blue"); // Y
+	draw_vector(Vector3(0, 0, 0), Vector3(0, 0, 1), "green"); // Z
+
+	hold(on);
+	//show();
+
 	// Establish and attach priors to keys
 
 	Values vals;
@@ -269,8 +286,8 @@ int run_cappella() {
 			initial_rot =  rot_to_plus_y * initial_rot;
 			Rot3 prior_rotation(initial_rot); // Pointing forward about the y-axis. Vector3(0,1,0) -> turn this into a quat 
 
-			Pose3 start_pose(prior_rotation, prior_position);
-			//Pose3 start_pose(Rot3::AxisAngle(Point3(0,0,1), M_PI/4), prior_position); // Changing the initial rotation has absolutely no effect here
+			//Pose3 start_pose(prior_rotation, prior_position);
+			Pose3 start_pose(Rot3::AxisAngle(Point3(0,1,0), M_PI/4), prior_position); // Changing the initial rotation has absolutely no effect here
 			// For some reason changing the rotation on start_pose has no impact at all...
 			// Could draw the orientation vectors
 
