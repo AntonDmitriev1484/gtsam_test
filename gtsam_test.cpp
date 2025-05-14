@@ -238,7 +238,7 @@ int run_cappella() {
 	hold(on);
 
 	Pose3 test1(Rot3::Identity(), Point3(1, 1, 0));
-	Pose3 test_rot = test1 * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), -M_PI/2), Vector3(0,0,0));
+	Pose3 test_rot = test1 * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI/2), Vector3(0,0,0));
 	// So to do a relative rotation with axis angle. New Pose = Current Pose Frame * Incremental Pose <- the incremental rotation.
 	// This makes sense
 
@@ -255,6 +255,7 @@ int run_cappella() {
 	// Establish and attach priors to keys
 
 	Values vals;
+	Pose3 gt_pose;
 
 	int pose_num = 0;
 	for (auto& [u, track] : info) {
@@ -272,24 +273,13 @@ int run_cappella() {
 
 			Point3 prior_position(0, 0, 1.3); // I was carrying laptop at about chest level ~130cm off the ground
 
-			// Problem with orientation is VERY likely here.
-
-			Rot3 initial_rot = Rot3::Identity(); // along the +x axis
-
-			Vector3 start_orientation_vector = Vector3(0, 1, 0); // start pointing in +y
-
-			gtsam::Matrix3 R; // Rotation -90 degrees about the +z-axis // TODO: Fix this rotation frame !!!!
-			R << 0, 1, 0,
-				-1, 0, 0,
-				0, 0, 1;
-			Rot3 rot_to_plus_y(R); // TODO GT: generation incorrect here?
-			initial_rot =  rot_to_plus_y * initial_rot;
-			Rot3 prior_rotation(initial_rot); // Pointing forward about the y-axis. Vector3(0,1,0) -> turn this into a quat 
-
 			//Pose3 start_pose(prior_rotation, prior_position);
-			Pose3 start_pose(Rot3::AxisAngle(Point3(0,1,0), M_PI/4), prior_position); // Changing the initial rotation has absolutely no effect here
-			// For some reason changing the rotation on start_pose has no impact at all...
-			// Could draw the orientation vectors
+			Pose3 start_pose(Rot3::Identity(), prior_position); // Changing the initial rotation has absolutely no effect here
+			//start_pose = start_pose * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI / 2), Vector3(0, 0, 0));
+
+			gt_pose = start_pose;
+			/*draw_forward(gt_pose, 1.0, "black");*/
+
 
 			Vector3 prior_velocity(0, 0, 0);
 
@@ -325,14 +315,14 @@ int run_cappella() {
 	NavState prev_state(user.est_poses.back(), user.est_velocitys.back());
 
 	double gt_velocity = 12.0 / 30.0;
-	Pose3 gt_pose = user.est_poses[0];
 	double middle_timestamp = 225271404.76314998;
-	double dx = gt_velocity * dt;
+	double dy = gt_velocity * dt;
 	int T_CORRECTION = 200; // Every ~1 second. 200 IMU measurements, correct with GT.
 
 	int imu_counter = 0;
 	bool initialization_complete = true;
 	bool start_graph = false; 
+	bool turn = false;
 	// Setting a constraint that graph can only start on the first imu measurement
 	// long string of uwb measurements leads to integration on nothing ~40 times.
 
@@ -349,13 +339,17 @@ int run_cappella() {
 			imu_counter++;
 
 
-			// Generate GT path at IMU frequency
-			// Note: Doing this by fully changing pose orientation was giving me a headache (orientation is incorrect w/ this approach)
-			int coeff = 1;
-			if (float(mes["t"]) >= middle_timestamp) coeff = -1;
-			Pose3 delta_pose(Rot3::Identity(), Vector3(0, coeff * dx, 0));
-			gt_pose = delta_pose * gt_pose;
+			if (float(mes["t"]) >= middle_timestamp && !turn) {
+				gt_pose = gt_pose * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), -M_PI), Vector3(0, 0, 0));
+				turn = true;
+			}
+
+			Pose3 delta_pose(Rot3::Identity(), Vector3(0, dy, 0));
+			gt_pose = gt_pose * delta_pose;
 			user.gt_poses.push_back(gt_pose);
+
+			// Plot the direction of the +x axis of the body frame in the global frame.
+			if (imu_counter % 200 == 0) draw_forward(gt_pose, 0.5, "black");
 
 
 			// Periodically generate a GT correction

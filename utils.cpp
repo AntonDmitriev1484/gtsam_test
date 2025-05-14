@@ -76,7 +76,7 @@ void draw_basis(Matrix33 basis, Vector3 loc, bool as_reference_frame) {
 }
 
 void draw_forward(Pose3 pose, double scale, string color) {
-	draw_vector(pose.translation(), (pose * Vector3(1, 0, 0) * (scale)), color);
+	draw_vector(pose.translation(), pose.translation() + (pose.rotation() * Vector3(1, 0, 0) * (scale)), color);
 }
 
 void draw_trajectory(vector<Pose3> trajectory, string color) {
@@ -98,7 +98,7 @@ void draw_trajectory(vector<Pose3> trajectory, string color) {
 		zs.push_back(pose.z());
 
 		if (count % 100 == 0) {
-			draw_vector(pose.translation(), pose.translation() + (pose * Vector3(1, 0, 0) * (0.1)), color);
+			draw_forward(pose, 0.1, color);
 		}
 		count++;
 	}
