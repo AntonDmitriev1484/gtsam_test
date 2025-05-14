@@ -97,10 +97,10 @@ void draw_trajectory(vector<Pose3> trajectory, string color) {
 		ys.push_back(pose.y());
 		zs.push_back(pose.z());
 
-		if (count % 100 == 0) {
-			draw_forward(pose, 0.1, color);
-		}
-		count++;
+		//if (count % 100 == 0) {
+		//	draw_forward(pose, 0.1, color);
+		//}
+		//count++;
 	}
 	plot3(xs, ys, zs)->color(color);
 }
@@ -108,15 +108,15 @@ void draw_trajectory(vector<Pose3> trajectory, string color) {
 void draw_points(vector<Pose3> points, string color) {
 	//hold(on);
 
-		// For cappella (AND ONLY CAPPELLA) we rotate every trajectory s.t. y is facing up
-	Matrix44 vis_rotation = get_vis_rotation();
-	vector<Pose3> trajectory_cp(points); // Deep copy and rotate each element
-	for (int i = 0; i < trajectory_cp.size(); i++) trajectory_cp[i] = Pose3(vis_rotation) * trajectory_cp[i];
+	//	// For cappella (AND ONLY CAPPELLA) we rotate every trajectory s.t. y is facing up
+	//Matrix44 vis_rotation = get_vis_rotation();
+	//vector<Pose3> trajectory_cp(points); // Deep copy and rotate each element
+	//for (int i = 0; i < trajectory_cp.size(); i++) trajectory_cp[i] = Pose3(vis_rotation) * trajectory_cp[i];
 
 	vector<double> xs;
 	vector<double> ys;
 	vector<double> zs;
-	for (Pose3 pose : trajectory_cp) {
+	for (Pose3 pose : points) {
 		xs.push_back(pose.x());
 		ys.push_back(pose.y());
 		zs.push_back(pose.z());

@@ -12,6 +12,15 @@ using symbol_shorthand::B;  // Bias  (ax,ay,az,gx,gy,gz)
 using symbol_shorthand::V;  // Vel   (xdot,ydot,zdot)
 using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 
+#define PLOT_ANCHORS(INFO) {\
+	for (const auto& [user_name, user_info] : INFO) {                        \
+        if (user_info.is_beacon) {                                          \
+			hold(on);														\
+            draw_points(user_info.gt_poses, "red");                      \
+        }                                                                    \
+    }																		\
+}
+
 #define PLOT_ESTIMATED_FOR_USERS(INFO, SHOW_LIST) {                          \
     for (const auto& [user_name, user_info] : INFO) {                        \
         if (!user_info.is_beacon) {                                          \
@@ -24,9 +33,9 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
                 xlabel("X (m)");                                             \
                 ylabel("Y (m)");                                             \
                 zlabel("Z (m)");                                             \
-				xlim({ 0,6 }); \
-				ylim({ 0,6 }); \
-				zlim({ 0,6 }); \
+				xlim({ -3.5,3.5 }); \
+				ylim({ -1,6 }); \
+				zlim({ 0,7 }); \
             }                                                                \
         }                                                                    \
     }                                                                        \
@@ -143,9 +152,7 @@ int run_cappella() {
 
 	//get_gt_info(info, json::parse(gt_fs)); // fill user_info with gt_pose trajectory
 
-	get_beacon_info(info, json::parse(beacon_fs));
-
-	// TODO add user to the map
+	get_beacon_info(info, json::parse(beacon_fs)); // I think this is reading beacon positions in properly
 
 	info.insert(pair<string, tracking>("2", tracking()));
 
@@ -216,14 +223,12 @@ int run_cappella() {
 
 	//Rot3 body_to_sensor_rotation;
 
-	gtsam::Matrix3 R; // Rotation -90 degrees about the +x-axis
-	R << 1,0, 0,
-		0, 0, 1,
-		0, -1, 0;
 	// Is this a rotation from the body to the sensor, or sensor to the body
 	// Jose : Sensor to body frame
-	Pose3 transform(Rot3(R), Vector3(0, 0, 0));
-	imu_preintegration_params->body_P_sensor= transform;
+	Pose3 sensor_to_body_transform( Rot3::AxisAngle(Point3(0,0,1), M_PI) * Rot3::AxisAngle(Point3(1,0,0), -M_PI/2), Vector3(0, 0, 0));
+	// -90 about x-axis.
+	// + 180 about z-axis
+	imu_preintegration_params->body_P_sensor = sensor_to_body_transform;
 
 
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
@@ -233,24 +238,6 @@ int run_cappella() {
 	const function<Key(string, int)> MK_Anchor = [](string name, int I) {
 		return symbol('s', stoi(name));
 	};
-
-
-	hold(on);
-
-	Pose3 test1(Rot3::Identity(), Point3(1, 1, 0));
-	Pose3 test_rot = test1 * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI/2), Vector3(0,0,0));
-	// So to do a relative rotation with axis angle. New Pose = Current Pose Frame * Incremental Pose <- the incremental rotation.
-	// This makes sense
-
-	//draw_vector(Vector3(0, 0, 0), Vector3(1, 0, 0), "red"); // X
-	draw_forward(test1, 1, "red");
-	draw_forward(test_rot, 1, "black");
-	draw_vector(Vector3(0, 0, 0), Vector3(1, 0, 0), "red"); // X
-	draw_vector(Vector3(0, 0, 0), Vector3(0, 1, 0), "blue"); // Y
-	draw_vector(Vector3(0, 0, 0), Vector3(0, 0, 1), "green"); // Z
-
-	hold(on);
-	//show();
 
 	// Establish and attach priors to keys
 
@@ -272,14 +259,8 @@ int run_cappella() {
 		else { // Since we only have one user, user 2.
 
 			Point3 prior_position(0, 0, 1.3); // I was carrying laptop at about chest level ~130cm off the ground
-
-			//Pose3 start_pose(prior_rotation, prior_position);
-			Pose3 start_pose(Rot3::Identity(), prior_position); // Changing the initial rotation has absolutely no effect here
-			//start_pose = start_pose * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI / 2), Vector3(0, 0, 0));
-
+			Pose3 start_pose(Rot3::Identity(), prior_position);
 			gt_pose = start_pose;
-			/*draw_forward(gt_pose, 1.0, "black");*/
-
 
 			Vector3 prior_velocity(0, 0, 0);
 
@@ -348,10 +329,6 @@ int run_cappella() {
 			gt_pose = gt_pose * delta_pose;
 			user.gt_poses.push_back(gt_pose);
 
-			// Plot the direction of the +x axis of the body frame in the global frame.
-			if (imu_counter % 200 == 0) draw_forward(gt_pose, 0.5, "black");
-
-
 			// Periodically generate a GT correction
 			if (imu_counter % T_CORRECTION == 0) {
 
@@ -396,7 +373,7 @@ int run_cappella() {
 				imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
 			}
 		}
-		/*
+		
 		else if (mes["type"] == "uwb" && start_graph) {
 			double range;
 			string src_user = "2";
@@ -407,7 +384,13 @@ int run_cappella() {
 			user.Iv++;
 			user.Ib++;
 
-			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
+
+			double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
+			cout << "true_range " << true_range << " measured range " << range << endl;
+
+			//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
+			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), true_range, UWB_noise_model));
+
 
 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
 			CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
@@ -439,9 +422,8 @@ int run_cappella() {
 				prev_state = NavState( result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)) );
 				// Here, you need to re-insert the optimization results as the base of the next preintegration.
 
-
 			imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
-		}*/
+		}
 
 		
 		
@@ -449,6 +431,7 @@ int run_cappella() {
 
 	vector<string> show_list = { "2" };
 
+	PLOT_ANCHORS(info);
 	PLOT_ESTIMATED_FOR_USERS(info, show_list);
 
 	show();
@@ -462,4 +445,22 @@ int main(int argc, char* argv[]) {
 	run_cappella();
 
 	return 0;
+
+	//Save (drawing example for when you get confused)
+	//hold(on);
+
+	//Pose3 test1(Rot3::Identity(), Point3(1, 1, 0));
+	//Pose3 test_rot = test1 * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI / 2), Vector3(0, 0, 0));
+	//// So to do a relative rotation with axis angle. New Pose = Current Pose Frame * Incremental Pose <- the incremental rotation.
+	//// This makes sense
+
+	////draw_vector(Vector3(0, 0, 0), Vector3(1, 0, 0), "red"); // X
+	//draw_forward(test1, 1, "red");
+	//draw_forward(test_rot, 1, "black");
+	//draw_vector(Vector3(0, 0, 0), Vector3(1, 0, 0), "red"); // X
+	//draw_vector(Vector3(0, 0, 0), Vector3(0, 1, 0), "blue"); // Y
+	//draw_vector(Vector3(0, 0, 0), Vector3(0, 0, 1), "green"); // Z
+
+	//hold(on);
+	////show();
 }

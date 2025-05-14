@@ -69,6 +69,7 @@ void get_gt_info(map<string, tracking>& info, json gt_data) {
 }
 
 void get_beacon_info(map<string, tracking>& info, json beacon_data) {
+	// Beacon position will 
 	for (json beacon : beacon_data) {
 		Rot3 rot();
 		Vector3 v;
@@ -80,7 +81,7 @@ void get_beacon_info(map<string, tracking>& info, json beacon_data) {
 		}
 
 		string user = to_string(beacon["ID"]);
-		Pose3 beacon_pos(Rot3::Identity(), Point3(v));
+		Pose3 beacon_pos(Rot3::Identity(), v);
 
 			//If beacon hasn't been added yet
 			if (info.find(user) == info.end()) {
