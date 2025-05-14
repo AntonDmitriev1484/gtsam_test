@@ -24,6 +24,9 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
                 xlabel("X (m)");                                             \
                 ylabel("Y (m)");                                             \
                 zlabel("Z (m)");                                             \
+				xlim({ 0,6 }); \
+				ylim({ 0,6 }); \
+				zlim({ 0,6 }); \
             }                                                                \
         }                                                                    \
     }                                                                        \
@@ -124,22 +127,6 @@ void LM_lambda_search(NonlinearFactorGraph* graph, Values vals, map<string, trac
 	show();
 }
 
-Rot3 rotFromDirection(const Point3& direction) {
-	// Normalize direction vector
-	Point3 z = direction / direction.norm();
-
-	// Choose arbitrary up vector
-	Point3 up(0, 0, 1);
-	if (fabs(z.dot(up)) > 0.99) {
-		up = Point3(0, 1, 0);
-	}
-
-	Point3 x = up.cross(z).normalized();
-	Point3 y = z.cross(x);
-
-	return Rot3(x, y, z);
-}
-
 
 
 int run_cappella() {
@@ -154,8 +141,6 @@ int run_cappella() {
 	json sensor_stream = json::parse(raw_fs);
 	map<string, tracking> info; // Map of username to tracking information
 
-
-	// TODO get_gt_info but with a faked trajectory
 	//get_gt_info(info, json::parse(gt_fs)); // fill user_info with gt_pose trajectory
 
 	get_beacon_info(info, json::parse(beacon_fs));
@@ -179,7 +164,7 @@ int run_cappella() {
 
 	double uwb_stdev = 0.1;
 	//double uwb_stdev = 1;
-	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev); // Apparently this is the correct noise model for a range
+	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
 	// GT noise model - (use to define pose prior)
 	double gt_pos_stdev = 0.01;
@@ -220,13 +205,6 @@ int run_cappella() {
 
 	// Use our noise model to define the parameters of an IMU preintegrator
 	// With these params 'MakeSharedU' gravity points along negative z axis (which is how I defined my coordinate frame)
-
-	// Note: While I set -Z axis in my global frame to represent gravity
-	// where do I set the axis along which the Realsense IMU represents gravity????
-	// Flipping the gravity axis on the IMU might be what is currently causing my rotation problem
-	// Is the navigation frame the global frame or the IMU frame?
-
-	// g is -y in IMU frame, but -z in global frame, need to define that transform
 
 	boost::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
 	imu_preintegration_params->accelerometerCovariance = accel_noise_cov;
@@ -279,8 +257,7 @@ int run_cappella() {
 
 			// Problem with orientation is VERY likely here.
 
-			Rot3 initial_rot = Rot3::Identity(); // along the +x axis (am I sure)
-
+			Rot3 initial_rot = Rot3::Identity(); // along the +x axis
 
 			Vector3 start_orientation_vector = Vector3(0, 1, 0); // start pointing in +y
 
@@ -293,7 +270,9 @@ int run_cappella() {
 			Rot3 prior_rotation(initial_rot); // Pointing forward about the y-axis. Vector3(0,1,0) -> turn this into a quat 
 
 			Pose3 start_pose(prior_rotation, prior_position);
-
+			//Pose3 start_pose(Rot3::AxisAngle(Point3(0,0,1), M_PI/4), prior_position); // Changing the initial rotation has absolutely no effect here
+			// For some reason changing the rotation on start_pose has no impact at all...
+			// Could draw the orientation vectors
 
 			Vector3 prior_velocity(0, 0, 0);
 
@@ -311,7 +290,6 @@ int run_cappella() {
 
 		}
 
-		//track.I++;
 	}
 
 
@@ -326,67 +304,88 @@ int run_cappella() {
 	isam_params.optimizationParams = dogleg;
 	ISAM2* isam = new ISAM2(isam_params);
 
-
 	tracking& user = info.at("2");
-
 	NavState prev_state(user.est_poses.back(), user.est_velocitys.back());
+
 	double gt_velocity = 12.0 / 30.0;
 	Pose3 gt_pose = user.est_poses[0];
 	double middle_timestamp = 225271404.76314998;
+	double dx = gt_velocity * dt;
+	int T_CORRECTION = 200; // Every ~1 second. 200 IMU measurements, correct with GT.
 
 	int imu_counter = 0;
 	bool initialization_complete = true;
-
 	bool start_graph = false; 
-	bool gt_turn = false;
 	// Setting a constraint that graph can only start on the first imu measurement
 	// long string of uwb measurements leads to integration on nothing ~40 times.
 
 	for (json mes : sensor_stream) {
 
+		if (mes["type"] == "imu") {
 
-
-		if (mes["type"] == "imu") { // Is it just not receiving IMU measurements?
-
+			// Add IMU measurement
 			start_graph = true;
 			Vector3 accel;
 			Vector3 gyro;
 			get_IMU(mes, accel, gyro);
-			imu_preintegrated->integrateMeasurement(accel, gyro, dt); // TODO: Does GTSAM expect integration in radians or degrees?
+			imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 			imu_counter++;
 
-			double dx = gt_velocity * dt;
 
-			//cout << float(mes["t"]) << " vs " << middle_timestamp << endl;
-			if (float(mes["t"]) >= middle_timestamp && !gt_turn) {
-
-				// This pose rotation is really not working...
-				//Pose3 turn(Rot3::AxisAngle(Point3(0, 0 , 1), -pi), Vector3(0, 0.2, 0));
-				//gt_pose = gt_pose * turn;
-				//gt_turn = true;
-			}
-
-			if (float(mes["t"]) >= middle_timestamp) {
-				Pose3 delta_pose(Rot3::Identity(), Vector3(-dx, 0, 0));
-				gt_pose = delta_pose * gt_pose;
-			}
-			else {
-				Pose3 delta_pose(Rot3::Identity(), Vector3(dx, 0, 0));
-				gt_pose = delta_pose * gt_pose;
-			}
-
-
-			// Although I change the orientation, I am not changing the raw xyz values in the world frame.
-				// In the "GT" frame, I am continuously moving forward, but in the global frame I should see the reversal.
-			// Need this GT to be in the absolute frame, brain is fried I'll come back to this later
-			//cout << "X " << gt_pose.x() << "Y " << gt_pose.y() << "Z " << gt_pose.z() << endl;
-
+			// Generate GT path at IMU frequency
+			// Note: Doing this by fully changing pose orientation was giving me a headache (orientation is incorrect w/ this approach)
+			int coeff = 1;
+			if (float(mes["t"]) >= middle_timestamp) coeff = -1;
+			Pose3 delta_pose(Rot3::Identity(), Vector3(0, coeff * dx, 0));
+			gt_pose = delta_pose * gt_pose;
 			user.gt_poses.push_back(gt_pose);
-			
-			
 
+
+			// Periodically generate a GT correction
+			if (imu_counter % T_CORRECTION == 0) {
+
+				user.Ix++;
+				user.Iv++;
+				user.Ib++;
+
+				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+				CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
+				graph->add(imu_factor);
+
+				// GT correction (currently as GPS factor)
+				auto correction_noise = noiseModel::Isotropic::Sigma(3, 0.1);
+				graph->add(GPSFactor(X(user.Ix), gt_pose.translation(), correction_noise));
+
+				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
+
+				vals.insert(X(user.Ix), proposed.pose());
+				vals.insert(V(user.Iv), proposed.v());
+				vals.insert(B(user.Ib), user.constant_bias);
+
+				LevenbergMarquardtParams params;
+				LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
+				Values result = optimizer.optimize();
+
+				user.est_poses.clear();
+
+				for (auto& [user_name, user_info] : info) { //Unpacks results
+					for (int i = 0; i < user_info.Ix; i++) {
+						if (!user_info.is_beacon) {
+							Key k = X(i);
+							Pose3 estimated_pose = result.at<Pose3>(k);
+							user_info.est_poses.push_back(estimated_pose);
+							user_info.est_velocitys.push_back(result.at<Vector3>(V(i))); // Assuming V and X are on same index
+						}
+					}
+				}
+
+				prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
+				// Here, you need to re-insert the optimization results as the base of the next preintegration.
+
+				imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
+			}
 		}
-		
+		/*
 		else if (mes["type"] == "uwb" && start_graph) {
 			double range;
 			string src_user = "2";
@@ -397,40 +396,17 @@ int run_cappella() {
 			user.Iv++;
 			user.Ib++;
 
-			//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
+			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
 
 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
 			CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
 			graph->add(imu_factor);
 
-
-			//graph->addPrior(X(user.Ix), gt_pose, GT_noise_model); // Add the most recently added gt_pose as a prior -> Trying to avoid indeterminant linear system
-			auto correction_noise = noiseModel::Isotropic::Sigma(3, 0.1); // DON"T change this?
-			graph->add(GPSFactor(X(user.Ix), gt_pose.translation(), correction_noise));
-
-
 			auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
-
-			// Note: In example, they don't add any priors at all here.
-			////graph->addPrior(X(user.Ix), proposed.pose(), VIO_pose_noise_model);
-			//graph->addPrior(V(user.Iv), proposed.velocity(), prior_velocity_noise_model);
-			//graph->addPrior(B(user.Ib), user.constant_bias, prior_bias_noise_model);
 
 			vals.insert(X(user.Ix), proposed.pose());
 			vals.insert(V(user.Iv), proposed.v());
 			vals.insert(B(user.Ib), user.constant_bias);
-
-			Values result;
-			try {
-				//isam->update(*graph, vals);
-				//Values result = isam->calculateEstimate();
-				//Pose3 estimated_pose = result.at<Pose3>(X(user.Ix));
-				//Vector3 estimated_velocity = result.at<Vector3>(V(user.Ix));
-
-				//user.est_poses.push_back(estimated_pose);
-				//user.est_velocitys.push_back(estimated_velocity);
-				//prev_state = NavState(estimated_pose, estimated_velocity);
-
 
 				LevenbergMarquardtParams params;
 				LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
@@ -452,26 +428,11 @@ int run_cappella() {
 				prev_state = NavState( result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)) );
 				// Here, you need to re-insert the optimization results as the base of the next preintegration.
 
-			}
-			catch (const std::exception& e) {
-				std::cerr << "Optimizer update failed: " << e.what() << std::endl;
-
-				// Dump factor graph to .dot file
-				std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
-				graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
-				os.close();
-
-				std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
-				//throw; // rethrow after dumping
-			}
-
-
-			//graph->resize(0); // Why these 2?
-			//vals.clear();
-
 
 			imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
-		}
+		}*/
+
+		
 		
 	}
 
