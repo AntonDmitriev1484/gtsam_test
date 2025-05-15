@@ -303,8 +303,9 @@ int run_cappella() {
 	double middle_timestamp = 225271404.76314998;
 	double dy = gt_velocity * dt;
 	int T_CORRECTION = 200; // Every ~1 second. 200 IMU measurements, correct with GT.
-	int T_UWB = 100; // Every 30 IMU measurements, generate 1 synthetic UWB measurement.
+	int T_UWB = 10; // Every 30 IMU measurements, generate 1 synthetic UWB measurement.
 	int UWB_ANCHOR_IDX = 0;
+	int GT_CORRECTION_COUNT = 0;
 
 	int imu_counter = 0;
 	bool initialization_complete = true;
@@ -314,6 +315,8 @@ int run_cappella() {
 	// long string of uwb measurements leads to integration on nothing ~40 times.
 
 	for (json mes : sensor_stream) {
+
+		//if (GT_CORRECTION_COUNT > 2) break;
 
 		if (mes["type"] == "imu") {
 
@@ -377,27 +380,28 @@ int run_cappella() {
 				// Here, you need to re-insert the optimization results as the base of the next preintegration.
 
 				imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
+				GT_CORRECTION_COUNT++;
 			}
 		}
 		
-		else if (imu_counter % T_UWB == 0 && start_graph) {
-		//else if (mes["type"] == "uwb" && start_graph) {
-			//double range;
+		//if (imu_counter % T_UWB == 0 && start_graph) {
+
+		else if (mes["type"] == "uwb" && start_graph) {
+			double range;
 			string src_user = "2";
-
-			vector<string> anchors = { "1", "3", "4" };
-			string dst_user = anchors[UWB_ANCHOR_IDX % 3];
-
+			string dst_user;
 
 			UWB_ANCHOR_IDX++;
-			//get_UWB(mes, src_user, dst_user, range);
+			get_UWB(mes, src_user, dst_user, range);
+			//vector<string> anchors = { "1", "3", "4" };
+			//string dst_user = anchors[UWB_ANCHOR_IDX % 3];
 
-			user.Ix++;
-			user.Iv++;
+			user.Ix++; // Be careful, if this runs immediately after an IMU it may double index the key. Copy this code and move it into the IMU block.
+			user.Iv++; 
 			user.Ib++;
 
 
-			draw_vector(gt_pose.translation(), info[dst_user].gt_poses[0].translation(), "black");
+			//draw_vector(gt_pose.translation(), info[dst_user].gt_poses[0].translation(), "black");
 
 			double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
 			//cout << "true_range " << true_range << " measured range " << range << endl;

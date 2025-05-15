@@ -97,10 +97,11 @@ void draw_trajectory(vector<Pose3> trajectory, string color) {
 		ys.push_back(pose.y());
 		zs.push_back(pose.z());
 
-		//if (count % 100 == 0) {
-		//	draw_forward(pose, 0.1, color);
-		//}
-		//count++;
+
+		if (count % 50 == 0) {
+			draw_forward(pose, 0.1, color);
+		}
+		count++;
 	}
 	plot3(xs, ys, zs)->color(color);
 }
