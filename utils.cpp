@@ -97,7 +97,9 @@ void draw_trajectory(vector<Pose3> trajectory, string color) {
 		ys.push_back(pose.y());
 		zs.push_back(pose.z());
 
-
+		if (color == "blue" && count % 50 ==0) { // No idea why it needs a special invite to plot blue but oh well.
+			draw_forward(pose, 0.1, color);
+		}
 		if (count % 50 == 0) {
 			draw_forward(pose, 0.1, color);
 		}

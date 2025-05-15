@@ -358,34 +358,37 @@ int run_cappella() {
 				vals.insert(X(user.Ix), proposed.pose());
 				vals.insert(V(user.Iv), proposed.v());
 				vals.insert(B(user.Ib), user.constant_bias);
+				Values result; 
 
-				LevenbergMarquardtParams params;
-				LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
-				Values result = optimizer.optimize();
+				try {
+					isam->update(*graph, vals);
+					result = isam->calculateEstimate();
+					user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
+					user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
+				}
+				catch (const std::exception& e) {
+					std::cerr << "Optimizer update failed: " << e.what() << std::endl;
 
-				user.est_poses.clear();
+					// Dump factor graph to .dot file
+					std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
+					graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
+					os.close();
 
-				for (auto& [user_name, user_info] : info) { //Unpacks results
-					for (int i = 0; i < user_info.Ix; i++) {
-						if (!user_info.is_beacon) {
-							Key k = X(i);
-							Pose3 estimated_pose = result.at<Pose3>(k);
-							user_info.est_poses.push_back(estimated_pose);
-							user_info.est_velocitys.push_back(result.at<Vector3>(V(i))); // Assuming V and X are on same index
-						}
-					}
+					std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
+					//throw; // rethrow after dumping
 				}
 
 				prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
 				// Here, you need to re-insert the optimization results as the base of the next preintegration.
+				graph->resize(0);
+				vals.clear();
 
 				imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
 				GT_CORRECTION_COUNT++;
 			}
 		}
-		
-		//if (imu_counter % T_UWB == 0 && start_graph) {
 
+		/*
 		else if (mes["type"] == "uwb" && start_graph) {
 			double range;
 			string src_user = "2";
@@ -421,29 +424,33 @@ int run_cappella() {
 			vals.insert(V(user.Iv), proposed.v());
 			vals.insert(B(user.Ib), user.constant_bias);
 
-				LevenbergMarquardtParams params;
-				LevenbergMarquardtOptimizer optimizer(*graph, vals, params);
-				Values result = optimizer.optimize();
+			Values result;
+			try {
+				isam->update(*graph, vals);
+				result = isam->calculateEstimate();
+				user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
+				user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
+			}
+			catch (const std::exception& e) {
+				std::cerr << "Optimizer update failed: " << e.what() << std::endl;
 
-				user.est_poses.clear();
+				// Dump factor graph to .dot file
+				std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
+				graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
+				os.close();
 
-				for (auto& [user_name, user_info] : info) { //Unpacks results
-					for (int i = 0; i < user_info.Ix; i++) {
-						if (!user_info.is_beacon) {
-							Key k = X(i);
-							Pose3 estimated_pose = result.at<Pose3>(k);
-							user_info.est_poses.push_back(estimated_pose);
-							user_info.est_velocitys.push_back(result.at<Vector3>(V(i))); // Assuming V and X are on same index
-						}
-					}
-				}
+				std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
+				//throw; // rethrow after dumping
+			}
 
-				prev_state = NavState( result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)) );
-				// Here, you need to re-insert the optimization results as the base of the next preintegration.
+			prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
+			// Here, you need to re-insert the optimization results as the base of the next preintegration.
+			graph->resize(0);
+			vals.clear();
 
 			imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
 		}
-
+		*/
 		
 		
 	}
