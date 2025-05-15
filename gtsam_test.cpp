@@ -169,8 +169,9 @@ int run_cappella() {
 
 	// UWB noise model
 
-	double uwb_stdev = 0.1;
-	//double uwb_stdev = 1;
+	//double uwb_stdev = 0.1;
+	double uwb_stdev = 1;
+	// They set this to 100 or 1000 in this example: https://github.com/borglab/gtsam/blob/develop/examples/RangeISAMExample_plaza2.cpp
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
 	// GT noise model - (use to define pose prior)
@@ -255,6 +256,7 @@ int run_cappella() {
 			Pose3 prior_beacon_pose(track.gt_poses[0]); // Position of beacon in U frame extracted from GT
 			vals.insert(track.pose_key, prior_beacon_pose);
 			graph->add(NonlinearEquality<Pose3>(track.pose_key, prior_beacon_pose));
+			//graph->add(PriorFactor<Pose3>(track.pose_key, prior_beacon_pose, GT_noise_model));
 		}
 		else { // Since we only have one user, user 2.
 
@@ -280,6 +282,8 @@ int run_cappella() {
 
 	}
 
+	vector<string> show_list = { "2" };
+
 
 	// Use Preintegrator params, and bias prior, to create a new preintegrator object that we can use for an IMU factor.
 	PreintegrationType* imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
@@ -299,6 +303,8 @@ int run_cappella() {
 	double middle_timestamp = 225271404.76314998;
 	double dy = gt_velocity * dt;
 	int T_CORRECTION = 200; // Every ~1 second. 200 IMU measurements, correct with GT.
+	int T_UWB = 100; // Every 30 IMU measurements, generate 1 synthetic UWB measurement.
+	int UWB_ANCHOR_IDX = 0;
 
 	int imu_counter = 0;
 	bool initialization_complete = true;
@@ -374,22 +380,31 @@ int run_cappella() {
 			}
 		}
 		
-		else if (mes["type"] == "uwb" && start_graph) {
-			double range;
+		else if (imu_counter % T_UWB == 0 && start_graph) {
+		//else if (mes["type"] == "uwb" && start_graph) {
+			//double range;
 			string src_user = "2";
-			string dst_user;
-			get_UWB(mes, src_user, dst_user, range);
+
+			vector<string> anchors = { "1", "3", "4" };
+			string dst_user = anchors[UWB_ANCHOR_IDX % 3];
+
+
+			UWB_ANCHOR_IDX++;
+			//get_UWB(mes, src_user, dst_user, range);
 
 			user.Ix++;
 			user.Iv++;
 			user.Ib++;
 
 
+			draw_vector(gt_pose.translation(), info[dst_user].gt_poses[0].translation(), "black");
+
 			double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
-			cout << "true_range " << true_range << " measured range " << range << endl;
+			//cout << "true_range " << true_range << " measured range " << range << endl;
+			cout << "true_range " << true_range << " to anchor " << dst_user << endl;
 
 			//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
-			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), true_range, UWB_noise_model));
+			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
 
 
 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
@@ -429,7 +444,6 @@ int run_cappella() {
 		
 	}
 
-	vector<string> show_list = { "2" };
 
 	PLOT_ANCHORS(info);
 	PLOT_ESTIMATED_FOR_USERS(info, show_list);
