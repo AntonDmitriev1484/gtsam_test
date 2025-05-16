@@ -28,6 +28,7 @@ struct tracking {
 
 	vector<Pose3> est_poses; // Estimated poses
 	vector<Vector3> est_velocitys; // Estimated velocity from IMU factor
+	vector<Vector3> est_poses_error; // Estimated poses error
 	imuBias::ConstantBias constant_bias; // Constant bias
 
 	Key pose_key;

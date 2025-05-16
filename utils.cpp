@@ -81,14 +81,92 @@ void draw_forward(Pose3 pose, double scale, string color) {
 	draw_vector(pose.translation(), pose.translation() + (pose.rotation() * Vector3(0, 0, 1) * (scale)), "green");
 }
 
+void draw_error_ellipsoid(Vector3 center, Vector3 position_error, string color) {
+	double a = position_error(0); // X-axis
+	double b = position_error(1); // Y-axis
+	double c = position_error(2); // Z-axis
+
+	// Center point
+	double cx = center(0);
+	double cy = center(1);
+	double cz = center(2);
+
+	auto theta = linspace(0, 2 * M_PI, 50);
+	auto phi = linspace(0, M_PI, 50);
+
+	std::vector<std::vector<double>> X(theta.size(), std::vector<double>(phi.size()));
+	std::vector<std::vector<double>> Y(theta.size(), std::vector<double>(phi.size()));
+	std::vector<std::vector<double>> Z(theta.size(), std::vector<double>(phi.size()));
+
+	for (size_t i = 0; i < theta.size(); ++i) {
+		for (size_t j = 0; j < phi.size(); ++j) {
+			X[i][j] = cx + a * std::sin(phi[j]) * std::cos(theta[i]);
+			Y[i][j] = cy + b * std::sin(phi[j]) * std::sin(theta[i]);
+			Z[i][j] = cz + c * std::cos(phi[j]);
+		}
+	}
+
+	mesh(X, Y, Z)->edge_color(color); // Wireframe, transparent ellipsoid
+
+}
+
+void draw_trajectory_with_error(vector<Pose3> trajectory, vector<Vector3> pose_errors, string color) {
+
+	vector<float> xs;
+	vector<float> ys;
+	vector<float> zs;
+
+	vector<double> xs_err, ys_err, zs_err;
+
+
+
+	vector<double> errors;
+	int count = 0;
+	for (Pose3 pose : trajectory) {
+		xs.push_back(pose.x());
+		ys.push_back(pose.y());
+		zs.push_back(pose.z());
+
+		if (color == "blue" && count % 25 == 0) { // No idea why it needs a special invite to plot blue but oh well.
+			draw_forward(pose, 0.1, color);
+			Vector3 error = pose_errors[count] * 1;
+			// Might just draw a point with a radius that is the maximum error along any axis?
+			// This can appear as transparent with a border, rendering these meshes takes too long.
+			
+			double max_err = 0;
+			for (int i = 0; i < 3; i++) {
+				if (abs(error(i)) > max_err) max_err = abs(error(i));
+			}
+
+			xs_err.push_back(pose.x());
+			ys_err.push_back(pose.y());
+			zs_err.push_back(pose.z());
+			errors.push_back(max_err);
+
+			// Variances are tiny! How else can I visualize error?
+			cout << "ErrX: " << error(0) <<  " ErrY: " << error(1) << " ErrZ: " << error(2) << endl;
+			//draw_error_ellipsoid(pose.translation(),error, "black");
+		}
+
+		count++;
+	}
+	plot3(xs, ys, zs)->color(color);
+
+	for (size_t i = 0; i < xs_err.size(); ++i) {
+		auto s = scatter3(
+			std::vector<double>{xs_err[i]},
+			std::vector<double>{ys_err[i]},
+			std::vector<double>{zs_err[i]}
+		);
+		s->marker_face_color("none"); // transparent fill
+		s->marker_size(errors[i]);
+	}
+
+
+
+}
+
 void draw_trajectory(vector<Pose3> trajectory, string color) {
-	//hold(on);
-
-	// For cappella (AND ONLY CAPPELLA) we rotate every trajectory s.t. y is facing up
-	//Matrix44 vis_rotation = get_vis_rotation();
-	//vector<Pose3> trajectory_cp(trajectory); // Deep copy and rotate each element
-	//for (int i = 0; i < trajectory_cp.size(); i++) trajectory_cp[i] = Pose3(vis_rotation) * trajectory_cp[i];
-
 
 	vector<float> xs;
 	vector<float> ys;
@@ -105,9 +183,9 @@ void draw_trajectory(vector<Pose3> trajectory, string color) {
 		if (color == "blue" && count % 50 ==0) { // No idea why it needs a special invite to plot blue but oh well.
 			draw_forward(pose, 0.1, color);
 		}
-		if (count % 50 == 0) {
-			draw_forward(pose, 0.1, color);
-		}
+		//if (count % 50 == 0) {
+		//	draw_forward(pose, 0.1, color);
+		//}
 		count++;
 	}
 	plot3(xs, ys, zs)->color(color);
