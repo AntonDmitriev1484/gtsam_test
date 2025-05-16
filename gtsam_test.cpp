@@ -35,7 +35,7 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
                 zlabel("Z (m)");                                             \
 				xlim({ -3.5,3.5 }); \
 				ylim({ -1,6 }); \
-				zlim({ 0,7 }); \
+				/*zlim({ 0,7 }); */ \
             }                                                                \
         }                                                                    \
     }                                                                        \
@@ -212,7 +212,7 @@ int run_cappella() {
 
 
 	// Use our noise model to define the parameters of an IMU preintegrator
-	// With these params 'MakeSharedU' gravity points along negative z axis (which is how I defined my coordinate frame)
+	// With these params 'MakeSharedU' gravity points along negative z axis, which is how I defined my global coordinate (aka navigation frame)
 
 	boost::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
 	imu_preintegration_params->accelerometerCovariance = accel_noise_cov;
@@ -226,9 +226,29 @@ int run_cappella() {
 
 	// Is this a rotation from the body to the sensor, or sensor to the body
 	// Jose : Sensor to body frame
-	Pose3 sensor_to_body_transform( Rot3::AxisAngle(Point3(0,0,1), M_PI) * Rot3::AxisAngle(Point3(1,0,0), -M_PI/2), Vector3(0, 0, 0));
-	// -90 about x-axis.
-	// + 180 about z-axis
+
+	Matrix33 negate_x_axis;
+	negate_x_axis << -1, 0, 0,
+					0, 1, 0,
+					0, 0, 1;
+
+	// 90 about x-axis, then negate x-axis
+
+	Pose3 sensor_to_body_transform( (Rot3(negate_x_axis) * Rot3::AxisAngle(Point3(1, 0, 0), +M_PI / 2)).inverse(), Vector3(0, 0, 0));
+
+	//draw_forward(Pose3(Rot3::Identity(), Point3(1, 0, 0)), 0.5, "red");
+	//draw_forward(sensor_to_body_transform, 0.5, "blue");
+
+	//xlim({ -2,2 });
+	//ylim({ -2,2 });
+	//zlim({ -2,2 });
+	//xlabel("X (m)");                                           
+	//ylabel("Y (m)");                                           
+	//zlabel("Z (m)");
+
+	//show();
+
+	// body_P_sensor : "pose of sensor frame w.r.t body frame"
 	imu_preintegration_params->body_P_sensor = sensor_to_body_transform;
 
 
@@ -406,12 +426,12 @@ int run_cappella() {
 
 			//draw_vector(gt_pose.translation(), info[dst_user].gt_poses[0].translation(), "black");
 
-			double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
+			double true_range = distance3(info[dst_user].gt_poses[0].translation(), gt_pose.translation());
 			//cout << "true_range " << true_range << " measured range " << range << endl;
 			cout << "true_range " << true_range << " to anchor " << dst_user << endl;
 
 			//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
-			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
+			//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
 
 
 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);

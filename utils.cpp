@@ -76,7 +76,9 @@ void draw_basis(Matrix33 basis, Vector3 loc, bool as_reference_frame) {
 }
 
 void draw_forward(Pose3 pose, double scale, string color) {
-	draw_vector(pose.translation(), pose.translation() + (pose.rotation() * Vector3(1, 0, 0) * (scale)), color);
+	draw_vector(pose.translation(), pose.translation() + (pose.rotation() * Vector3(1, 0, 0) * (scale)), "red");
+	draw_vector(pose.translation(), pose.translation() + (pose.rotation() * Vector3(0, 1, 0) * (scale)), "blue");
+	draw_vector(pose.translation(), pose.translation() + (pose.rotation() * Vector3(0, 0, 1) * (scale)), "green");
 }
 
 void draw_trajectory(vector<Pose3> trajectory, string color) {
@@ -96,6 +98,9 @@ void draw_trajectory(vector<Pose3> trajectory, string color) {
 		xs.push_back(pose.x());
 		ys.push_back(pose.y());
 		zs.push_back(pose.z());
+		//if ( color == "blue") {
+		//	draw_forward(pose, 0.1, color);
+		//}
 
 		if (color == "blue" && count % 50 ==0) { // No idea why it needs a special invite to plot blue but oh well.
 			draw_forward(pose, 0.1, color);
