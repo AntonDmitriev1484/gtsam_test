@@ -26,8 +26,8 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
         if (!user_info.is_beacon) {                                          \
             if (std::find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
                 hold(on);                                                    \
-                /*draw_trajectory(user_info.est_poses, "blue");                \
-                hold(on);*/                                                  \
+                draw_trajectory(user_info.est_poses, "blue");                \
+                hold(on);                                                  \
                 draw_trajectory(user_info.gt_poses, "green");              \
                 hold(on);   \
                 xlabel("X (m)");                                             \
@@ -313,7 +313,7 @@ int run_cappella() {
 	double distance_walked_at_last_turn = 0;
 	double dy = gt_velocity * dt;
 
-	int T_CORRECTION = 200; // Every ~1 second. 200 IMU measurements, correct with GT.
+	int T_CORRECTION = 50; // Every ~1 second. 200 IMU measurements, correct with GT.
 	int T_UWB = 10; // Every 30 IMU measurements, generate 1 synthetic UWB measurement.
 	int uwb_counter = 0;
 	int GT_CORRECTION_COUNT = 0;
@@ -322,10 +322,6 @@ int run_cappella() {
 	int last_imu_counter = 0;
 	bool initialization_complete = true;
 	bool start_graph = false; 
-	bool turn = false;
-	// Setting a constraint that graph can only start on the first imu measurement
-	// long string of uwb measurements leads to integration on nothing ~40 times.
-
 	//draw_forward(gt_pose, 0.5, "black");
 	//draw_forward(Pose3(Rot3::Identity(), Vector3::Zero()), 0.5, "black");
 
@@ -364,7 +360,6 @@ int run_cappella() {
 			distance_walked += dy;
 
 
-		/*
 			// Periodically generate a GT correction
 			if (imu_counter % T_CORRECTION == 0) {
 
@@ -372,9 +367,6 @@ int run_cappella() {
 				user.Iv++;
 				user.Ib++;
 
-				//PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-				//CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
-				//graph->add(imu_factor);
 
 				auto preint_imu =
 					dynamic_cast<const PreintegratedImuMeasurements&>(*imu_preintegrated);
@@ -433,9 +425,9 @@ int run_cappella() {
 				imu_preintegrated->resetIntegrationAndSetBias(prev_bias); // Clear preintegrator
 				GT_CORRECTION_COUNT++;
 			}
-		*/
+
 		}
-		/*else if (mes["type"] == "uwb" && start_graph) {
+		else if (mes["type"] == "uwb" && start_graph) {
 			double range;
 			string src_user = "2";
 			string dst_user;
@@ -456,7 +448,7 @@ int run_cappella() {
 				last_imu_counter = imu_counter;
 
 				double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
-				graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
+				//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
 
 
 				auto preint_imu = dynamic_cast<const PreintegratedImuMeasurements&>(*imu_preintegrated);
@@ -520,9 +512,7 @@ int run_cappella() {
 				// so if you don't resize, you'll get duplicate keys
 
 				imu_preintegrated->resetIntegrationAndSetBias(prev_bias); // Clear preintegrator
-			}*/
-		
-			
+			}
 		
 	}
 
