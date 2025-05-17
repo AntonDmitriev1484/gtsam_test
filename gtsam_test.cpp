@@ -163,7 +163,7 @@ int run_cappella() {
 
 	// VIO noise model
 
-	double vio_ori_stdev = 0.175; // rad->~10degrees
+	double vio_ori_stdev = 0.175; 
 	double vio_pos_stdev = 0.2;
 	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
 
@@ -189,7 +189,7 @@ int run_cappella() {
 	// Realsense Gyro is in radians / sec: https://support.intelrealsense.com/hc/en-us/community/posts/9489403831059-d435i-gyro-data-unit 
 
 	// Hard coded from IMU comparison sheet
-	double GYRO_NOISE = 0.014 * 3.14/180; // deg / s / sqrt(Hz) -> Since realsense gyro returns data in rad, GYRO_NOISE should also be given in rad
+	double GYRO_NOISE = 0.014 * M_PI/180; // deg / s / sqrt(Hz) -> Since realsense gyro returns data in rad, GYRO_NOISE should also be given in rad
 	double ACCEL_NOISE = 0.0014715; // m / s^2 / sqrt(Hz)
 	Matrix33 accel_noise_cov = I_3x3 * pow(ACCEL_NOISE, 2);
 	Matrix33 gyro_noise_cov = I_3x3 * pow(GYRO_NOISE, 2);
@@ -223,18 +223,11 @@ int run_cappella() {
 	imu_preintegration_params->biasOmegaCovariance = gyro_bias_cov;
 	imu_preintegration_params->biasAccOmegaInt = initial_bias_cov;
 
-	//Rot3 body_to_sensor_rotation;
-
-	// Is this a rotation from the body to the sensor, or sensor to the body
-	// Jose : Sensor to body frame
-
 	Matrix33 negate_x_axis;
 	negate_x_axis << -1, 0, 0,
 					0, 1, 0,
 					0, 0, 1;
-
 	// 90 about x-axis, then negate x-axis
-
 	Pose3 sensor_to_body_transform( (Rot3(negate_x_axis) * Rot3::AxisAngle(Point3(1, 0, 0), +M_PI / 2)).inverse(), Vector3(0, 0, 0));
 	// body_P_sensor : "pose of sensor frame w.r.t body frame"
 	imu_preintegration_params->body_P_sensor = sensor_to_body_transform;
@@ -456,7 +449,7 @@ int run_cappella() {
 				Vector3 position_var(integration_error(3), integration_error(4), integration_error(5)); // Going to guess its the middle 3 elements that correspond to pose?
 				// Can the documentation please explain to me exactly what this Vector9 is that gets returned, what indices correspond to what variables?
 
-
+				
 				Values result;
 				try {
 					isam->update(*graph, vals);
@@ -485,6 +478,9 @@ int run_cappella() {
 				// Here, you need to re-insert the optimization results as the base of the next preintegration.
 				graph->resize(0);
 				vals.clear();
+				// iSam internally caches past graph and vals states it was called on, 
+				// so if you don't resize, you'll get duplicate keys
+
 
 				imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
 			}
