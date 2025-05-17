@@ -118,8 +118,6 @@ void draw_trajectory_with_error(vector<Pose3> trajectory, vector<Vector3> pose_e
 
 	vector<double> xs_err, ys_err, zs_err;
 
-
-
 	vector<double> errors;
 	int count = 0;
 	for (Pose3 pose : trajectory) {
@@ -152,15 +150,15 @@ void draw_trajectory_with_error(vector<Pose3> trajectory, vector<Vector3> pose_e
 	}
 	plot3(xs, ys, zs)->color(color);
 
-	for (size_t i = 0; i < xs_err.size(); ++i) {
-		auto s = scatter3(
-			std::vector<double>{xs_err[i]},
-			std::vector<double>{ys_err[i]},
-			std::vector<double>{zs_err[i]}
-		);
-		s->marker_face_color("none"); // transparent fill
-		s->marker_size(errors[i]);
-	}
+	//for (size_t i = 0; i < xs_err.size(); ++i) {
+	//	auto s = scatter3(
+	//		std::vector<double>{xs_err[i]},
+	//		std::vector<double>{ys_err[i]},
+	//		std::vector<double>{zs_err[i]}
+	//	);
+	//	s->marker_face_color("none"); // transparent fill
+	//	s->marker_size(errors[i]);
+	//}
 
 
 

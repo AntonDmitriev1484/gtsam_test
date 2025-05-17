@@ -290,11 +290,10 @@ int run_cappella() {
 	//PreintegrationType* imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
 	std::shared_ptr<PreintegrationType> imu_preintegrated = std::make_shared<PreintegratedImuMeasurements>(imu_preintegration_params, prior_imu_bias);
 
-
 	ISAM2Params isam_params;
 	isam_params.factorization = ISAM2Params::QR;
-	//isam_params.relinearizeThreshold = 0.01;
-	//isam_params.relinearizeSkip = 1;
+	isam_params.relinearizeThreshold = 0.01;
+	isam_params.relinearizeSkip = 1;
 	ISAM2DoglegParams dogleg;
 	isam_params.optimizationParams = dogleg;
 	ISAM2* isam = new ISAM2(isam_params);
@@ -321,8 +320,6 @@ int run_cappella() {
 	// long string of uwb measurements leads to integration on nothing ~40 times.
 
 	for (json mes : sensor_stream) {
-
-		//if (GT_CORRECTION_COUNT > 2) break;
 
 		if (mes["type"] == "imu") {
 
@@ -423,18 +420,11 @@ int run_cappella() {
 
 
 				vector<string> anchors = { "1", "3", "4" };
-				//string dst_user = anchors[UWB_ANCHOR_IDX % 3];
 
 				user.Ix++;
 				user.Iv++;
 				user.Ib++;
 
-
-				//draw_vector(gt_pose.translation(), info[dst_user].gt_poses[0].translation(), "black");
-
-				//double true_range = distance3(info[dst_user].gt_poses[0].translation(), gt_pose.translation());
-				////cout << "true_range " << true_range << " measured range " << range << endl;
-				////cout << "true_range " << true_range << " to anchor " << dst_user << endl;
 
 				cout << "Integrating on " << imu_counter - last_imu_counter << " imu measurements" << endl;
 				last_imu_counter = imu_counter;
@@ -443,16 +433,12 @@ int run_cappella() {
 				graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
 
 
-				/*PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-				CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
-				graph->add(imu_factor);*/
-
-				auto preint_imu =
-					dynamic_cast<const PreintegratedImuMeasurements&>(*imu_preintegrated);
+				auto preint_imu = dynamic_cast<const PreintegratedImuMeasurements&>(*imu_preintegrated);
 				ImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1),
 					X(user.Ix), V(user.Iv),
 					B(user.Ib - 1), preint_imu);
 				graph->add(imu_factor);
+
 				imuBias::ConstantBias zero_bias(Vector3(0, 0, 0), Vector3(0, 0, 0));
 				graph->add(BetweenFactor<imuBias::ConstantBias>(
 					B(user.Ib - 1), B(user.Ib), zero_bias,
@@ -464,10 +450,8 @@ int run_cappella() {
 
 				// So I think Navstate 1 is supposed to be the GT pose?
 				NavState gt_navstate(gt_pose, Vector3(0, gt_velocity, 0));
-
 				// Not sure what exactly the difference is between this covariance matrix is and the computeErrors are/
 				auto cov_matrix = preint_imu.preintMeasCov(); // COVARIANCE OF: [PreintROTATION PreintPOSITION PreintVELOCITY BiasAcc BiasOmega]
-				//Vector3 position_var(cov_matrix(3, 3), cov_matrix(4, 4), cov_matrix(5, 5));
 				Vector9 integration_error = preint_imu.computeErrorAndJacobians(gt_navstate.pose(), gt_navstate.v(), proposed.pose(), proposed.v(), prev_bias);
 				Vector3 position_var(integration_error(3), integration_error(4), integration_error(5)); // Going to guess its the middle 3 elements that correspond to pose?
 				// Can the documentation please explain to me exactly what this Vector9 is that gets returned, what indices correspond to what variables?
