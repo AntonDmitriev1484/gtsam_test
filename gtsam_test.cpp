@@ -26,8 +26,8 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
         if (!user_info.is_beacon) {                                          \
             if (std::find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
                 hold(on);                                                    \
-                draw_trajectory_with_error(user_info.est_poses, user_info.est_poses_error, "blue");                \
-                hold(on);                                                  \
+                /*draw_trajectory(user_info.est_poses, "blue");                \
+                hold(on);*/                                                  \
                 draw_trajectory(user_info.gt_poses, "green");              \
                 hold(on);   \
                 xlabel("X (m)");                                             \
@@ -141,7 +141,7 @@ void LM_lambda_search(NonlinearFactorGraph* graph, Values vals, map<string, trac
 int run_cappella() {
 
 	string directory = "/home/admitriev/Datasets/UWBSLAM_pilot/";
-	string trial_name = "pilot0";
+	string trial_name = "pilot1";
 	string out_directory = "/home/admitriev/Research/pilot_results/" + trial_name;
 
 	ifstream raw_fs(directory + trial_name + "/" + "all.json");
@@ -261,8 +261,8 @@ int run_cappella() {
 		}
 		else { // Since we only have one user, user 2.
 
-			Point3 prior_position(0, 0, 1.3); // I was carrying laptop at about chest level ~130cm off the ground
-			Pose3 start_pose(Rot3::Identity(), prior_position);
+			Point3 prior_position(-1.7, 2.35, 1.3); // I was carrying laptop at about chest level ~130cm off the ground
+			Pose3 start_pose(Rot3::AxisAngle(Point3(0,0,1), -M_PI/2) * Rot3::Identity(), prior_position);
 			gt_pose = start_pose;
 
 			Vector3 prior_velocity(0, 0, 0);
@@ -275,6 +275,7 @@ int run_cappella() {
 			graph->addPrior(V(track.Iv), prior_velocity, prior_velocity_noise_model);
 			graph->addPrior(B(track.Ib), prior_imu_bias, prior_bias_noise_model);
 
+			track.gt_poses.push_back(gt_pose);
 			track.est_poses.push_back(start_pose); // We'll take the estimate out of values and put it here.
 			track.est_velocitys.push_back(prior_velocity);
 			track.constant_bias = prior_imu_bias;
@@ -303,9 +304,15 @@ int run_cappella() {
 	imuBias::ConstantBias prev_bias = prior_imu_bias;
 
 
-	double gt_velocity = 12.0 / 30.0;
-	double middle_timestamp = 225271404.76314998;
+	double gt_velocity = 0.69777;
+	bool on_side1 = true; // start by walking side1
+	double side1 = 2.63;
+	double side2 = 3.65;
+	double total_distance_walked = 31.4;
+	double distance_walked = 0;
+	double distance_walked_at_last_turn = 0;
 	double dy = gt_velocity * dt;
+
 	int T_CORRECTION = 200; // Every ~1 second. 200 IMU measurements, correct with GT.
 	int T_UWB = 10; // Every 30 IMU measurements, generate 1 synthetic UWB measurement.
 	int uwb_counter = 0;
@@ -319,6 +326,9 @@ int run_cappella() {
 	// Setting a constraint that graph can only start on the first imu measurement
 	// long string of uwb measurements leads to integration on nothing ~40 times.
 
+	//draw_forward(gt_pose, 0.5, "black");
+	//draw_forward(Pose3(Rot3::Identity(), Vector3::Zero()), 0.5, "black");
+
 	for (json mes : sensor_stream) {
 
 		if (mes["type"] == "imu") {
@@ -331,15 +341,30 @@ int run_cappella() {
 			imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 			imu_counter++;
 
-			if (float(mes["t"]) >= middle_timestamp && !turn) {
-				gt_pose = gt_pose * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), -M_PI), Vector3(0, 0, 0));
-				turn = true;
+
+			// GT generation
+			if (on_side1) {
+				if (distance_walked - distance_walked_at_last_turn >= side1) {
+					gt_pose = gt_pose * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI/2), Vector3(0, 0, 0));
+					distance_walked_at_last_turn = distance_walked;
+					on_side1 = !on_side1;
+				}
+			}
+			else {
+				if (distance_walked - distance_walked_at_last_turn >= side2) {
+					gt_pose = gt_pose * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI/2), Vector3(0, 0, 0));
+					distance_walked_at_last_turn = distance_walked;
+					on_side1 = !on_side1;
+				}
 			}
 
 			Pose3 delta_pose(Rot3::Identity(), Vector3(0, dy, 0));
 			gt_pose = gt_pose * delta_pose;
 			user.gt_poses.push_back(gt_pose);
+			distance_walked += dy;
 
+
+		/*
 			// Periodically generate a GT correction
 			if (imu_counter % T_CORRECTION == 0) {
 
@@ -408,8 +433,9 @@ int run_cappella() {
 				imu_preintegrated->resetIntegrationAndSetBias(prev_bias); // Clear preintegrator
 				GT_CORRECTION_COUNT++;
 			}
+		*/
 		}
-		else if (mes["type"] == "uwb" && start_graph) {
+		/*else if (mes["type"] == "uwb" && start_graph) {
 			double range;
 			string src_user = "2";
 			string dst_user;
@@ -494,9 +520,9 @@ int run_cappella() {
 				// so if you don't resize, you'll get duplicate keys
 
 				imu_preintegrated->resetIntegrationAndSetBias(prev_bias); // Clear preintegrator
-			}
+			}*/
 		
-		
+			
 		
 	}
 
