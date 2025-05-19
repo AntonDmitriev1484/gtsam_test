@@ -262,7 +262,22 @@ int main(int argc, char* argv[]) {
     double dt = 0.005;  // The real system has noise, but here, results are nearly
     // exactly the same, so keeping this for simplicity.
 
+    vector<Pose3> anchors = { Pose3(Rot3::Identity(), Point3(0,0, 3.5)),
+                                Pose3(Rot3::Identity(), Point3(1500, 5, 0)),
+                                Pose3(Rot3::Identity(), Point3(3000, -5, 10)) };
+
+    int i = 0;
+    for (Pose3 anchor : anchors) {
+        // Could the error be getting thrown because of Nonlinearequality? See method description...
+        Key k = symbol('s', i); 
+        initial_values.insert(k, anchor);
+        graph.add(NonlinearEquality<Pose3>(k, anchor));
+        i++;
+    }
+
     int line_count = 0;
+    int imu_count = 0;
+    int range_count = 0;
 // All priors have been set up, now iterate through the data file.
     while (file.good()) {
         line_count++;
@@ -283,7 +298,54 @@ int main(int argc, char* argv[]) {
 
             // Adding the IMU preintegration.
             preintegrated->integrateMeasurement(imu.head<3>(), imu.tail<3>(), dt);
+            imu_count++;
 
+            if (imu_count % 20 == 0) { // Extra clause to test the effects of integrating on too little IMU, with no extra constraint at that key.
+
+                //int anchor_num = range_count % anchors.size();
+                //Pose3 anchor = anchors[anchor_num];
+                //Pose3 fake_true_pose = t.gt_poses.back(); // Just the last GT measurement... probably wont do anything useful.
+                //double synthetic_range = distance3(anchor.translation(), fake_true_pose.translation());
+
+                //// Problem: There is no continuous GT trajectory, just the GPS measurements....
+                //graph.add(RangeFactor<Pose3, Pose3, double>(X(index), symbol('s', anchor_num), );
+                //range_count++;
+
+                cout << "Running extra integration" << endl;
+
+                index++;
+
+                // Adding IMU factor and GPS factor and optimizing.
+                auto preint_imu_combined =
+                    dynamic_cast<const PreintegratedCombinedMeasurements&>(
+                        *preintegrated);
+                CombinedImuFactor imu_factor(X(index - 1), V(index - 1), X(index),
+                    V(index), B(index - 1), B(index),
+                    preint_imu_combined);
+                graph.add(imu_factor);
+
+                // Now optimize and compare results.
+                prop_state = preintegrated->predict(prev_state, prev_bias);
+                initial_values.insert(X(index), prop_state.pose());
+                initial_values.insert(V(index), prop_state.v());
+                initial_values.insert(B(index), prev_bias);
+
+                LevenbergMarquardtParams params;
+                params.setVerbosityLM("SUMMARY");
+                LevenbergMarquardtOptimizer optimizer(graph, initial_values, params);
+                Values result = optimizer.optimize();
+
+                // Overwrite the beginning of the preintegration for the next step.
+                prev_state =
+                    NavState(result.at<Pose3>(X(index)), result.at<Vector3>(V(index)));
+                prev_bias = result.at<imuBias::ConstantBias>(B(index));
+
+                t.est_poses.push_back(result.at<Pose3>(X(index)));
+
+                // Reset the preintegration object.
+                preintegrated->resetIntegrationAndSetBias(prev_bias);
+
+            }
         }
         else if (type == 1) {  // GPS measurement
             Vector7 gps;
@@ -312,6 +374,8 @@ int main(int argc, char* argv[]) {
                     gps(2)),  // D,
                 correction_noise);
             graph.add(gps_factor);
+
+
 
             // Now optimize and compare results.
             prop_state = preintegrated->predict(prev_state, prev_bias);
