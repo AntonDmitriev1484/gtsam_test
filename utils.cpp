@@ -178,9 +178,9 @@ void draw_trajectory(vector<Pose3> trajectory, string color) {
 		//	draw_forward(pose, 0.1, color);
 		//}
 
-		if (color == "blue" && count % 100 ==0) { // No idea why it needs a special invite to plot blue but oh well.
-			draw_forward(pose, 0.1, color);
-		}
+		//if (color == "blue" && count % 100 ==0) { // No idea why it needs a special invite to plot blue but oh well.
+		//	draw_forward(pose, 0.1, color);
+		//}
 		//if (count % 50 == 0) {
 		//	draw_forward(pose, 0.1, color);
 		//}

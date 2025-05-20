@@ -313,7 +313,7 @@ int run_cappella() {
 	double distance_walked_at_last_turn = 0;
 	double dy = gt_velocity * dt;
 
-	int T_CORRECTION = 50; // Every ~1 second. 200 IMU measurements, correct with GT.
+	int T_CORRECTION = 200; // Every ~1 second. 200 IMU measurements, correct with GT.
 	int T_UWB = 10; // Every 30 IMU measurements, generate 1 synthetic UWB measurement.
 	int uwb_counter = 0;
 	int GT_CORRECTION_COUNT = 0;
@@ -324,6 +324,8 @@ int run_cappella() {
 	bool start_graph = false; 
 	//draw_forward(gt_pose, 0.5, "black");
 	//draw_forward(Pose3(Rot3::Identity(), Vector3::Zero()), 0.5, "black");
+
+	bool USE_UWB = true;
 
 	for (json mes : sensor_stream) {
 
@@ -388,6 +390,9 @@ int run_cappella() {
 				auto correction_noise = noiseModel::Isotropic::Sigma(3, 0.1);
 				graph->add(GPSFactor(X(user.Ix), gt_pose.translation(), correction_noise));
 
+				//graph->add(PriorFactor(X(user.Ix), gt_pose, GT_noise_model));
+
+				//draw_forward(proposed.pose(), 0.1, "black");
 				vals.insert(X(user.Ix), proposed.pose());
 				vals.insert(V(user.Iv), proposed.v());
 				vals.insert(B(user.Ib), prev_bias);
@@ -425,9 +430,8 @@ int run_cappella() {
 				imu_preintegrated->resetIntegrationAndSetBias(prev_bias); // Clear preintegrator
 				GT_CORRECTION_COUNT++;
 			}
-
 		}
-		else if (mes["type"] == "uwb" && start_graph) {
+		else if (USE_UWB && mes["type"] == "uwb" && start_graph) {
 			double range;
 			string src_user = "2";
 			string dst_user;
@@ -436,6 +440,8 @@ int run_cappella() {
 
 			get_UWB(mes, src_user, dst_user, range);
 
+
+			//if (uwb_counter % 5 == 0) {
 
 				vector<string> anchors = { "1", "3", "4" };
 
@@ -448,7 +454,7 @@ int run_cappella() {
 				last_imu_counter = imu_counter;
 
 				double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
-				//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
+				graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
 
 
 				auto preint_imu = dynamic_cast<const PreintegratedImuMeasurements&>(*imu_preintegrated);
@@ -474,7 +480,7 @@ int run_cappella() {
 				Vector3 position_var(integration_error(3), integration_error(4), integration_error(5)); // Going to guess its the middle 3 elements that correspond to pose?
 				// Can the documentation please explain to me exactly what this Vector9 is that gets returned, what indices correspond to what variables?
 
-				
+				//draw_forward(proposed.pose(), 0.1, "black");
 				vals.insert(X(user.Ix), proposed.pose());
 				vals.insert(V(user.Iv), proposed.v());
 				vals.insert(B(user.Ib), prev_bias);
@@ -512,7 +518,8 @@ int run_cappella() {
 				// so if you don't resize, you'll get duplicate keys
 
 				imu_preintegrated->resetIntegrationAndSetBias(prev_bias); // Clear preintegrator
-			}
+			//}
+		}
 		
 	}
 
