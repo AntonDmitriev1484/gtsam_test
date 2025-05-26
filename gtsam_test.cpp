@@ -440,22 +440,17 @@ int run_cappella() {
 
 			get_UWB(mes, src_user, dst_user, range);
 
-
-			//if (uwb_counter % 5 == 0) {
-
 				vector<string> anchors = { "1", "3", "4" };
 
 				user.Ix++;
 				user.Iv++;
 				user.Ib++;
 
-
 				cout << "Integrating on " << imu_counter - last_imu_counter << " imu measurements" << endl;
 				last_imu_counter = imu_counter;
 
 				//double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
 				//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
-
 
 				auto preint_imu = dynamic_cast<const PreintegratedImuMeasurements&>(*imu_preintegrated);
 				ImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1),
@@ -470,15 +465,6 @@ int run_cappella() {
 
 				auto proposed = preint_imu.predict(prev_state, prev_bias);
 
-				// So I think Navstate 1 is supposed to be the GT pose?
-				NavState gt_navstate(gt_pose, Vector3(0, gt_velocity, 0));
-				// Not sure what exactly the difference is between this covariance matrix is and the computeErrors are/
-				auto cov_matrix = preint_imu.preintMeasCov(); // COVARIANCE OF: [PreintROTATION PreintPOSITION PreintVELOCITY BiasAcc BiasOmega]
-				Vector9 integration_error = preint_imu.computeErrorAndJacobians(gt_navstate.pose(), gt_navstate.v(), proposed.pose(), proposed.v(), prev_bias);
-				Vector3 position_var(integration_error(3), integration_error(4), integration_error(5)); // Going to guess its the middle 3 elements that correspond to pose?
-				// Can the documentation please explain to me exactly what this Vector9 is that gets returned, what indices correspond to what variables?
-				user.est_poses_error.push_back(position_var);
-
 				//draw_forward(proposed.pose(), 0.1, "black");
 				vals.insert(X(user.Ix), proposed.pose());
 				vals.insert(V(user.Iv), proposed.v());
@@ -492,11 +478,14 @@ int run_cappella() {
 					user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
 
 
-					if (uwb_counter % 10 == 0) { // <- attempt: only making a navstate every 10 UWB measurements.
-						// So we keep the same preintegration base for 10 UWB measurements
-						prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
-						prev_bias = result.at<imuBias::ConstantBias>(B(user.Ib));
-					}
+					prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
+					prev_bias = result.at<imuBias::ConstantBias>(B(user.Ib));
+					imu_preintegrated->resetIntegrationAndSetBias(prev_bias);
+
+					graph->resize(0);
+					vals.clear();
+
+
 				}
 				catch (const std::exception& e) {
 					std::cerr << "Optimizer update failed: " << e.what() << std::endl;
@@ -512,15 +501,6 @@ int run_cappella() {
 					std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
 					throw; // rethrow after dumping
 				}
-
-				// Here, you need to re-insert the optimization results as the base of the next preintegration.
-				graph->resize(0);
-				vals.clear();
-				// iSam internally caches past graph and vals states it was called on, 
-				// so if you don't resize, you'll get duplicate keys
-
-				imu_preintegrated->resetIntegrationAndSetBias(prev_bias); // Clear preintegrator
-			//}
 		}
 		
 	}
