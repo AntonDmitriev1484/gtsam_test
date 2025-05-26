@@ -453,8 +453,8 @@ int run_cappella() {
 				cout << "Integrating on " << imu_counter - last_imu_counter << " imu measurements" << endl;
 				last_imu_counter = imu_counter;
 
-				double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
-				graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
+				//double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
+				//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
 
 
 				auto preint_imu = dynamic_cast<const PreintegratedImuMeasurements&>(*imu_preintegrated);
@@ -468,9 +468,7 @@ int run_cappella() {
 					B(user.Ib - 1), B(user.Ib), zero_bias,
 					prior_bias_noise_model));
 
-
 				auto proposed = preint_imu.predict(prev_state, prev_bias);
-
 
 				// So I think Navstate 1 is supposed to be the GT pose?
 				NavState gt_navstate(gt_pose, Vector3(0, gt_velocity, 0));
@@ -479,6 +477,7 @@ int run_cappella() {
 				Vector9 integration_error = preint_imu.computeErrorAndJacobians(gt_navstate.pose(), gt_navstate.v(), proposed.pose(), proposed.v(), prev_bias);
 				Vector3 position_var(integration_error(3), integration_error(4), integration_error(5)); // Going to guess its the middle 3 elements that correspond to pose?
 				// Can the documentation please explain to me exactly what this Vector9 is that gets returned, what indices correspond to what variables?
+				user.est_poses_error.push_back(position_var);
 
 				//draw_forward(proposed.pose(), 0.1, "black");
 				vals.insert(X(user.Ix), proposed.pose());
@@ -491,10 +490,13 @@ int run_cappella() {
 					result = isam->calculateEstimate();
 					user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
 					user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
-					user.est_poses_error.push_back(position_var);
 
-					prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
-					prev_bias = result.at<imuBias::ConstantBias>(B(user.Ib));
+
+					if (uwb_counter % 10 == 0) { // <- attempt: only making a navstate every 10 UWB measurements.
+						// So we keep the same preintegration base for 10 UWB measurements
+						prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
+						prev_bias = result.at<imuBias::ConstantBias>(B(user.Ib));
+					}
 				}
 				catch (const std::exception& e) {
 					std::cerr << "Optimizer update failed: " << e.what() << std::endl;
