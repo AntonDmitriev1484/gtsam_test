@@ -12,6 +12,9 @@ using symbol_shorthand::B;  // Bias  (ax,ay,az,gx,gy,gz)
 using symbol_shorthand::V;  // Vel   (xdot,ydot,zdot)
 using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 
+// Note: All plotting code is in macros because Matplot++ behaves weirdly if
+// plotting code gets ran outside of the main file.
+
 #define PLOT_ANCHORS(INFO) {\
 	for (const auto& [user_name, user_info] : INFO) {                        \
         if (user_info.is_beacon) {                                          \
@@ -21,6 +24,7 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
     }																		\
 }
 
+// Plots only GT and estimated trajectory
 #define PLOT_ESTIMATED_FOR_USERS(INFO, SHOW_LIST) {                          \
     for (const auto& [user_name, user_info] : INFO) {                        \
         if (!user_info.is_beacon) {                                          \
@@ -41,8 +45,7 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
     }                                                                        \
 }
 
-
-
+// Plots GT, Drifted, and Estimated trajectory
 #define PLOT_FOR_USERS(INFO, SHOW_LIST) {						           \
     for (const auto& [user_name, user_info] : INFO) {                      \
         if (!user_info.is_beacon) {                                        \
@@ -67,82 +70,12 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
     }                                                                      \
 }
 
-#define PLOT_W_OPTIMIZER_PARAMS_FOR_USERS(INFO, SHOW_LIST, LAMBDA, LAMBDA_FACTOR) {			   \
-	 for (const auto& [user_name, user_info] : INFO) {                      \
-			if (!user_info.is_beacon) {                                        \
-				if (find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
-					auto fig = figure();                                       \
-					fig->name("Trajectory");                      \
-					title(user_name+" L="+to_string(LAMBDA)+" LF="+to_string(LAMBDA_FACTOR));                                          \
-																			   \
-					hold(on);                                                  \
-					draw_trajectory(user_info.vio_poses, "red");               \
-					hold(on);													\
-					draw_trajectory(user_info.gt_poses, "green");                      \
-					hold(on);                                                  \
-					draw_trajectory(user_info.est_poses, "blue");              \
-																			   \
-					xlabel("X (m)");                                           \
-					ylabel("Y (m)");                                           \
-					zlabel("Z (m)");                                           \
-																			   \
-				} \
-			} \
-	 } \
-}
-
-// Pass this the graph constructed from our dataset
-void LM_lambda_search(NonlinearFactorGraph* graph, Values vals, map<string, tracking> info) {
-	const function<Key(string, int)> MK = [](string username, int I) {
-		Key k;
-		if (username.find("static") != std::string::npos) {
-			regex numberRegex(R"(\d+$)");
-			smatch match;
-			regex_search(username, match, numberRegex);
-			k = symbol('s', stoi(match.str())); // e.x. s11 if 'static11'
-		}
-		else {
-			k = symbol(username[0], I);
-			if (username == "jeff") k = symbol('f', I);
-		}
-		return k;
-	};
-
-	// Run 1
-	vector<double> attempt_lambdaInitial = { 20, 15, 10 };
-	//vector<double> attempt_lambdaInitial = { 10, 1, 0.1, 0.001, 0.0001, 0.00001 };
-	vector<double> attempt_lambdaFactor = { 100000, 10000, 1000, 100, 10, 7, 5, 3 }; // Won't run with 1
-
-	vector<string> show_list = { "nuno" };
-
-	for (double lambdaInitial : attempt_lambdaInitial) {
-
-		for (double lambdaFactor : attempt_lambdaFactor) {
-
-			LevenbergMarquardtParams lm_params;
-			lm_params.diagonalDamping = true;
-			lm_params.setlambdaInitial(lambdaInitial);
-			lm_params.lambdaFactor = lambdaFactor;
-			lm_params.linearSolverType = NonlinearOptimizerParams::LinearSolverType::MULTIFRONTAL_QR;
-			LevenbergMarquardtOptimizer lm_optimizer(*graph, vals, lm_params);
-
-
-			unpack_results(lm_optimizer.optimize(), MK, info);
-			PLOT_W_OPTIMIZER_PARAMS_FOR_USERS(info, show_list, lambdaInitial, lambdaFactor);
-			clear_results(info); // clear Est_poses trajectory
-		}
-	}
-
-	show();
-}
-
-
-
-int run_cappella() {
-
+int main(int argc, char* argv[]) {
 	string directory = "/home/admitriev/Datasets/UWBSLAM_pilot/";
 	string trial_name = "pilot1";
 	string out_directory = "/home/admitriev/Research/pilot_results/" + trial_name;
+
+	string debug_dot_dump_directory = "/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot";
 
 	ifstream raw_fs(directory + trial_name + "/" + "all.json");
 	ifstream beacon_fs(directory + "pilot_anchors.json");
@@ -150,28 +83,21 @@ int run_cappella() {
 	json sensor_stream = json::parse(raw_fs);
 	map<string, tracking> info; // Map of username to tracking information
 
-	//get_gt_info(info, json::parse(gt_fs)); // fill user_info with gt_pose trajectory
-
 	get_beacon_info(info, json::parse(beacon_fs)); // I think this is reading beacon positions in properly
 
 	info.insert(pair<string, tracking>("2", tracking()));
 
-	double dt = 1.0 / 200.0; // IMU gyro and accelerometer operate at 200Hz
+	// So 'info' contains the poses of all anchors and users. 
+	// To get a user's tracking information just .get() their id.
+	// The only user in the pilot is user 2.
 
 
 	// --- Noise Models ---
-
-	// VIO noise model
-
-	double vio_ori_stdev = 0.175; 
-	double vio_pos_stdev = 0.2;
-	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
 
 	// UWB noise model
 
 	double uwb_stdev = 0.1;
 	//double uwb_stdev = 1;
-	// They set this to 100 or 1000 in this example: https://github.com/borglab/gtsam/blob/develop/examples/RangeISAMExample_plaza2.cpp
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
 	// GT noise model - (use to define pose prior)
@@ -184,12 +110,12 @@ int run_cappella() {
 
 	// IMU noise model
 
+
+	double dt = 1.0 / 200.0; // IMU gyro and accelerometer operate at 200Hz
 	imuBias::ConstantBias prior_imu_bias; // Assumption of no prior IMU bias
 
-	// Realsense Gyro is in radians / sec: https://support.intelrealsense.com/hc/en-us/community/posts/9489403831059-d435i-gyro-data-unit 
-
-	// Hard coded from IMU comparison sheet
-	double GYRO_NOISE = 0.014 * M_PI/180; // deg / s / sqrt(Hz) -> Since realsense gyro returns data in rad, GYRO_NOISE should also be given in rad
+	// Hard coded from IMU comparison sheet: https://docs.google.com/spreadsheets/d/1KIv1S0s0iet4aIrxCmkeSnDw0nlNK1Se2YtJA5IopXc/edit?usp=sharing
+	double GYRO_NOISE = 0.014 * M_PI / 180; // deg / s / sqrt(Hz) -> Since realsense gyro returns data in rad, GYRO_NOISE should also be given in rad
 	double ACCEL_NOISE = 0.0014715; // m / s^2 / sqrt(Hz)
 	Matrix33 accel_noise_cov = I_3x3 * pow(ACCEL_NOISE, 2);
 	Matrix33 gyro_noise_cov = I_3x3 * pow(GYRO_NOISE, 2);
@@ -201,13 +127,13 @@ int run_cappella() {
 	Matrix33 accel_bias_cov;
 
 	accel_bias_cov << pow(ACCEL_BIAS(0), 2), 0, 0,
-					0, pow(ACCEL_BIAS(1), 2), 0,
-					0, 0, pow(ACCEL_BIAS(2), 2);
-								
+		0, pow(ACCEL_BIAS(1), 2), 0,
+		0, 0, pow(ACCEL_BIAS(2), 2);
+
 	Matrix33 gyro_bias_cov;
 	gyro_bias_cov << pow(GYRO_BIAS(0), 2), 0, 0,
-				0, pow(GYRO_BIAS(1), 2), 0,
-				0, 0, pow(GYRO_BIAS(2), 2);
+		0, pow(GYRO_BIAS(1), 2), 0,
+		0, 0, pow(GYRO_BIAS(2), 2);
 
 	Matrix66 initial_bias_cov = I_6x6 * 1e-5; // 
 
@@ -223,26 +149,32 @@ int run_cappella() {
 	imu_preintegration_params->biasOmegaCovariance = gyro_bias_cov;
 	imu_preintegration_params->biasAccOmegaInt = initial_bias_cov;
 
+	// Transform I was originally running with
 	Matrix33 negate_x_axis;
 	negate_x_axis << -1, 0, 0,
 					0, 1, 0,
 					0, 0, 1;
 	// 90 about x-axis, then negate x-axis
 	Pose3 sensor_to_body_transform( (Rot3(negate_x_axis) * Rot3::AxisAngle(Point3(1, 0, 0), +M_PI / 2)).inverse(), Vector3(0, 0, 0));
+
+	// Transform that Jose calculated
+	//Matrix33 transform;
+	//transform << 1, 0, 0,
+	//	0, 0, 1,
+	//	0, -1, 0;
+	//Pose3 sensor_to_body_transform(Rot3(transform), Vector3(0, 0, 0));
 	// body_P_sensor : "pose of sensor frame w.r.t body frame"
 	imu_preintegration_params->body_P_sensor = sensor_to_body_transform;
 
 
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
 
-	// Beacon info is a string, 
-	// Make Key
+	// Lambda to make a key for UWB anchors.
 	const function<Key(string, int)> MK_Anchor = [](string name, int I) {
 		return symbol('s', stoi(name));
 	};
 
 	// Establish and attach priors to keys
-
 	Values vals;
 	Pose3 gt_pose;
 
@@ -253,8 +185,8 @@ int run_cappella() {
 		track.Ib = 0;
 
 		if (track.is_beacon) { // Set nonlinearequality on anchors
-			track.pose_key = MK_Anchor(u,0);
-			Pose3 prior_beacon_pose(track.gt_poses[0]); // Position of beacon in U frame extracted from GT
+			track.pose_key = MK_Anchor(u, 0);
+			Pose3 prior_beacon_pose(track.gt_poses[0]);
 			vals.insert(track.pose_key, prior_beacon_pose);
 			graph->add(NonlinearEquality<Pose3>(track.pose_key, prior_beacon_pose));
 			//graph->add(PriorFactor<Pose3>(track.pose_key, prior_beacon_pose, GT_noise_model));
@@ -262,7 +194,7 @@ int run_cappella() {
 		else { // Since we only have one user, user 2.
 
 			Point3 prior_position(-1.7, 2.35, 1.3); // I was carrying laptop at about chest level ~130cm off the ground
-			Pose3 start_pose(Rot3::AxisAngle(Point3(0,0,1), -M_PI/2) * Rot3::Identity(), prior_position);
+			Pose3 start_pose(Rot3::AxisAngle(Point3(0, 0, 1), -M_PI / 2) * Rot3::Identity(), prior_position); // Body frame aligned with the +y axis of my world frame
 			gt_pose = start_pose;
 
 			Vector3 prior_velocity(0, 0, 0);
@@ -277,33 +209,30 @@ int run_cappella() {
 
 			track.gt_poses.push_back(gt_pose);
 			track.est_poses.push_back(start_pose); // We'll take the estimate out of values and put it here.
-			track.est_velocitys.push_back(prior_velocity);
+			track.est_velocities.push_back(prior_velocity);
 			track.constant_bias = prior_imu_bias;
 
 		}
 
 	}
 
+	// For plotting trajectories, only show user 2.
 	vector<string> show_list = { "2" };
 
-
 	// Use Preintegrator params, and bias prior, to create a new preintegrator object that we can use for an IMU factor.
-	//PreintegrationType* imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
 	std::shared_ptr<PreintegrationType> imu_preintegrated = std::make_shared<PreintegratedImuMeasurements>(imu_preintegration_params, prior_imu_bias);
 
-	ISAM2Params isam_params;
+	// Define optimizer
+	ISAM2Params isam_params; // Suggested per example: https://github.com/borglab/gtsam/blob/develop/examples/IMUKittiExampleGPS.cpp
 	isam_params.factorization = ISAM2Params::QR;
 	isam_params.relinearizeThreshold = 0.01;
 	isam_params.relinearizeSkip = 1;
-	ISAM2DoglegParams dogleg;
+	ISAM2DoglegParams dogleg; // Dogleg optimizer suggested here: https://faculty.cc.gatech.edu/~dhekne/Robust_Indoor_Localization_with_Ranging_IMU_Fusion_ICRA_2024.pdf
 	isam_params.optimizationParams = dogleg;
 	ISAM2* isam = new ISAM2(isam_params);
 
-	tracking& user = info.at("2");
-	NavState prev_state(user.est_poses.back(), user.est_velocitys.back());
-	imuBias::ConstantBias prev_bias = prior_imu_bias;
 
-
+	// Parameters for generating GT
 	double gt_velocity = 0.69777;
 	bool on_side1 = true; // start by walking side1
 	double side1 = 2.63;
@@ -313,19 +242,24 @@ int run_cappella() {
 	double distance_walked_at_last_turn = 0;
 	double dy = gt_velocity * dt;
 
-	int T_CORRECTION = 200; // Every ~1 second. 200 IMU measurements, correct with GT.
-	int T_UWB = 10; // Every 30 IMU measurements, generate 1 synthetic UWB measurement.
-	int uwb_counter = 0;
+	// Synthetic GT and UWB frequency controls:
+	int T_UWB = 10; // Every T_UWB IMU measurements, generate 1 synthetic UWB measurement.
+	int T_CORRECTION = 200; // Every T_CORRECTION IMU measurements correct with GT. 200 IMU measurements per second.
+
+	// Counters
 	int GT_CORRECTION_COUNT = 0;
-
-	int imu_counter = 0;
-	int last_imu_counter = 0;
-	bool initialization_complete = true;
-	bool start_graph = false; 
-	//draw_forward(gt_pose, 0.5, "black");
-	//draw_forward(Pose3(Rot3::Identity(), Vector3::Zero()), 0.5, "black");
-
 	bool USE_UWB = true;
+	int UWB_COUNT = 0;
+	int IMU_COUNT = 0;
+	int last_imu_counter = 0;
+	bool start_graph = false;
+
+
+	// Variables for tracking estimated pose.
+	tracking& user = info.at("2"); // The user in pilot0 and 1 had anchor id #2
+	NavState prev_state(user.est_poses.back(), user.est_velocities.back());
+	imuBias::ConstantBias prev_bias = prior_imu_bias;
+
 
 	for (json mes : sensor_stream) {
 
@@ -337,25 +271,23 @@ int run_cappella() {
 			Vector3 gyro;
 			get_IMU(mes, accel, gyro);
 			imu_preintegrated->integrateMeasurement(accel, gyro, dt);
-			imu_counter++;
-
+			IMU_COUNT++;
 
 			// GT generation
 			if (on_side1) {
 				if (distance_walked - distance_walked_at_last_turn >= side1) {
-					gt_pose = gt_pose * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI/2), Vector3(0, 0, 0));
+					gt_pose = gt_pose * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI / 2), Vector3(0, 0, 0));
 					distance_walked_at_last_turn = distance_walked;
 					on_side1 = !on_side1;
 				}
 			}
 			else {
 				if (distance_walked - distance_walked_at_last_turn >= side2) {
-					gt_pose = gt_pose * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI/2), Vector3(0, 0, 0));
+					gt_pose = gt_pose * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI / 2), Vector3(0, 0, 0));
 					distance_walked_at_last_turn = distance_walked;
 					on_side1 = !on_side1;
 				}
 			}
-
 			Pose3 delta_pose(Rot3::Identity(), Vector3(0, dy, 0));
 			gt_pose = gt_pose * delta_pose;
 			user.gt_poses.push_back(gt_pose);
@@ -363,7 +295,7 @@ int run_cappella() {
 
 
 			// Periodically generate a GT correction
-			if (imu_counter % T_CORRECTION == 0) {
+			if (IMU_COUNT % T_CORRECTION == 0) {
 
 				user.Ix++;
 				user.Iv++;
@@ -389,83 +321,10 @@ int run_cappella() {
 				// GT correction (currently as GPS factor)
 				auto correction_noise = noiseModel::Isotropic::Sigma(3, 0.1);
 				graph->add(GPSFactor(X(user.Ix), gt_pose.translation(), correction_noise));
-
 				//graph->add(PriorFactor(X(user.Ix), gt_pose, GT_noise_model));
-
-				//draw_forward(proposed.pose(), 0.1, "black");
-				vals.insert(X(user.Ix), proposed.pose());
-				vals.insert(V(user.Iv), proposed.v());
-				vals.insert(B(user.Ib), prev_bias);
-				Values result; 
-
-				try {
-					isam->update(*graph, vals);
-					result = isam->calculateEstimate();
-					user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
-					user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
-					user.est_poses_error.push_back(position_var);
-
-					prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
-					prev_bias = result.at<imuBias::ConstantBias>(B(user.Ib));
-				}
-				catch (const std::exception& e) {
-					std::cerr << "Optimizer update failed: " << e.what() << std::endl;
-
-					// Dump factor graph to .dot file
-					std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
-					graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
-					os.close();
-
-					PLOT_ANCHORS(info);
-					PLOT_ESTIMATED_FOR_USERS(info, show_list);
-
-					std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
-					throw; // rethrow after dumping
-				}
-
-				// Here, you need to re-insert the optimization results as the base of the next preintegration.
-				graph->resize(0);
-				vals.clear();
-
-				imu_preintegrated->resetIntegrationAndSetBias(prev_bias); // Clear preintegrator
 				GT_CORRECTION_COUNT++;
-			}
-		}
-		else if (USE_UWB && mes["type"] == "uwb" && start_graph) {
-			double range;
-			string src_user = "2";
-			string dst_user;
 
-			uwb_counter++;
-
-			get_UWB(mes, src_user, dst_user, range);
-
-				vector<string> anchors = { "1", "3", "4" };
-
-				user.Ix++;
-				user.Iv++;
-				user.Ib++;
-
-				cout << "Integrating on " << imu_counter - last_imu_counter << " imu measurements" << endl;
-				last_imu_counter = imu_counter;
-
-				//double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
-				//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
-
-				auto preint_imu = dynamic_cast<const PreintegratedImuMeasurements&>(*imu_preintegrated);
-				ImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1),
-					X(user.Ix), V(user.Iv),
-					B(user.Ib - 1), preint_imu);
-				graph->add(imu_factor);
-
-				imuBias::ConstantBias zero_bias(Vector3(0, 0, 0), Vector3(0, 0, 0));
-				graph->add(BetweenFactor<imuBias::ConstantBias>(
-					B(user.Ib - 1), B(user.Ib), zero_bias,
-					prior_bias_noise_model));
-
-				auto proposed = preint_imu.predict(prev_state, prev_bias);
-
-				//draw_forward(proposed.pose(), 0.1, "black");
+				draw_frame(proposed.pose(), 0.1, "black"); // Draw the coordinate frame axes of a pose for debugging
 				vals.insert(X(user.Ix), proposed.pose());
 				vals.insert(V(user.Iv), proposed.v());
 				vals.insert(B(user.Ib), prev_bias);
@@ -475,23 +334,23 @@ int run_cappella() {
 					isam->update(*graph, vals);
 					result = isam->calculateEstimate();
 					user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
-					user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
-
+					user.est_velocities.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
+					user.est_poses_error.push_back(position_var);
 
 					prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
 					prev_bias = result.at<imuBias::ConstantBias>(B(user.Ib));
-					imu_preintegrated->resetIntegrationAndSetBias(prev_bias);
 
+					// Here, you need to re-insert the optimization results as the base of the next preintegration.
 					graph->resize(0);
 					vals.clear();
-
+					imu_preintegrated->resetIntegrationAndSetBias(prev_bias); // Clear preintegrator
 
 				}
 				catch (const std::exception& e) {
 					std::cerr << "Optimizer update failed: " << e.what() << std::endl;
 
 					// Dump factor graph to .dot file
-					std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
+					std::ofstream os(debug_dot_dump_directory);
 					graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
 					os.close();
 
@@ -501,8 +360,80 @@ int run_cappella() {
 					std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
 					throw; // rethrow after dumping
 				}
+			}
 		}
-		
+		else if (USE_UWB && mes["type"] == "uwb" && start_graph) {
+			double range;
+			string src_user = "2";
+			string dst_user;
+
+			get_UWB(mes, src_user, dst_user, range);
+
+			vector<string> anchors = { "1", "3", "4" };
+
+			user.Ix++;
+			user.Iv++;
+			user.Ib++;
+
+			last_imu_counter = IMU_COUNT;
+
+			// Code that generates a synthetic range:
+			//double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
+			
+			//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
+			//UWB_COUNT++;
+
+			auto preint_imu = dynamic_cast<const PreintegratedImuMeasurements&>(*imu_preintegrated);
+			ImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1),
+				X(user.Ix), V(user.Iv),
+				B(user.Ib - 1), preint_imu);
+			graph->add(imu_factor);
+
+
+			imuBias::ConstantBias zero_bias(Vector3(0, 0, 0), Vector3(0, 0, 0));
+			graph->add(BetweenFactor<imuBias::ConstantBias>(
+				B(user.Ib - 1), B(user.Ib), zero_bias,
+				prior_bias_noise_model));
+
+
+			auto proposed = preint_imu.predict(prev_state, prev_bias);
+
+			vals.insert(X(user.Ix), proposed.pose());
+			vals.insert(V(user.Iv), proposed.v());
+			vals.insert(B(user.Ib), prev_bias);
+			Values result;
+
+			try {
+				isam->update(*graph, vals);
+				result = isam->calculateEstimate();
+				user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
+				user.est_velocities.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
+
+				prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
+				prev_bias = result.at<imuBias::ConstantBias>(B(user.Ib));
+
+				graph->resize(0);
+				vals.clear();
+				imu_preintegrated->resetIntegrationAndSetBias(prev_bias);
+
+
+			}
+			catch (const std::exception& e) {
+				std::cerr << "Optimizer update failed: " << e.what() << std::endl;
+
+				// Dump factor graph to .dot file
+				std::ofstream os(debug_dot_dump_directory);
+				graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
+				os.close();
+
+				PLOT_ANCHORS(info);
+				PLOT_ESTIMATED_FOR_USERS(info, show_list);
+
+				std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
+				throw; // rethrow after dumping
+			}
+		}
+
 	}
 
 
@@ -512,30 +443,4 @@ int run_cappella() {
 	show();
 
 	return 0;
-}
-
-int main(int argc, char* argv[]) {
-
-	// run_euroc();
-	run_cappella();
-
-	return 0;
-
-	//Save (drawing example for when you get confused)
-	//hold(on);
-
-	//Pose3 test1(Rot3::Identity(), Point3(1, 1, 0));
-	//Pose3 test_rot = test1 * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI / 2), Vector3(0, 0, 0));
-	//// So to do a relative rotation with axis angle. New Pose = Current Pose Frame * Incremental Pose <- the incremental rotation.
-	//// This makes sense
-
-	////draw_vector(Vector3(0, 0, 0), Vector3(1, 0, 0), "red"); // X
-	//draw_forward(test1, 1, "red");
-	//draw_forward(test_rot, 1, "black");
-	//draw_vector(Vector3(0, 0, 0), Vector3(1, 0, 0), "red"); // X
-	//draw_vector(Vector3(0, 0, 0), Vector3(0, 1, 0), "blue"); // Y
-	//draw_vector(Vector3(0, 0, 0), Vector3(0, 0, 1), "green"); // Z
-
-	//hold(on);
-	////show();
 }

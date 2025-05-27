@@ -1,5 +1,6 @@
 #include "utils.h"
 
+// Only for Cappella visualization
 Matrix44 get_vis_rotation() {
 	Matrix44 vis_rotation = Matrix::Zero(4, 4);
 	vis_rotation(0, 0) = 1;
@@ -20,67 +21,15 @@ void draw_vector(Vector3 start, Vector3 end, string color) {
 	plot3(dx, dy, dz)->color(color);
 }
 
-void draw_coordinate_frame_axes(Rot3 rot_S_to_R, Vector3 loc_R) {
 
-	double length = 0.5;
-
-	hold(on);
-
-	Rot3 T = rot_S_to_R;
-	// I think the rotator is somehow re-scaling the vectors in transform?
-
-	Rot3 x_axis();
-
-	Vector3 x_S(1, 0, 0);
-	Vector3 y_S(0, 1, 0);
-	Vector3 z_S(0, 0, 1);
-
-	// Draw reference coordinate frame
-	//draw_vector(loc_R, loc_R + x_S, "black");
-	//draw_vector(loc_R, loc_R + y_S, "black");
-	//draw_vector(loc_R, loc_R + z_S, "black");
-
-	Vector3 x_R = T * x_S;
-	Vector3 y_R = T * y_S;
-	Vector3 z_R = T * z_S;
-
-	// Draw rotated coordinate frame
-	draw_vector(loc_R, loc_R + x_R, "red");
-	draw_vector(loc_R, loc_R + y_R, "blue");
-	draw_vector(loc_R, loc_R + z_R, "green");
-
-}
-
-void draw_basis(Matrix33 basis, Vector3 loc, bool as_reference_frame) {
-	//hold(on);
-
-	Matrix44 vis_rotation(get_vis_rotation());
-
-	basis = Pose3(vis_rotation).rotation().matrix() * basis;
-	loc = Pose3(vis_rotation).rotation().matrix() * loc;
-
-	double length = 1;
-	if (as_reference_frame) {
-		string color = "black";
-		draw_vector(loc, loc + length * basis.col(0), color);
-		draw_vector(loc, loc + length * basis.col(1), color);
-		draw_vector(loc, loc + length * basis.col(2), color);
-
-	}
-	else {
-		draw_vector(loc, loc + length * basis.col(0), "red");
-		draw_vector(loc, loc + length * basis.col(1), "blue");
-		draw_vector(loc, loc + length * basis.col(2), "green");
-	}
-
-}
-
-void draw_forward(Pose3 pose, double scale, string color) {
+// X = red, Y = blue, Z = green
+void draw_frame(Pose3 pose, double scale, string color) {
 	draw_vector(pose.translation(), pose.translation() + (pose.rotation() * Vector3(1, 0, 0) * (scale)), "red");
 	draw_vector(pose.translation(), pose.translation() + (pose.rotation() * Vector3(0, 1, 0) * (scale)), "blue");
 	draw_vector(pose.translation(), pose.translation() + (pose.rotation() * Vector3(0, 0, 1) * (scale)), "green");
 }
 
+// Note: BROKEN
 void draw_error_ellipsoid(Vector3 center, Vector3 position_error, string color) {
 	double a = position_error(0); // X-axis
 	double b = position_error(1); // Y-axis
@@ -110,6 +59,7 @@ void draw_error_ellipsoid(Vector3 center, Vector3 position_error, string color) 
 
 }
 
+// Note: BROKEN
 void draw_trajectory_with_error(vector<Pose3> trajectory, vector<Vector3> pose_errors, string color) {
 
 	vector<float> xs;
@@ -126,7 +76,7 @@ void draw_trajectory_with_error(vector<Pose3> trajectory, vector<Vector3> pose_e
 		zs.push_back(pose.z());
 
 		if (color == "blue" && count % 25 == 0) { // No idea why it needs a special invite to plot blue but oh well.
-			draw_forward(pose, 0.1, color);
+			draw_frame(pose, 0.1, color);
 			Vector3 error = pose_errors[count] * 1;
 			// Might just draw a point with a radius that is the maximum error along any axis?
 			// This can appear as transparent with a border, rendering these meshes takes too long.
@@ -160,8 +110,6 @@ void draw_trajectory_with_error(vector<Pose3> trajectory, vector<Vector3> pose_e
 	//	s->marker_size(errors[i]);
 	//}
 
-
-
 }
 
 void draw_trajectory(vector<Pose3> trajectory, string color) {
@@ -174,28 +122,13 @@ void draw_trajectory(vector<Pose3> trajectory, string color) {
 		xs.push_back(pose.x());
 		ys.push_back(pose.y());
 		zs.push_back(pose.z());
-		//if ( color == "blue") {
-		//	draw_forward(pose, 0.1, color);
-		//}
 
-		//if (color == "blue" && count % 100 ==0) { // No idea why it needs a special invite to plot blue but oh well.
-		//	draw_forward(pose, 0.1, color);
-		//}
-		//if (count % 50 == 0) {
-		//	draw_forward(pose, 0.1, color);
-		//}
 		count++;
 	}
 	plot3(xs, ys, zs)->color(color);
 }
 
 void draw_points(vector<Pose3> points, string color) {
-	//hold(on);
-
-	//	// For cappella (AND ONLY CAPPELLA) we rotate every trajectory s.t. y is facing up
-	//Matrix44 vis_rotation = get_vis_rotation();
-	//vector<Pose3> trajectory_cp(points); // Deep copy and rotate each element
-	//for (int i = 0; i < trajectory_cp.size(); i++) trajectory_cp[i] = Pose3(vis_rotation) * trajectory_cp[i];
 
 	vector<double> xs;
 	vector<double> ys;
