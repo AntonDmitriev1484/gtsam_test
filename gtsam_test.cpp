@@ -73,12 +73,12 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 int main(int argc, char* argv[]) {
 	string directory = "/home/admitriev/Datasets/UWBSLAM_pilot/";
 	string trial_name = "pilot1";
-	string out_directory = "/home/admitriev/Research/pilot_results/" + trial_name;
-
-	string debug_dot_dump_directory = "/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot";
-
 	ifstream raw_fs(directory + trial_name + "/" + "all.json");
 	ifstream beacon_fs(directory + "pilot_anchors.json");
+
+	string out_directory = "/home/admitriev/Research/pilot_results/" + trial_name; // Unused for now.
+	string debug_dot_dump_directory = "/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot";
+
 
 	json sensor_stream = json::parse(raw_fs);
 	map<string, tracking> info; // Map of username to tracking information

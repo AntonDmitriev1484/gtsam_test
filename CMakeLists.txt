@@ -13,10 +13,6 @@ include_directories("/usr/include/eigen3/")
 include_directories("/usr/local/include/matplot")
 include_directories("/usr/include/json/single_include") #NHolmann JSON library for reading in data
 
-#find_package(Eigen3)
-#find_package(nlohmann_json)
-#find_package(GT)
-
 # Note: Matplot++ is different from,.and more up to date than Matplotlib-cpp.
 
 find_package(GTSAMCMakeTools)
