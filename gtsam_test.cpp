@@ -72,7 +72,7 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 
 int main(int argc, char* argv[]) {
 	string directory = "/home/admitriev/Datasets/UWBSLAM_pilot/";
-	string trial_name = "pilot1";
+	string trial_name = "pilot1_ros_post";
 	ifstream raw_fs(directory + trial_name + "/" + "all.json");
 	ifstream beacon_fs(directory + "pilot_anchors.json");
 
@@ -150,19 +150,22 @@ int main(int argc, char* argv[]) {
 	imu_preintegration_params->biasAccOmegaInt = initial_bias_cov;
 
 	// Transform I was originally running with
-	Matrix33 negate_x_axis;
-	negate_x_axis << -1, 0, 0,
-					0, 1, 0,
-					0, 0, 1;
-	// 90 about x-axis, then negate x-axis
-	Pose3 sensor_to_body_transform( (Rot3(negate_x_axis) * Rot3::AxisAngle(Point3(1, 0, 0), +M_PI / 2)).inverse(), Vector3(0, 0, 0));
+	//Matrix33 negate_x_axis;
+	//negate_x_axis << -1, 0, 0,
+	//				0, 1, 0,
+	//				0, 0, 1;
+	//// 90 about x-axis, then negate x-axis
+	//Pose3 sensor_to_body_transform( (Rot3(negate_x_axis) * Rot3::AxisAngle(Point3(1, 0, 0), +M_PI / 2)).inverse(), Vector3(0, 0, 0));
+
+	//// Transform I'm about to try:
+	//Pose3 sensor_to_body_transform( ())
 
 	// Transform that Jose calculated
-	//Matrix33 transform;
-	//transform << 1, 0, 0,
-	//	0, 0, 1,
-	//	0, -1, 0;
-	//Pose3 sensor_to_body_transform(Rot3(transform), Vector3(0, 0, 0));
+	Matrix33 transform;
+	transform << 1, 0, 0,
+		0, 0, 1,
+		0, -1, 0;
+	Pose3 sensor_to_body_transform(Rot3(transform), Vector3(0, 0, 0));
 	// body_P_sensor : "pose of sensor frame w.r.t body frame"
 	imu_preintegration_params->body_P_sensor = sensor_to_body_transform;
 
@@ -233,11 +236,12 @@ int main(int argc, char* argv[]) {
 
 
 	// Parameters for generating GT
-	double gt_velocity = 0.69777;
+
 	bool on_side1 = true; // start by walking side1
 	double side1 = 2.63;
 	double side2 = 3.65;
-	double total_distance_walked = 31.4;
+	double total_distance_walked =  2 * (2*side1, + 2*side2);
+	double gt_velocity = total_distance_walked / 40; // total 40s
 	double distance_walked = 0;
 	double distance_walked_at_last_turn = 0;
 	double dy = gt_velocity * dt;
@@ -248,7 +252,7 @@ int main(int argc, char* argv[]) {
 
 	// Counters
 	int GT_CORRECTION_COUNT = 0;
-	bool USE_UWB = true;
+	bool USE_UWB = false;
 	int UWB_COUNT = 0;
 	int IMU_COUNT = 0;
 	int last_imu_counter = 0;
@@ -263,7 +267,8 @@ int main(int argc, char* argv[]) {
 
 	for (json mes : sensor_stream) {
 
-		if (mes["type"] == "imu") {
+		//if (mes["type"] == "imu") {
+		if (mes.contains("ax") ) {
 
 			// Add IMU measurement
 			start_graph = true;
@@ -272,6 +277,12 @@ int main(int argc, char* argv[]) {
 			get_IMU(mes, accel, gyro);
 			imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 			IMU_COUNT++;
+
+			// Looks better but why am I only getting one loop,
+			// Is my GT even generating 2 loops?
+			// Its only generating like 1.125
+			// I think my dt must be wrong? Or something with how I'm forming it in here
+			// Steps that are being taken are too small....
 
 			// GT generation
 			if (on_side1) {
@@ -288,7 +299,7 @@ int main(int argc, char* argv[]) {
 					on_side1 = !on_side1;
 				}
 			}
-			Pose3 delta_pose(Rot3::Identity(), Vector3(0, dy, 0));
+			Pose3 delta_pose(Rot3::Identity(), Vector3(0, dy, -1e-4));
 			gt_pose = gt_pose * delta_pose;
 			user.gt_poses.push_back(gt_pose);
 			distance_walked += dy;
