@@ -73,7 +73,7 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 int main(int argc, char* argv[]) {
 	string directory = "/home/admitriev/Datasets/UWBSLAM_pilot/";
 	string trial_name = "pilot1_ros_post";
-	ifstream raw_fs(directory + trial_name + "/" + "all_adjusted.json");
+	ifstream raw_fs(directory + trial_name + "/" + "all.json");
 	ifstream beacon_fs(directory + "pilot_anchors.json");
 
 	string out_directory = "/home/admitriev/Research/pilot_results/" + trial_name; // Unused for now.
