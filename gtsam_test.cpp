@@ -144,7 +144,7 @@ int run_cappella() {
 	string trial_name = "pilot0_ros_post";
 	string out_directory = "/home/admitriev/Research/pilot_results/" + trial_name;
 
-	ifstream raw_fs(directory + trial_name + "/" + "all_adjusted.json");
+	ifstream raw_fs(directory + trial_name + "/" + "all.json");
 	ifstream beacon_fs(directory + "pilot_anchors.json");
 
 	json sensor_stream = json::parse(raw_fs);
