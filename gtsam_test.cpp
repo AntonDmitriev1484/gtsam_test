@@ -156,6 +156,7 @@ int main(int argc, char* argv[]) {
 	Pose3 sensor_to_body_transform(Rot3(transform), Vector3(0, 0, 0));
 	// body_P_sensor : "pose of sensor frame w.r.t body frame"
 	imu_preintegration_params->body_P_sensor = sensor_to_body_transform;
+	//imu_preintegration_params->body_P_sensor = Pose3(Rot3::AxisAngle(Point3(0, 0, 1), -M_PI / 2) * Rot3::Identity(), Vector3(0,0,0)) * sensor_to_body_transform;
 
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
 
@@ -244,7 +245,12 @@ int main(int argc, char* argv[]) {
 	int UWB_COUNT = 0;
 	int IMU_COUNT = 0;
 	int last_imu_counter = 0;
+
+
 	bool start_graph = false;
+
+	double LM_INITIALIZATION_INTERVAL = 10 * 200; // First 5 seconds of data will be initialized by LM
+
 
 
 	// Variables for tracking estimated pose.
@@ -253,62 +259,300 @@ int main(int argc, char* argv[]) {
 	imuBias::ConstantBias prev_bias = prior_imu_bias;
 	user.constant_bias = prev_bias;
 
+	bool initialized = false;
+
 
 	for (json mes : sensor_stream) {
 
-		//if (mes["type"] == "imu") {
-		if (mes.contains("ax")) { // TEMP while working on the goofed up ROS all.json
+		if (IMU_COUNT < LM_INITIALIZATION_INTERVAL) { // Initializing, code should use LM
 
-			// Add IMU measurement
-			start_graph = true;
-			Vector3 accel;
-			Vector3 gyro;
-			get_IMU(mes, accel, gyro);
-			imu_preintegrated->integrateMeasurement(accel, gyro, dt);
-			IMU_COUNT++;
+			if (mes.contains("ax")) { 
 
-			// GT generation
-			if (on_side1) {
-				if (distance_walked - distance_walked_at_last_turn >= side1) {
-					gt_pose = gt_pose * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI / 2), Vector3(0, 0, 0));
-					distance_walked_at_last_turn = distance_walked;
-					on_side1 = !on_side1;
+				// Add IMU measurement
+				start_graph = true;
+				Vector3 accel;
+				Vector3 gyro;
+				get_IMU(mes, accel, gyro);
+				imu_preintegrated->integrateMeasurement(accel, gyro, dt);
+				IMU_COUNT++;
+
+				// GT generation
+				if (on_side1) {
+					if (distance_walked - distance_walked_at_last_turn >= side1) {
+						gt_pose = gt_pose * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI / 2), Vector3(0, 0, 0));
+						distance_walked_at_last_turn = distance_walked;
+						on_side1 = !on_side1;
+					}
+				}
+				else {
+					if (distance_walked - distance_walked_at_last_turn >= side2) {
+						gt_pose = gt_pose * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI / 2), Vector3(0, 0, 0));
+						distance_walked_at_last_turn = distance_walked;
+						on_side1 = !on_side1;
+					}
+				}
+				Pose3 delta_pose(Rot3::Identity(), Vector3(0, dy, 0));
+				gt_pose = gt_pose * delta_pose;
+				user.gt_poses.push_back(gt_pose);
+				distance_walked += dy;
+
+				// Periodically generate a GT correction
+				if (IMU_COUNT % T_CORRECTION == 0) {
+
+					user.Ix++;
+					user.Iv++;
+					user.Ib++;
+
+					PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+					CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
+					graph->add(imu_factor);
+
+					// GT correction (currently as GPS factor)
+					auto correction_noise = noiseModel::Isotropic::Sigma(3, 0.1);
+					graph->add(GPSFactor(X(user.Ix), gt_pose.translation(), correction_noise));
+
+					auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
+
+					vals.insert(X(user.Ix), proposed.pose());
+					vals.insert(V(user.Iv), proposed.v());
+					vals.insert(B(user.Ib), user.constant_bias);
+					Values result;
+
+					try {
+
+						//LevenbergMarquardtParams params;
+						//LevenbergMarquardtOptimizer lm(*graph, vals, params);
+						//result = lm.optimize();
+
+						//isam->update(*graph, result);
+						//result = isam->calculateEstimate();
+
+						//user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
+						//user.est_velocities.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
+						user.est_poses.push_back(gt_pose);
+						user.est_velocities.push_back(Vector3(0,gt_velocity,0));
+					}
+					catch (const std::exception& e) {
+						std::cerr << "Optimizer update failed (in GT correction): " << e.what() << std::endl;
+
+						// Dump factor graph to .dot file
+						std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
+						graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
+						os.close();
+
+
+						PLOT_ANCHORS(info);
+						PLOT_ESTIMATED_FOR_USERS(info, show_list);
+
+						std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
+						throw; // rethrow after dumping
+					}
+
+
+					prev_state = NavState(gt_pose, Vector3(0, gt_velocity, 0));
+					//prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
+					//graph->resize(0);
+					//vals.clear();
+					imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
+					GT_CORRECTION_COUNT++;
 				}
 			}
-			else {
-				if (distance_walked - distance_walked_at_last_turn >= side2) {
-					gt_pose = gt_pose * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI / 2), Vector3(0, 0, 0));
-					distance_walked_at_last_turn = distance_walked;
-					on_side1 = !on_side1;
-				}
-			}
-			Pose3 delta_pose(Rot3::Identity(), Vector3(0, dy, 0));
-			gt_pose = gt_pose * delta_pose;
-			user.gt_poses.push_back(gt_pose);
-			distance_walked += dy;
+			else if (USE_UWB && mes["type"] == "uwb" && start_graph) {
+				double range;
+				string src_user = "2";
+				string dst_user;
 
-			// Periodically generate a GT correction
-			if (IMU_COUNT % T_CORRECTION == 0) {
+				UWB_COUNT++;
+
+				get_UWB(mes, src_user, dst_user, range);
+
+				vector<string> anchors = { "1", "3", "4" };
 
 				user.Ix++;
 				user.Iv++;
 				user.Ib++;
 
+				double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
+
+				//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
+				graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
+
 				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
 				CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
 				graph->add(imu_factor);
-
-				// GT correction (currently as GPS factor)
-				auto correction_noise = noiseModel::Isotropic::Sigma(3, 0.1);
-				graph->add(GPSFactor(X(user.Ix), gt_pose.translation(), correction_noise));
 
 				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
 
 				vals.insert(X(user.Ix), proposed.pose());
 				vals.insert(V(user.Iv), proposed.v());
 				vals.insert(B(user.Ib), user.constant_bias);
-				Values result;
 
+				Values result;
+				try {
+
+
+					//LevenbergMarquardtParams params;
+					//LevenbergMarquardtOptimizer lm(*graph, vals, params);
+					//result = lm.optimize();
+
+					//isam->update(*graph, result);
+					//result = isam->calculateEstimate();
+
+					//user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
+					//user.est_velocities.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
+
+					user.est_poses.push_back(gt_pose);
+					user.est_velocities.push_back(Vector3(0, gt_velocity, 0));
+				}
+				catch (const std::exception& e) {
+					std::cerr << "Optimizer update failed (in GT correction): " << e.what() << std::endl;
+
+					// Dump factor graph to .dot file
+					std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
+					graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
+					os.close();
+
+
+					PLOT_ANCHORS(info);
+					PLOT_ESTIMATED_FOR_USERS(info, show_list);
+
+					std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
+					throw; // rethrow after dumping
+				}
+
+				//prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
+				prev_state = NavState(gt_pose, Vector3(0, gt_velocity, 0));
+				//graph->resize(0);
+				//vals.clear();
+				imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
+			}
+
+		}
+		else { // Done initializing, use iSAM
+
+			if (!initialized) { // Initialize using LM once.
+				Values result;
+				LevenbergMarquardtParams params;
+				LevenbergMarquardtOptimizer lm(*graph, vals, params);
+				result = lm.optimize();
+
+				//isam->update(*graph, result);
+
+				initialized = true;
+			}
+
+			if (mes.contains("ax")) { // TEMP while working on the goofed up ROS all.json
+
+				// Add IMU measurement
+				start_graph = true;
+				Vector3 accel;
+				Vector3 gyro;
+				get_IMU(mes, accel, gyro);
+				imu_preintegrated->integrateMeasurement(accel, gyro, dt);
+				IMU_COUNT++;
+
+				// GT generation
+				if (on_side1) {
+					if (distance_walked - distance_walked_at_last_turn >= side1) {
+						gt_pose = gt_pose * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI / 2), Vector3(0, 0, 0));
+						distance_walked_at_last_turn = distance_walked;
+						on_side1 = !on_side1;
+					}
+				}
+				else {
+					if (distance_walked - distance_walked_at_last_turn >= side2) {
+						gt_pose = gt_pose * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI / 2), Vector3(0, 0, 0));
+						distance_walked_at_last_turn = distance_walked;
+						on_side1 = !on_side1;
+					}
+				}
+				Pose3 delta_pose(Rot3::Identity(), Vector3(0, dy, 0));
+				gt_pose = gt_pose * delta_pose;
+				user.gt_poses.push_back(gt_pose);
+				distance_walked += dy;
+
+				// Periodically generate a GT correction
+				if (IMU_COUNT % T_CORRECTION == 0) {
+
+					user.Ix++;
+					user.Iv++;
+					user.Ib++;
+
+					PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+					CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
+					graph->add(imu_factor);
+
+					// GT correction (currently as GPS factor)
+					auto correction_noise = noiseModel::Isotropic::Sigma(3, 0.1);
+					graph->add(GPSFactor(X(user.Ix), gt_pose.translation(), correction_noise));
+
+					auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
+
+					vals.insert(X(user.Ix), proposed.pose());
+					vals.insert(V(user.Iv), proposed.v());
+					vals.insert(B(user.Ib), user.constant_bias);
+					Values result;
+
+					try {
+						isam->update(*graph, vals);
+						result = isam->calculateEstimate();
+						user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
+						user.est_velocities.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
+					}
+					catch (const std::exception& e) {
+						std::cerr << "Optimizer update failed (in GT correction): " << e.what() << std::endl;
+
+						// Dump factor graph to .dot file
+						std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
+						graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
+						os.close();
+
+
+						PLOT_ANCHORS(info);
+						PLOT_ESTIMATED_FOR_USERS(info, show_list);
+
+						std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
+						throw; // rethrow after dumping
+					}
+
+					prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
+					graph->resize(0);
+					vals.clear();
+					imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
+					GT_CORRECTION_COUNT++;
+				}
+			}
+			else if (USE_UWB && mes["type"] == "uwb" && start_graph) {
+				double range;
+				string src_user = "2";
+				string dst_user;
+
+				UWB_COUNT++;
+
+				get_UWB(mes, src_user, dst_user, range);
+
+				vector<string> anchors = { "1", "3", "4" };
+
+				user.Ix++;
+				user.Iv++;
+				user.Ib++;
+
+				double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
+
+				//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
+				graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
+
+				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+				CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
+				graph->add(imu_factor);
+
+				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
+
+				vals.insert(X(user.Ix), proposed.pose());
+				vals.insert(V(user.Iv), proposed.v());
+				vals.insert(B(user.Ib), user.constant_bias);
+
+				Values result;
 				try {
 					isam->update(*graph, vals);
 					result = isam->calculateEstimate();
@@ -316,7 +560,7 @@ int main(int argc, char* argv[]) {
 					user.est_velocities.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
 				}
 				catch (const std::exception& e) {
-					std::cerr << "Optimizer update failed (in GT correction): " << e.what() << std::endl;
+					std::cerr << "Optimizer update failed: " << e.what() << std::endl;
 
 					// Dump factor graph to .dot file
 					std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
@@ -335,67 +579,11 @@ int main(int argc, char* argv[]) {
 				graph->resize(0);
 				vals.clear();
 				imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
-				GT_CORRECTION_COUNT++;
 			}
 		}
-		else if (USE_UWB && mes["type"] == "uwb" && start_graph) {
-			double range;
-			string src_user = "2";
-			string dst_user;
 
-			UWB_COUNT++;
-
-			get_UWB(mes, src_user, dst_user, range);
-
-			vector<string> anchors = { "1", "3", "4" };
-
-			user.Ix++;
-			user.Iv++;
-			user.Ib++;
-
-			double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
-
-			//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
-			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
-
-			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-			CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
-			graph->add(imu_factor);
-
-			auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
-
-			vals.insert(X(user.Ix), proposed.pose());
-			vals.insert(V(user.Iv), proposed.v());
-			vals.insert(B(user.Ib), user.constant_bias);
-
-			Values result;
-			try {
-				isam->update(*graph, vals);
-				result = isam->calculateEstimate();
-				user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
-				user.est_velocities.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
-			}
-			catch (const std::exception& e) {
-				std::cerr << "Optimizer update failed: " << e.what() << std::endl;
-
-				// Dump factor graph to .dot file
-				std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
-				graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
-				os.close();
-
-
-				PLOT_ANCHORS(info);
-				PLOT_ESTIMATED_FOR_USERS(info, show_list);
-
-				std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
-				throw; // rethrow after dumping
-			}
-
-			prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
-			graph->resize(0);
-			vals.clear();
-			imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
-		}
+		//if (mes["type"] == "imu") {
+		
 
 
 
