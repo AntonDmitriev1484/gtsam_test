@@ -156,9 +156,8 @@ int main(int argc, char* argv[]) {
 	//				0, 0, 1;
 	//// 90 about x-axis, then negate x-axis
 	//Pose3 sensor_to_body_transform( (Rot3(negate_x_axis) * Rot3::AxisAngle(Point3(1, 0, 0), +M_PI / 2)).inverse(), Vector3(0, 0, 0));
-
-	//// Transform I'm about to try:
-	//Pose3 sensor_to_body_transform( ())
+	//// body_P_sensor : "pose of sensor frame w.r.t body frame"
+	//imu_preintegration_params->body_P_sensor = sensor_to_body_transform;
 
 	// Transform that Jose calculated
 	Matrix33 transform;
@@ -168,7 +167,6 @@ int main(int argc, char* argv[]) {
 	Pose3 sensor_to_body_transform(Rot3(transform), Vector3(0, 0, 0));
 	// body_P_sensor : "pose of sensor frame w.r.t body frame"
 	imu_preintegration_params->body_P_sensor = sensor_to_body_transform;
-
 
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
 

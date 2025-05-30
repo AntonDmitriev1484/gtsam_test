@@ -40,8 +40,8 @@ void get_GT(json d, vector<string>& users, vector<Matrix44>& pose_matrices) {
 
 void get_UWB(json d, string& src_user, string& dst_user, double& range) {
 	//src_user = "2";
-	dst_user = to_string(d["id"]);
-	range = d["range"];
+	dst_user = to_string(d["id"]); // Was ID
+	range = d["range"]; // Was RANGE
 }
 
 void get_IMU(json d, Vector3& accel, Vector3& gyro) {
