@@ -221,7 +221,8 @@ int main(int argc, char* argv[]) {
 	vector<string> show_list = { "2" };
 
 	// Use Preintegrator params, and bias prior, to create a new preintegrator object that we can use for an IMU factor.
-	std::shared_ptr<PreintegrationType> imu_preintegrated = std::make_shared<PreintegratedImuMeasurements>(imu_preintegration_params, prior_imu_bias);
+	PreintegrationType* imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
+
 
 	// Define optimizer
 	ISAM2Params isam_params; // Suggested per example: https://github.com/borglab/gtsam/blob/develop/examples/IMUKittiExampleGPS.cpp
@@ -250,7 +251,7 @@ int main(int argc, char* argv[]) {
 
 	// Counters
 	int GT_CORRECTION_COUNT = 0;
-	bool USE_UWB = true;
+	bool USE_UWB = false;
 	int UWB_COUNT = 0;
 	int IMU_COUNT = 0;
 	int last_imu_counter = 0;
@@ -261,12 +262,15 @@ int main(int argc, char* argv[]) {
 	tracking& user = info.at("2"); // The user in pilot0 and 1 had anchor id #2
 	NavState prev_state(user.est_poses.back(), user.est_velocities.back());
 	imuBias::ConstantBias prev_bias = prior_imu_bias;
+	user.constant_bias = prev_bias;
 
 
 	for (json mes : sensor_stream) {
 
+		//if (GT_CORRECTION_COUNT > 2) break;
+
 		//if (mes["type"] == "imu") {
-		if (mes.contains("ax") ) {
+		if (mes.contains("ax")) { // TEMP while working on the goofed up ROS all.json
 
 			// Add IMU measurement
 			start_graph = true;
@@ -296,7 +300,6 @@ int main(int argc, char* argv[]) {
 			user.gt_poses.push_back(gt_pose);
 			distance_walked += dy;
 
-
 			// Periodically generate a GT correction
 			if (IMU_COUNT % T_CORRECTION == 0) {
 
@@ -304,33 +307,21 @@ int main(int argc, char* argv[]) {
 				user.Iv++;
 				user.Ib++;
 
-
-				auto preint_imu =
-					dynamic_cast<const PreintegratedImuMeasurements&>(*imu_preintegrated);
-				ImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1),
-					X(user.Ix), V(user.Iv),
-					B(user.Ib - 1), preint_imu);
+				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+				CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
 				graph->add(imu_factor);
-				imuBias::ConstantBias zero_bias(Vector3(0, 0, 0), Vector3(0, 0, 0));
-				graph->add(BetweenFactor<imuBias::ConstantBias>(
-					B(user.Ib - 1), B(user.Ib), zero_bias,
-					prior_bias_noise_model));
-
-				auto proposed = preint_imu.predict(prev_state, prev_bias);
-				auto cov_matrix = preint_imu.preintMeasCov(); // COVARIANCE OF: [PreintROTATION PreintPOSITION PreintVELOCITY BiasAcc BiasOmega]
-				Vector3 position_var(cov_matrix(3, 3), cov_matrix(4, 4), cov_matrix(5, 5));
-
 
 				// GT correction (currently as GPS factor)
 				auto correction_noise = noiseModel::Isotropic::Sigma(3, 0.1);
 				graph->add(GPSFactor(X(user.Ix), gt_pose.translation(), correction_noise));
-				//graph->add(PriorFactor(X(user.Ix), gt_pose, GT_noise_model));
-				GT_CORRECTION_COUNT++;
 
-				draw_frame(proposed.pose(), 0.1, "black"); // Draw the coordinate frame axes of a pose for debugging
+				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
+				auto cov_matrix = current_imu_preintegration->preintMeasCov(); // COVARIANCE OF: [PreintROTATION PreintPOSITION PreintVELOCITY BiasAcc BiasOmega]
+				Vector3 position_var(cov_matrix(3, 3), cov_matrix(4, 4), cov_matrix(5, 5));
+
 				vals.insert(X(user.Ix), proposed.pose());
 				vals.insert(V(user.Iv), proposed.v());
-				vals.insert(B(user.Ib), prev_bias);
+				vals.insert(B(user.Ib), user.constant_bias);
 				Values result;
 
 				try {
@@ -339,15 +330,15 @@ int main(int argc, char* argv[]) {
 					user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
 					user.est_velocities.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
 					user.est_poses_error.push_back(position_var);
-
 				}
 				catch (const std::exception& e) {
 					std::cerr << "Optimizer update failed: " << e.what() << std::endl;
 
 					// Dump factor graph to .dot file
-					std::ofstream os(debug_dot_dump_directory);
+					std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
 					graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
 					os.close();
+
 
 					PLOT_ANCHORS(info);
 					PLOT_ESTIMATED_FOR_USERS(info, show_list);
@@ -357,13 +348,11 @@ int main(int argc, char* argv[]) {
 				}
 
 				prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
-				prev_bias = result.at<imuBias::ConstantBias>(B(user.Ib));
-
 				// Here, you need to re-insert the optimization results as the base of the next preintegration.
 				graph->resize(0);
 				vals.clear();
-				imu_preintegrated->resetIntegrationAndSetBias(prev_bias); // Clear preintegrator
 
+				imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
 				GT_CORRECTION_COUNT++;
 			}
 		}
@@ -372,55 +361,71 @@ int main(int argc, char* argv[]) {
 			string src_user = "2";
 			string dst_user;
 
+			UWB_COUNT++;
+
 			get_UWB(mes, src_user, dst_user, range);
 
+
 			vector<string> anchors = { "1", "3", "4" };
+			//string dst_user = anchors[UWB_ANCHOR_IDX % 3];
 
 			user.Ix++;
 			user.Iv++;
 			user.Ib++;
 
-			last_imu_counter = IMU_COUNT;
 
-			// Code that generates a synthetic range:
-			//double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
+			//draw_vector(gt_pose.translation(), info[dst_user].gt_poses[0].translation(), "black");
+
+			//double true_range = distance3(info[dst_user].gt_poses[0].translation(), gt_pose.translation());
+			////cout << "true_range " << true_range << " measured range " << range << endl;
+			////cout << "true_range " << true_range << " to anchor " << dst_user << endl;
+
+
+			double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
+
+			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
 			//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
-			//UWB_COUNT++;
 
-			auto preint_imu = dynamic_cast<const PreintegratedImuMeasurements&>(*imu_preintegrated);
-			ImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1),
-				X(user.Ix), V(user.Iv),
-				B(user.Ib - 1), preint_imu);
+
+			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+			CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
 			graph->add(imu_factor);
 
 
-			imuBias::ConstantBias zero_bias(Vector3(0, 0, 0), Vector3(0, 0, 0));
-			graph->add(BetweenFactor<imuBias::ConstantBias>(
-				B(user.Ib - 1), B(user.Ib), zero_bias,
-				prior_bias_noise_model));
-
-
-			auto proposed = preint_imu.predict(prev_state, prev_bias);
+			auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
 
 			vals.insert(X(user.Ix), proposed.pose());
 			vals.insert(V(user.Iv), proposed.v());
-			vals.insert(B(user.Ib), prev_bias);
-			Values result;
+			vals.insert(B(user.Ib), user.constant_bias);
 
+
+			// So I think Navstate 1 is supposed to be the GT pose?
+			NavState gt_navstate(gt_pose, Vector3(0, gt_velocity, 0));
+
+			// Not sure what exactly the difference is between this covariance matrix is and the computeErrors are/
+			auto cov_matrix = current_imu_preintegration->preintMeasCov(); // COVARIANCE OF: [PreintROTATION PreintPOSITION PreintVELOCITY BiasAcc BiasOmega]
+			//Vector3 position_var(cov_matrix(3, 3), cov_matrix(4, 4), cov_matrix(5, 5));
+			Vector9 integration_error = current_imu_preintegration->computeErrorAndJacobians(gt_navstate.pose(), gt_navstate.v(), proposed.pose(), proposed.v(), user.constant_bias);
+			Vector3 position_var(integration_error(3), integration_error(4), integration_error(5)); // Going to guess its the middle 3 elements that correspond to pose?
+			// Can the documentation please explain to me exactly what this Vector9 is that gets returned, what indices correspond to what variables?
+
+
+			Values result;
 			try {
 				isam->update(*graph, vals);
 				result = isam->calculateEstimate();
 				user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
+				user.est_poses_error.push_back(position_var);
 				user.est_velocities.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
-
 			}
 			catch (const std::exception& e) {
 				std::cerr << "Optimizer update failed: " << e.what() << std::endl;
 
 				// Dump factor graph to .dot file
-				std::ofstream os(debug_dot_dump_directory);
+				std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
 				graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
 				os.close();
+
 
 				PLOT_ANCHORS(info);
 				PLOT_ESTIMATED_FOR_USERS(info, show_list);
@@ -430,12 +435,17 @@ int main(int argc, char* argv[]) {
 			}
 
 			prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
-			prev_bias = result.at<imuBias::ConstantBias>(B(user.Ib));
-
+			// Here, you need to re-insert the optimization results as the base of the next preintegration.
 			graph->resize(0);
 			vals.clear();
-			imu_preintegrated->resetIntegrationAndSetBias(prev_bias);
+			// iSam internally caches past graph and vals states it was called on, 
+			// so if you don't resize, you'll get duplicate keys
+
+
+			imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
 		}
+
+
 
 	}
 
