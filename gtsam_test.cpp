@@ -141,10 +141,10 @@ void LM_lambda_search(NonlinearFactorGraph* graph, Values vals, map<string, trac
 int run_cappella() {
 
 	string directory = "/home/admitriev/Datasets/UWBSLAM_pilot/";
-	string trial_name = "pilot0";
+	string trial_name = "pilot0_ros_post";
 	string out_directory = "/home/admitriev/Research/pilot_results/" + trial_name;
 
-	ifstream raw_fs(directory + trial_name + "/" + "all.json");
+	ifstream raw_fs(directory + trial_name + "/" + "all_adjusted.json");
 	ifstream beacon_fs(directory + "pilot_anchors.json");
 
 	json sensor_stream = json::parse(raw_fs);
@@ -169,8 +169,8 @@ int run_cappella() {
 
 	// UWB noise model
 
-	double uwb_stdev = 0.1;
-	//double uwb_stdev = 1;
+	//double uwb_stdev = 0.1;
+	double uwb_stdev = 0.5;
 	// They set this to 100 or 1000 in this example: https://github.com/borglab/gtsam/blob/develop/examples/RangeISAMExample_plaza2.cpp
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
@@ -223,15 +223,23 @@ int run_cappella() {
 	imu_preintegration_params->biasOmegaCovariance = gyro_bias_cov;
 	imu_preintegration_params->biasAccOmegaInt = initial_bias_cov;
 
-	Matrix33 negate_x_axis;
-	negate_x_axis << -1, 0, 0,
-					0, 1, 0,
-					0, 0, 1;
-	// 90 about x-axis, then negate x-axis
-	Pose3 sensor_to_body_transform( (Rot3(negate_x_axis) * Rot3::AxisAngle(Point3(1, 0, 0), +M_PI / 2)).inverse(), Vector3(0, 0, 0));
+	//Matrix33 negate_x_axis;
+	//negate_x_axis << -1, 0, 0,
+	//				0, 1, 0,
+	//				0, 0, 1;
+	//// 90 about x-axis, then negate x-axis
+	//Pose3 sensor_to_body_transform( (Rot3(negate_x_axis) * Rot3::AxisAngle(Point3(1, 0, 0), +M_PI / 2)).inverse(), Vector3(0, 0, 0));
+	//// body_P_sensor : "pose of sensor frame w.r.t body frame"
+	//imu_preintegration_params->body_P_sensor = sensor_to_body_transform;
+
+	// Transform that Jose calculated
+	Matrix33 transform;
+	transform << 1, 0, 0,
+		0, 0, 1,
+		0, -1, 0;
+	Pose3 sensor_to_body_transform(Rot3(transform), Vector3(0, 0, 0));
 	// body_P_sensor : "pose of sensor frame w.r.t body frame"
 	imu_preintegration_params->body_P_sensor = sensor_to_body_transform;
-
 
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
 
@@ -291,8 +299,8 @@ int run_cappella() {
 
 	ISAM2Params isam_params;
 	isam_params.factorization = ISAM2Params::QR;
-	//isam_params.relinearizeThreshold = 0.01;
-	//isam_params.relinearizeSkip = 1;
+	isam_params.relinearizeThreshold = 0.01;
+	isam_params.relinearizeSkip = 1;
 	ISAM2DoglegParams dogleg;
 	isam_params.optimizationParams = dogleg;
 	ISAM2* isam = new ISAM2(isam_params);
@@ -301,7 +309,7 @@ int run_cappella() {
 	NavState prev_state(user.est_poses.back(), user.est_velocitys.back());
 
 	double gt_velocity = 12.0 / 30.0;
-	double middle_timestamp = 225271404.76314998;
+	double middle_timestamp = 1748549233.720833;
 	double dy = gt_velocity * dt;
 	int T_CORRECTION = 200; // Every ~1 second. 200 IMU measurements, correct with GT.
 	int T_UWB = 10; // Every 30 IMU measurements, generate 1 synthetic UWB measurement.
@@ -313,6 +321,7 @@ int run_cappella() {
 	bool initialization_complete = true;
 	bool start_graph = false; 
 	bool turn = false;
+	bool use_uwb = true;
 	// Setting a constraint that graph can only start on the first imu measurement
 	// long string of uwb measurements leads to integration on nothing ~40 times.
 
@@ -320,7 +329,8 @@ int run_cappella() {
 
 		//if (GT_CORRECTION_COUNT > 2) break;
 
-		if (mes["type"] == "imu") {
+		//if (mes["type"] == "imu") {
+		if (mes.contains("ax")) { // TEMP while working on the goofed up ROS all.json
 
 			// Add IMU measurement
 			start_graph = true;
@@ -330,7 +340,10 @@ int run_cappella() {
 			imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 			imu_counter++;
 
-			if (float(mes["t"]) >= middle_timestamp && !turn) {
+			double ts = double(mes["t"]);
+
+			if (ts >= middle_timestamp && !turn) {
+				cout << " turned at " << imu_counter << endl;
 				gt_pose = gt_pose * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), -M_PI), Vector3(0, 0, 0));
 				turn = true;
 			}
@@ -395,7 +408,7 @@ int run_cappella() {
 				GT_CORRECTION_COUNT++;
 			}
 		}
-		else if (mes["type"] == "uwb" && start_graph) {
+		else if (use_uwb && mes["type"] == "uwb" && start_graph) {
 			double range;
 			string src_user = "2";
 			string dst_user;
@@ -423,8 +436,9 @@ int run_cappella() {
 				last_imu_counter = imu_counter;
 
 				double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
-				////graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
-				graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
+
+				graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
+				//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
 
 
 				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
