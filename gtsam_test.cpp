@@ -73,7 +73,7 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 int main(int argc, char* argv[]) {
 	string directory = "/home/admitriev/Datasets/UWBSLAM_pilot/";
 	string trial_name = "pilot1_ros_post";
-	ifstream raw_fs(directory + trial_name + "/" + "all.json");
+	ifstream raw_fs(directory + trial_name + "/" + "all_adjusted.json");
 	ifstream beacon_fs(directory + "pilot_anchors.json");
 
 	string out_directory = "/home/admitriev/Research/pilot_results/" + trial_name; // Unused for now.
@@ -210,7 +210,7 @@ int main(int argc, char* argv[]) {
 			graph->addPrior(V(track.Iv), prior_velocity, prior_velocity_noise_model);
 			graph->addPrior(B(track.Ib), prior_imu_bias, prior_bias_noise_model);
 
-			track.gt_poses.push_back(gt_pose);
+			//track.gt_poses.push_back(gt_pose);
 			track.est_poses.push_back(start_pose); // We'll take the estimate out of values and put it here.
 			track.est_velocities.push_back(prior_velocity);
 			track.constant_bias = prior_imu_bias;
@@ -240,7 +240,7 @@ int main(int argc, char* argv[]) {
 	bool on_side1 = true; // start by walking side1
 	double side1 = 2.63;
 	double side2 = 3.65;
-	double total_distance_walked =  2 * (2*side1, + 2*side2);
+	double total_distance_walked =  2 * (2*side1 + 2*side2);
 	double gt_velocity = total_distance_walked / 40; // total 40s
 	double distance_walked = 0;
 	double distance_walked_at_last_turn = 0;
@@ -252,7 +252,7 @@ int main(int argc, char* argv[]) {
 
 	// Counters
 	int GT_CORRECTION_COUNT = 0;
-	bool USE_UWB = false;
+	bool USE_UWB = true;
 	int UWB_COUNT = 0;
 	int IMU_COUNT = 0;
 	int last_imu_counter = 0;
@@ -278,12 +278,6 @@ int main(int argc, char* argv[]) {
 			imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 			IMU_COUNT++;
 
-			// Looks better but why am I only getting one loop,
-			// Is my GT even generating 2 loops?
-			// Its only generating like 1.125
-			// I think my dt must be wrong? Or something with how I'm forming it in here
-			// Steps that are being taken are too small....
-
 			// GT generation
 			if (on_side1) {
 				if (distance_walked - distance_walked_at_last_turn >= side1) {
@@ -299,7 +293,7 @@ int main(int argc, char* argv[]) {
 					on_side1 = !on_side1;
 				}
 			}
-			Pose3 delta_pose(Rot3::Identity(), Vector3(0, dy, -1e-4));
+			Pose3 delta_pose(Rot3::Identity(), Vector3(0, dy, 0));
 			gt_pose = gt_pose * delta_pose;
 			user.gt_poses.push_back(gt_pose);
 			distance_walked += dy;
@@ -348,14 +342,6 @@ int main(int argc, char* argv[]) {
 					user.est_velocities.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
 					user.est_poses_error.push_back(position_var);
 
-					prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
-					prev_bias = result.at<imuBias::ConstantBias>(B(user.Ib));
-
-					// Here, you need to re-insert the optimization results as the base of the next preintegration.
-					graph->resize(0);
-					vals.clear();
-					imu_preintegrated->resetIntegrationAndSetBias(prev_bias); // Clear preintegrator
-
 				}
 				catch (const std::exception& e) {
 					std::cerr << "Optimizer update failed: " << e.what() << std::endl;
@@ -371,6 +357,16 @@ int main(int argc, char* argv[]) {
 					std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
 					throw; // rethrow after dumping
 				}
+
+				prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
+				prev_bias = result.at<imuBias::ConstantBias>(B(user.Ib));
+
+				// Here, you need to re-insert the optimization results as the base of the next preintegration.
+				graph->resize(0);
+				vals.clear();
+				imu_preintegrated->resetIntegrationAndSetBias(prev_bias); // Clear preintegrator
+
+				GT_CORRECTION_COUNT++;
 			}
 		}
 		else if (USE_UWB && mes["type"] == "uwb" && start_graph) {
@@ -390,7 +386,6 @@ int main(int argc, char* argv[]) {
 
 			// Code that generates a synthetic range:
 			//double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
-			
 			//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
 			//UWB_COUNT++;
 
@@ -420,14 +415,6 @@ int main(int argc, char* argv[]) {
 				user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
 				user.est_velocities.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
 
-				prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
-				prev_bias = result.at<imuBias::ConstantBias>(B(user.Ib));
-
-				graph->resize(0);
-				vals.clear();
-				imu_preintegrated->resetIntegrationAndSetBias(prev_bias);
-
-
 			}
 			catch (const std::exception& e) {
 				std::cerr << "Optimizer update failed: " << e.what() << std::endl;
@@ -443,6 +430,13 @@ int main(int argc, char* argv[]) {
 				std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
 				throw; // rethrow after dumping
 			}
+
+			prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
+			prev_bias = result.at<imuBias::ConstantBias>(B(user.Ib));
+
+			graph->resize(0);
+			vals.clear();
+			imu_preintegrated->resetIntegrationAndSetBias(prev_bias);
 		}
 
 	}
