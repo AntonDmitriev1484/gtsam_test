@@ -26,7 +26,7 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
         if (!user_info.is_beacon) {                                          \
             if (std::find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
                 hold(on);                                                    \
-                draw_trajectory_with_error(user_info.est_poses, user_info.est_poses_error, "blue");                \
+                draw_trajectory(user_info.est_poses, "blue");                \
                 hold(on);                                                  \
                 draw_trajectory(user_info.gt_poses, "green");              \
                 hold(on);   \
@@ -91,54 +91,8 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 	 } \
 }
 
-// Pass this the graph constructed from our dataset
-void LM_lambda_search(NonlinearFactorGraph* graph, Values vals, map<string, tracking> info) {
-	const function<Key(string, int)> MK = [](string username, int I) {
-		Key k;
-		if (username.find("static") != std::string::npos) {
-			regex numberRegex(R"(\d+$)");
-			smatch match;
-			regex_search(username, match, numberRegex);
-			k = symbol('s', stoi(match.str())); // e.x. s11 if 'static11'
-		}
-		else {
-			k = symbol(username[0], I);
-			if (username == "jeff") k = symbol('f', I);
-		}
-		return k;
-	};
+int main(int argc, char* argv[]) {
 
-	// Run 1
-	vector<double> attempt_lambdaInitial = { 20, 15, 10 };
-	//vector<double> attempt_lambdaInitial = { 10, 1, 0.1, 0.001, 0.0001, 0.00001 };
-	vector<double> attempt_lambdaFactor = { 100000, 10000, 1000, 100, 10, 7, 5, 3 }; // Won't run with 1
-
-	vector<string> show_list = { "nuno" };
-
-	for (double lambdaInitial : attempt_lambdaInitial) {
-
-		for (double lambdaFactor : attempt_lambdaFactor) {
-
-			LevenbergMarquardtParams lm_params;
-			lm_params.diagonalDamping = true;
-			lm_params.setlambdaInitial(lambdaInitial);
-			lm_params.lambdaFactor = lambdaFactor;
-			lm_params.linearSolverType = NonlinearOptimizerParams::LinearSolverType::MULTIFRONTAL_QR;
-			LevenbergMarquardtOptimizer lm_optimizer(*graph, vals, lm_params);
-
-
-			unpack_results(lm_optimizer.optimize(), MK, info);
-			PLOT_W_OPTIMIZER_PARAMS_FOR_USERS(info, show_list, lambdaInitial, lambdaFactor);
-			clear_results(info); // clear Est_poses trajectory
-		}
-	}
-
-	show();
-}
-
-
-
-int run_cappella() {
 
 	string directory = "/home/admitriev/Datasets/UWBSLAM_pilot/";
 	string trial_name = "pilot0_ros_post";
@@ -152,8 +106,7 @@ int run_cappella() {
 
 	//get_gt_info(info, json::parse(gt_fs)); // fill user_info with gt_pose trajectory
 
-	get_beacon_info(info, json::parse(beacon_fs)); // I think this is reading beacon positions in properly
-
+	get_beacon_info(info, json::parse(beacon_fs));
 	info.insert(pair<string, tracking>("2", tracking()));
 
 	double dt = 1.0 / 200.0; // IMU gyro and accelerometer operate at 200Hz
@@ -163,7 +116,7 @@ int run_cappella() {
 
 	// VIO noise model
 
-	double vio_ori_stdev = 0.175; 
+	double vio_ori_stdev = 0.175;
 	double vio_pos_stdev = 0.2;
 	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
 
@@ -189,7 +142,7 @@ int run_cappella() {
 	// Realsense Gyro is in radians / sec: https://support.intelrealsense.com/hc/en-us/community/posts/9489403831059-d435i-gyro-data-unit 
 
 	// Hard coded from IMU comparison sheet
-	double GYRO_NOISE = 0.014 * M_PI/180; // deg / s / sqrt(Hz) -> Since realsense gyro returns data in rad, GYRO_NOISE should also be given in rad
+	double GYRO_NOISE = 0.014 * M_PI / 180; // deg / s / sqrt(Hz) -> Since realsense gyro returns data in rad, GYRO_NOISE should also be given in rad
 	double ACCEL_NOISE = 0.0014715; // m / s^2 / sqrt(Hz)
 	Matrix33 accel_noise_cov = I_3x3 * pow(ACCEL_NOISE, 2);
 	Matrix33 gyro_noise_cov = I_3x3 * pow(GYRO_NOISE, 2);
@@ -201,13 +154,13 @@ int run_cappella() {
 	Matrix33 accel_bias_cov;
 
 	accel_bias_cov << pow(ACCEL_BIAS(0), 2), 0, 0,
-					0, pow(ACCEL_BIAS(1), 2), 0,
-					0, 0, pow(ACCEL_BIAS(2), 2);
-								
+		0, pow(ACCEL_BIAS(1), 2), 0,
+		0, 0, pow(ACCEL_BIAS(2), 2);
+
 	Matrix33 gyro_bias_cov;
 	gyro_bias_cov << pow(GYRO_BIAS(0), 2), 0, 0,
-				0, pow(GYRO_BIAS(1), 2), 0,
-				0, 0, pow(GYRO_BIAS(2), 2);
+		0, pow(GYRO_BIAS(1), 2), 0,
+		0, 0, pow(GYRO_BIAS(2), 2);
 
 	Matrix66 initial_bias_cov = I_6x6 * 1e-5; // 
 
@@ -222,15 +175,6 @@ int run_cappella() {
 	imu_preintegration_params->biasAccCovariance = accel_bias_cov;
 	imu_preintegration_params->biasOmegaCovariance = gyro_bias_cov;
 	imu_preintegration_params->biasAccOmegaInt = initial_bias_cov;
-
-	//Matrix33 negate_x_axis;
-	//negate_x_axis << -1, 0, 0,
-	//				0, 1, 0,
-	//				0, 0, 1;
-	//// 90 about x-axis, then negate x-axis
-	//Pose3 sensor_to_body_transform( (Rot3(negate_x_axis) * Rot3::AxisAngle(Point3(1, 0, 0), +M_PI / 2)).inverse(), Vector3(0, 0, 0));
-	//// body_P_sensor : "pose of sensor frame w.r.t body frame"
-	//imu_preintegration_params->body_P_sensor = sensor_to_body_transform;
 
 	// Transform that Jose calculated
 	Matrix33 transform;
@@ -261,7 +205,7 @@ int run_cappella() {
 		track.Ib = 0;
 
 		if (track.is_beacon) { // Set nonlinearequality on anchors
-			track.pose_key = MK_Anchor(u,0);
+			track.pose_key = MK_Anchor(u, 0);
 			Pose3 prior_beacon_pose(track.gt_poses[0]); // Position of beacon in U frame extracted from GT
 			vals.insert(track.pose_key, prior_beacon_pose);
 			graph->add(NonlinearEquality<Pose3>(track.pose_key, prior_beacon_pose));
@@ -292,6 +236,7 @@ int run_cappella() {
 	}
 
 	vector<string> show_list = { "2" };
+	vector<string> anchors = { "1", "3", "4" };
 
 
 	// Use Preintegrator params, and bias prior, to create a new preintegrator object that we can use for an IMU factor.
@@ -319,7 +264,7 @@ int run_cappella() {
 	int imu_counter = 0;
 	int last_imu_counter = 0;
 	bool initialization_complete = true;
-	bool start_graph = false; 
+	bool start_graph = false;
 	bool turn = false;
 	bool use_uwb = true;
 	// Setting a constraint that graph can only start on the first imu measurement
@@ -327,10 +272,7 @@ int run_cappella() {
 
 	for (json mes : sensor_stream) {
 
-		//if (GT_CORRECTION_COUNT > 2) break;
-
-		//if (mes["type"] == "imu") {
-		if (mes.contains("ax")) { // TEMP while working on the goofed up ROS all.json
+		if (mes["type"] == "imu") {
 
 			// Add IMU measurement
 			start_graph = true;
@@ -368,20 +310,17 @@ int run_cappella() {
 				graph->add(GPSFactor(X(user.Ix), gt_pose.translation(), correction_noise));
 
 				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
-				auto cov_matrix = current_imu_preintegration->preintMeasCov(); // COVARIANCE OF: [PreintROTATION PreintPOSITION PreintVELOCITY BiasAcc BiasOmega]
-				Vector3 position_var(cov_matrix(3, 3), cov_matrix(4, 4), cov_matrix(5, 5));
 
 				vals.insert(X(user.Ix), proposed.pose());
 				vals.insert(V(user.Iv), proposed.v());
 				vals.insert(B(user.Ib), user.constant_bias);
-				Values result; 
+				Values result;
 
 				try {
 					isam->update(*graph, vals);
 					result = isam->calculateEstimate();
 					user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
 					user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
-					user.est_poses_error.push_back(position_var);
 				}
 				catch (const std::exception& e) {
 					std::cerr << "Optimizer update failed: " << e.what() << std::endl;
@@ -390,7 +329,6 @@ int run_cappella() {
 					std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
 					graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
 					os.close();
-
 
 					PLOT_ANCHORS(info);
 					PLOT_ESTIMATED_FOR_USERS(info, show_list);
@@ -417,90 +355,56 @@ int run_cappella() {
 
 			get_UWB(mes, src_user, dst_user, range);
 
+			user.Ix++;
+			user.Iv++;
+			user.Ib++;
 
-				vector<string> anchors = { "1", "3", "4" };
-				//string dst_user = anchors[UWB_ANCHOR_IDX % 3];
+			double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
 
-				user.Ix++;
-				user.Iv++;
-				user.Ib++;
+			//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
+			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
 
+			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+			CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
+			graph->add(imu_factor);
 
-				//draw_vector(gt_pose.translation(), info[dst_user].gt_poses[0].translation(), "black");
+			auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
 
-				//double true_range = distance3(info[dst_user].gt_poses[0].translation(), gt_pose.translation());
-				////cout << "true_range " << true_range << " measured range " << range << endl;
-				////cout << "true_range " << true_range << " to anchor " << dst_user << endl;
+			vals.insert(X(user.Ix), proposed.pose());
+			vals.insert(V(user.Iv), proposed.v());
+			vals.insert(B(user.Ib), user.constant_bias);
 
-				cout << "Integrating on " << imu_counter - last_imu_counter << " imu measurements" << endl;
-				last_imu_counter = imu_counter;
-
-				double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
-
-				graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
-				//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
-
-
-				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-				CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
-				graph->add(imu_factor);
-
-
-				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
-
-				vals.insert(X(user.Ix), proposed.pose());
-				vals.insert(V(user.Iv), proposed.v());
-				vals.insert(B(user.Ib), user.constant_bias);
-
-
-				// So I think Navstate 1 is supposed to be the GT pose?
-				NavState gt_navstate(gt_pose, Vector3(0, gt_velocity, 0));
-
-				// Not sure what exactly the difference is between this covariance matrix is and the computeErrors are/
-				auto cov_matrix = current_imu_preintegration->preintMeasCov(); // COVARIANCE OF: [PreintROTATION PreintPOSITION PreintVELOCITY BiasAcc BiasOmega]
-				//Vector3 position_var(cov_matrix(3, 3), cov_matrix(4, 4), cov_matrix(5, 5));
-				Vector9 integration_error = current_imu_preintegration->computeErrorAndJacobians(gt_navstate.pose(), gt_navstate.v(), proposed.pose(), proposed.v(), user.constant_bias);
-				Vector3 position_var(integration_error(3), integration_error(4), integration_error(5)); // Going to guess its the middle 3 elements that correspond to pose?
-				// Can the documentation please explain to me exactly what this Vector9 is that gets returned, what indices correspond to what variables?
-
-				
-				Values result;
-				try {
-					isam->update(*graph, vals);
-					result = isam->calculateEstimate();
-					user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
-					user.est_poses_error.push_back(position_var);
-					user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
-				}
-				catch (const std::exception& e) {
-					std::cerr << "Optimizer update failed: " << e.what() << std::endl;
-
-					// Dump factor graph to .dot file
-					std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
-					graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
-					os.close();
-
-
-					PLOT_ANCHORS(info);
-					PLOT_ESTIMATED_FOR_USERS(info, show_list);
-
-					std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
-					throw; // rethrow after dumping
-				}
-
-				prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
-				// Here, you need to re-insert the optimization results as the base of the next preintegration.
-				graph->resize(0);
-				vals.clear();
-				// iSam internally caches past graph and vals states it was called on, 
-				// so if you don't resize, you'll get duplicate keys
-
-
-				imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
+			Values result;
+			try {
+				isam->update(*graph, vals);
+				result = isam->calculateEstimate();
+				user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
+				user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
 			}
-		
-		
-		
+			catch (const std::exception& e) {
+				std::cerr << "Optimizer update failed: " << e.what() << std::endl;
+
+				// Dump factor graph to .dot file
+				std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
+				graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
+				os.close();
+
+				PLOT_ANCHORS(info);
+				PLOT_ESTIMATED_FOR_USERS(info, show_list);
+
+				std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
+				throw; // rethrow after dumping
+			}
+
+			prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
+			// Here, you need to re-insert the optimization results as the base of the next preintegration.
+			graph->resize(0);
+			vals.clear();
+			// iSam internally caches past graph and vals states it was called on, 
+			// so if you don't resize, you'll get duplicate keys
+
+			imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
+		}
 	}
 
 
@@ -510,30 +414,4 @@ int run_cappella() {
 	show();
 
 	return 0;
-}
-
-int main(int argc, char* argv[]) {
-
-	// run_euroc();
-	run_cappella();
-
-	return 0;
-
-	//Save (drawing example for when you get confused)
-	//hold(on);
-
-	//Pose3 test1(Rot3::Identity(), Point3(1, 1, 0));
-	//Pose3 test_rot = test1 * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), M_PI / 2), Vector3(0, 0, 0));
-	//// So to do a relative rotation with axis angle. New Pose = Current Pose Frame * Incremental Pose <- the incremental rotation.
-	//// This makes sense
-
-	////draw_vector(Vector3(0, 0, 0), Vector3(1, 0, 0), "red"); // X
-	//draw_forward(test1, 1, "red");
-	//draw_forward(test_rot, 1, "black");
-	//draw_vector(Vector3(0, 0, 0), Vector3(1, 0, 0), "red"); // X
-	//draw_vector(Vector3(0, 0, 0), Vector3(0, 1, 0), "blue"); // Y
-	//draw_vector(Vector3(0, 0, 0), Vector3(0, 0, 1), "green"); // Z
-
-	//hold(on);
-	////show();
 }
