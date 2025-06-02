@@ -208,6 +208,7 @@ int main(int argc, char* argv[]) {
 
 	// For plotting trajectories, only show user 2.
 	vector<string> show_list = { "2" };
+	vector<string> anchors = { "1", "3", "4" };
 
 	// Use Preintegrator params, and bias prior, to create a new preintegrator object that we can use for an IMU factor.
 	PreintegrationType* imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
@@ -240,7 +241,7 @@ int main(int argc, char* argv[]) {
 
 	// Counters
 	int GT_CORRECTION_COUNT = 0;
-	bool USE_UWB = true;
+	bool USE_UWB = false;
 	int UWB_COUNT = 0;
 	int IMU_COUNT = 0;
 	int last_imu_counter = 0;
@@ -256,8 +257,7 @@ int main(int argc, char* argv[]) {
 
 	for (json mes : sensor_stream) {
 
-		//if (mes["type"] == "imu") {
-		if (mes.contains("ax")) { // TEMP while working on the goofed up ROS all.json
+		if (mes["type"] == "imu") {
 
 			// Add IMU measurement
 			start_graph = true;
@@ -346,8 +346,6 @@ int main(int argc, char* argv[]) {
 			UWB_COUNT++;
 
 			get_UWB(mes, src_user, dst_user, range);
-
-			vector<string> anchors = { "1", "3", "4" };
 
 			user.Ix++;
 			user.Iv++;
