@@ -95,11 +95,11 @@ int main(int argc, char* argv[]) {
 
 
 	string directory = "/home/admitriev/Datasets/UWBSLAM_pilot/";
-	string trial_name = "pilot0_ros_post";
+	string trial_name = "pilot3_slow_low";
 	string out_directory = "/home/admitriev/Research/pilot_results/" + trial_name;
 
 	ifstream raw_fs(directory + trial_name + "/" + "all.json");
-	ifstream beacon_fs(directory + "pilot_anchors.json");
+	ifstream beacon_fs(directory + trial_name + "/anchors.json");
 
 	json sensor_stream = json::parse(raw_fs);
 	map<string, tracking> info; // Map of username to tracking information
@@ -213,7 +213,7 @@ int main(int argc, char* argv[]) {
 		}
 		else { // Since we only have one user, user 2.
 
-			Point3 prior_position(0, 0, 1.3); // I was carrying laptop at about chest level ~130cm off the ground
+			Point3 prior_position(0, 0, 1.82); // I was carrying laptop at about chest level ~130cm off the ground
 			Pose3 start_pose(Rot3::Identity(), prior_position);
 			gt_pose = start_pose;
 
@@ -253,10 +253,6 @@ int main(int argc, char* argv[]) {
 	tracking& user = info.at("2");
 	NavState prev_state(user.est_poses.back(), user.est_velocitys.back());
 
-	double gt_velocity = 12.0 / 30.0;
-	double middle_timestamp = 1748549233.720833;
-	double dy = gt_velocity * dt;
-	int T_CORRECTION = 200; // Every ~1 second. 200 IMU measurements, correct with GT.
 	int T_UWB = 10; // Every 30 IMU measurements, generate 1 synthetic UWB measurement.
 	int uwb_counter = 0;
 	int GT_CORRECTION_COUNT = 0;
@@ -266,7 +262,7 @@ int main(int argc, char* argv[]) {
 	bool initialization_complete = true;
 	bool start_graph = false;
 	bool turn = false;
-	bool use_uwb = true;
+	bool use_uwb = false;
 	// Setting a constraint that graph can only start on the first imu measurement
 	// long string of uwb measurements leads to integration on nothing ~40 times.
 
@@ -281,25 +277,21 @@ int main(int argc, char* argv[]) {
 			get_IMU(mes, accel, gyro);
 			imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 			imu_counter++;
-
-			double ts = double(mes["t"]);
-
-			if (ts >= middle_timestamp && !turn) {
-				cout << " turned at " << imu_counter << endl;
-				gt_pose = gt_pose * Pose3(Rot3::AxisAngle(Point3(0, 0, 1), -M_PI), Vector3(0, 0, 0));
-				turn = true;
-			}
-
-			Pose3 delta_pose(Rot3::Identity(), Vector3(0, dy, 0));
-			gt_pose = gt_pose * delta_pose;
-			user.gt_poses.push_back(gt_pose);
+		
+		}
+		else if (mes["type"] == "gt_pose") {
 
 			// Periodically generate a GT correction
-			if (imu_counter % T_CORRECTION == 0) {
 
 				user.Ix++;
 				user.Iv++;
 				user.Ib++;
+
+				Pose3 gt_pose;
+				get_GT(mes, gt_pose);
+
+				// TODO: There must be a transform from the camera to IMU.
+				// TODO: There must be some translation from the SLAM world coordinate frame to mine???
 
 				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
 				CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
@@ -307,7 +299,8 @@ int main(int argc, char* argv[]) {
 
 				// GT correction (currently as GPS factor)
 				auto correction_noise = noiseModel::Isotropic::Sigma(3, 0.1);
-				graph->add(GPSFactor(X(user.Ix), gt_pose.translation(), correction_noise));
+				//graph->add(GPSFactor(X(user.Ix), gt_pose.translation(), correction_noise));
+				graph->add(PriorFactor<Pose3>(X(user.Ix), gt_pose, GT_noise_model));
 
 				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
 
@@ -344,7 +337,7 @@ int main(int argc, char* argv[]) {
 
 				imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
 				GT_CORRECTION_COUNT++;
-			}
+			
 		}
 		else if (use_uwb && mes["type"] == "uwb" && start_graph) {
 			double range;
@@ -359,7 +352,7 @@ int main(int argc, char* argv[]) {
 			user.Iv++;
 			user.Ib++;
 
-			double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses[0].translation());
+			double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses.back().translation());
 
 			//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
 			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));

@@ -20,22 +20,10 @@ void get_pose_matrix(json d, string& user, Matrix44& pose_matrix) {
 	}
 }
 
-void get_GT(json d, vector<string>& users, vector<Matrix44>& pose_matrices) {
-
-	auto gt_collected_poses = d["poses"];
-
-	for (auto gt_collect : gt_collected_poses) {
-		string user;
-		Matrix44 HTM_L_U;
-		get_pose_matrix(gt_collect, user, HTM_L_U);
-
-		// Filter out static beacons for now
-		if (user.find("static") == std::string::npos ) {
-			users.push_back(user);
-			pose_matrices.push_back(HTM_L_U);
-		}
-	}
-
+void get_GT(json d, Pose3& gt_pose) {
+	// Create rotation from quaternion format
+	Pose3 gt(Rot3(d["qx"], d["qy"], d["qz"], d["qw"]), Point3(d["x"], d["y"], d["z"]));
+	gt_pose = gt;
 }
 
 void get_UWB(json d, string& src_user, string& dst_user, double& range) {
