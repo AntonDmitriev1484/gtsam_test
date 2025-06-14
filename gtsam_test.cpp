@@ -33,9 +33,9 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
                 xlabel("X (m)");                                             \
                 ylabel("Y (m)");                                             \
                 zlabel("Z (m)");                                             \
-				xlim({ -3.5,3.5 }); \
-				ylim({ -1,6 }); \
-				/*zlim({ 0,7 }); */ \
+				xlim({ -5,5 }); \
+				ylim({ -1,9 }); \
+				zlim({ 0,5 }); \
             }                                                                \
         }                                                                    \
     }                                                                        \
@@ -57,7 +57,7 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
                 draw_trajectory(user_info.gt_poses, "green");              \
                 hold(on);                                                  \
                 draw_trajectory(user_info.est_poses, "blue");              \
-                                                                           \
+                hold(on);                                                           \
                 xlabel("X (m)");                                           \
                 ylabel("Y (m)");                                           \
                 zlabel("Z (m)");                                           \
@@ -95,7 +95,7 @@ int main(int argc, char* argv[]) {
 
 
 	string directory = "/home/admitriev/Datasets/UWBSLAM_pilot/";
-	string trial_name = "pilot3_slow_low";
+	string trial_name = "pilot3_slow_low_post";
 	string out_directory = "/home/admitriev/Research/pilot_results/" + trial_name;
 
 	ifstream raw_fs(directory + trial_name + "/" + "all.json");
@@ -196,7 +196,30 @@ int main(int argc, char* argv[]) {
 	// Establish and attach priors to keys
 
 	Values vals;
-	Pose3 gt_pose;
+
+	Pose3 slam_to_world(Rot3(transform), Vector3(0, 0, 1.82));
+
+	//int c = 0;
+	//// Viewing GT trajectory to make sure it's in my world frame first.
+	//for (json mes : sensor_stream) {
+	//	if (mes["type"] == "gt_pose") {
+
+	//		// Periodically generate a GT correction
+
+	//		Pose3 gt_pose;
+	//		get_GT(mes, gt_pose);
+
+	//		info["2"].gt_poses.push_back(slam_to_world * gt_pose);
+
+	//	}
+	//}
+
+	//PLOT_ANCHORS(info);
+	//////draw_trajectory(info["2"].gt_poses, "green");
+	//PLOT_ESTIMATED_FOR_USERS(info, show_list);
+	//show();
+
+	// Initialize the first GT pose.
 
 	int pose_num = 0;
 	for (auto& [u, track] : info) {
@@ -212,11 +235,17 @@ int main(int argc, char* argv[]) {
 			//graph->add(PriorFactor<Pose3>(track.pose_key, prior_beacon_pose, GT_noise_model));
 		}
 		else { // Since we only have one user, user 2.
+			
+			Pose3 find_first_gt_pose;
+			for (json mes : sensor_stream) {
+				if (mes["type"] == "gt_pose") {
+					get_GT(mes, find_first_gt_pose);
+					find_first_gt_pose = slam_to_world * find_first_gt_pose;
+					break;
+				}
+			}
 
-			Point3 prior_position(0, 0, 1.82); // I was carrying laptop at about chest level ~130cm off the ground
-			Pose3 start_pose(Rot3::Identity(), prior_position);
-			gt_pose = start_pose;
-
+			Pose3 start_pose = find_first_gt_pose;
 			Vector3 prior_velocity(0, 0, 0);
 
 			vals.insert(X(track.Ix), start_pose);
@@ -236,8 +265,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	vector<string> show_list = { "2" };
-	vector<string> anchors = { "1", "3", "4" };
-
+	vector<string> anchors = { "1", "3", "5" };
 
 	// Use Preintegrator params, and bias prior, to create a new preintegrator object that we can use for an IMU factor.
 	PreintegrationType* imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
@@ -261,10 +289,10 @@ int main(int argc, char* argv[]) {
 	int last_imu_counter = 0;
 	bool initialization_complete = true;
 	bool start_graph = false;
-	bool turn = false;
 	bool use_uwb = false;
 	// Setting a constraint that graph can only start on the first imu measurement
 	// long string of uwb measurements leads to integration on nothing ~40 times.
+
 
 	for (json mes : sensor_stream) {
 
@@ -279,7 +307,7 @@ int main(int argc, char* argv[]) {
 			imu_counter++;
 		
 		}
-		else if (mes["type"] == "gt_pose") {
+		else if (mes["type"] == "gt_pose" && start_graph) {
 
 			// Periodically generate a GT correction
 
@@ -292,6 +320,8 @@ int main(int argc, char* argv[]) {
 
 				// TODO: There must be a transform from the camera to IMU.
 				// TODO: There must be some translation from the SLAM world coordinate frame to mine???
+
+				user.gt_poses.push_back(gt_pose);
 
 				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
 				CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
@@ -352,7 +382,7 @@ int main(int argc, char* argv[]) {
 			user.Iv++;
 			user.Ib++;
 
-			double true_range = distance3(gt_pose.translation(), info[dst_user].gt_poses.back().translation());
+			double true_range = distance3(info[src_user].gt_poses.back().translation(), info[dst_user].gt_poses.back().translation());
 
 			//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
 			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
