@@ -128,66 +128,87 @@ int main(int argc, char* argv[]) {
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
 	// GT noise model - (use to define pose prior)
-	double gt_pos_stdev = 0.001;
-	double gt_ori_stdev = 0.001;
+	double gt_pos_stdev = 1e-2;
+	double gt_ori_stdev = 1e-2;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
 	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 0.01);
 	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 0.01);
 
 
-	// IMU noise model
+	//// IMU noise model
 
-	imuBias::ConstantBias prior_imu_bias; // Assumption of no prior IMU bias
+	//// Realsense Gyro is in radians / sec: https://support.intelrealsense.com/hc/en-us/community/posts/9489403831059-d435i-gyro-data-unit 
 
-	// Realsense Gyro is in radians / sec: https://support.intelrealsense.com/hc/en-us/community/posts/9489403831059-d435i-gyro-data-unit 
+	//// Hard coded from IMU comparison sheet
+	//double GYRO_NOISE = 0.014 * M_PI / 180; // deg / s / sqrt(Hz) -> Since realsense gyro returns data in rad, GYRO_NOISE should also be given in rad
+	//double ACCEL_NOISE = 0.0014715; // m / s^2 / sqrt(Hz)
+	//Matrix33 accel_noise_cov = I_3x3 * pow(ACCEL_NOISE, 2);
+	//Matrix33 gyro_noise_cov = I_3x3 * pow(GYRO_NOISE, 2);
+	//Matrix33 noise_integration_cov = I_3x3 * 1e-8;  // error committed in integrating position from velocities
 
-	// Hard coded from IMU comparison sheet
-	double GYRO_NOISE = 0.014 * M_PI / 180; // deg / s / sqrt(Hz) -> Since realsense gyro returns data in rad, GYRO_NOISE should also be given in rad
-	double ACCEL_NOISE = 0.0014715; // m / s^2 / sqrt(Hz)
-	Matrix33 accel_noise_cov = I_3x3 * pow(ACCEL_NOISE, 2);
-	Matrix33 gyro_noise_cov = I_3x3 * pow(GYRO_NOISE, 2);
-	Matrix33 noise_integration_cov = I_3x3 * 1e-8;  // error committed in integrating position from velocities
+	//// Hard coded from calibration.json
+	//Vector3 GYRO_BIAS(-0.00307518, 0.0003668, 0.00393268); 
+	//Vector3 ACCEL_BIAS(-0.031682, -0.0617278, 0.02699346);
 
-	// Hard coded from calibration.json
-	Vector3 GYRO_BIAS(-0.00307518, 0.0003668, 0.00393268); // I sure hope these are in the same units as what GTSAM expects (Realsense doesn't label calibration output with units)
-	Vector3 ACCEL_BIAS(-0.031682, -0.0617278, 0.02699346);
+	////double GYRO_BIAS = 2.049600985797649e-4; // TODO: Check that allan variance ROS output is in rad/s
+	////double ACCEL_BIAS = ; // Is "GyroWalk supposed to be bias? I thought random walk was just noise.
+	//// Random walk is the accumulation of noise. NOT related to bias.
 
-	//double GYRO_BIAS = 2.049600985797649e-4; // TODO: Check that allan variance ROS output is in rad/s
-	//double ACCEL_BIAS = ; // Is "GyroWalk supposed to be bias? I thought random walk was just noise.
-	// Random walk is the accumulation of noise. NOT related to bias.
+	//Matrix33 accel_bias_cov;
+
+	//accel_bias_cov << pow(ACCEL_BIAS(0), 2), 0, 0,
+	//	0, pow(ACCEL_BIAS(1), 2), 0,
+	//	0, 0, pow(ACCEL_BIAS(2), 2);
+
+	//Matrix33 gyro_bias_cov;
+	//gyro_bias_cov << pow(GYRO_BIAS(0), 2), 0, 0,
+	//	0, pow(GYRO_BIAS(1), 2), 0,
+	//	0, 0, pow(GYRO_BIAS(2), 2);
+
+	//Matrix66 initial_bias_cov = I_6x6 * 1e-5; // 
+
+
+	// IMU Noise Model
+
+	double SCALE = 10;
+
+	double GYRO_NOISE_DENSITY = 0.0002049600985797649; 
+	double ACCEL_NOISE_DENSITY = 0.002064189891192468;
+
+	Matrix33 continuous_time_accel_noise_cov = I_3x3 * pow(ACCEL_NOISE_DENSITY, 2) * SCALE;
+	Matrix33 continuous_time_gyro_noise_cov = I_3x3 * pow(GYRO_NOISE_DENSITY, 2) * SCALE;
+
+
+	double GYRO_BIAS_RW = 3.1998555455947417e-06;
+	double ACCEL_BIAS_RW = 0.00022919238444020807;
+
+	Matrix33 continuous_time_accel_bias_rw = I_3x3 * pow(ACCEL_BIAS_RW, 2) * SCALE;
+	Matrix33 continuous_time_gyro_bias_rw = I_3x3 * pow(GYRO_BIAS_RW, 2) * SCALE;
+
+	Matrix66 initial_bias_cov = I_6x6 * 1e-5 * SCALE;
+
+	Matrix33 integration_cov = I_3x3 * 1e-5 * SCALE;
+
 
 	// LOOK AT ALL OF THE IMU CALIBRATION YOU'VE DONE.
 	// MAKE SURE THE UNITS ARE CORRECT. REMEMBER YOU HAVE NOTES ON THE IMU PARAMETERS
 	// SEE this: https://github.com/ethz-asl/kalibr/wiki/IMU-Noise-Model
 	// AND this: kalibr_mount.zip/kalibr_mount/allan_variance_out
 
-	Matrix33 accel_bias_cov;
-
-	accel_bias_cov << pow(ACCEL_BIAS(0), 2), 0, 0,
-		0, pow(ACCEL_BIAS(1), 2), 0,
-		0, 0, pow(ACCEL_BIAS(2), 2);
-
-	Matrix33 gyro_bias_cov;
-	gyro_bias_cov << pow(GYRO_BIAS(0), 2), 0, 0,
-		0, pow(GYRO_BIAS(1), 2), 0,
-		0, 0, pow(GYRO_BIAS(2), 2);
-
-	Matrix66 initial_bias_cov = I_6x6 * 1e-5; // 
-
-
-	// Use our noise model to define the parameters of an IMU preintegrator
-	// With these params 'MakeSharedU' gravity points along negative z axis, which is how I defined my global coordinate (aka navigation frame)
-
 	boost::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
-	imu_preintegration_params->accelerometerCovariance = accel_noise_cov;
-	imu_preintegration_params->integrationCovariance = noise_integration_cov;
-	imu_preintegration_params->gyroscopeCovariance = gyro_noise_cov;
-	imu_preintegration_params->biasAccCovariance = accel_bias_cov;
-	imu_preintegration_params->biasOmegaCovariance = gyro_bias_cov;
+	imu_preintegration_params->accelerometerCovariance = continuous_time_accel_noise_cov;
+	imu_preintegration_params->gyroscopeCovariance = continuous_time_gyro_noise_cov;
+
+	imu_preintegration_params->biasAccCovariance = continuous_time_accel_bias_rw;
+	imu_preintegration_params->biasOmegaCovariance = continuous_time_gyro_bias_rw;
+
+	imu_preintegration_params->integrationCovariance = integration_cov;
 	imu_preintegration_params->biasAccOmegaInt = initial_bias_cov;
 
+	imu_preintegration_params->use2ndOrderCoriolis = true;
 
 
+	imuBias::ConstantBias prior_imu_bias;
 
 	Matrix33 transform;
 	transform << 1, 0, 0,
@@ -271,7 +292,7 @@ int main(int argc, char* argv[]) {
 
 			track.est_poses.push_back(start_pose); // We'll take the estimate out of values and put it here.
 			track.est_velocitys.push_back(prior_velocity);
-			track.constant_bias = prior_imu_bias;
+			//track.constant_bias = prior_imu_bias;
 
 		}
 
@@ -302,7 +323,8 @@ int main(int argc, char* argv[]) {
 	int last_imu_counter = 0;
 	bool initialization_complete = true;
 	bool start_graph = false;
-	bool use_uwb = false;
+	bool use_gt = false;
+	bool use_uwb = true;
 	// Setting a constraint that graph can only start on the first imu measurement
 	// long string of uwb measurements leads to integration on nothing ~40 times.
 
@@ -320,7 +342,7 @@ int main(int argc, char* argv[]) {
 			imu_counter++;
 		
 		}
-		else if (mes["type"] == "gt_pose" && start_graph) {
+		else if (use_gt && mes["type"] == "gt_pose" && start_graph) {
 
 			// Periodically generate a GT correction
 
