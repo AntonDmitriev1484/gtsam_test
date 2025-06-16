@@ -128,8 +128,8 @@ int main(int argc, char* argv[]) {
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
 	// GT noise model - (use to define pose prior)
-	double gt_pos_stdev = 0.01;
-	double gt_ori_stdev = 0.01;
+	double gt_pos_stdev = 0.001;
+	double gt_ori_stdev = 0.001;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
 	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 0.01);
 	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 0.01);
@@ -151,6 +151,16 @@ int main(int argc, char* argv[]) {
 	// Hard coded from calibration.json
 	Vector3 GYRO_BIAS(-0.00307518, 0.0003668, 0.00393268); // I sure hope these are in the same units as what GTSAM expects (Realsense doesn't label calibration output with units)
 	Vector3 ACCEL_BIAS(-0.031682, -0.0617278, 0.02699346);
+
+	//double GYRO_BIAS = 2.049600985797649e-4; // TODO: Check that allan variance ROS output is in rad/s
+	//double ACCEL_BIAS = ; // Is "GyroWalk supposed to be bias? I thought random walk was just noise.
+	// Random walk is the accumulation of noise. NOT related to bias.
+
+	// LOOK AT ALL OF THE IMU CALIBRATION YOU'VE DONE.
+	// MAKE SURE THE UNITS ARE CORRECT. REMEMBER YOU HAVE NOTES ON THE IMU PARAMETERS
+	// SEE this: https://github.com/ethz-asl/kalibr/wiki/IMU-Noise-Model
+	// AND this: kalibr_mount.zip/kalibr_mount/allan_variance_out
+
 	Matrix33 accel_bias_cov;
 
 	accel_bias_cov << pow(ACCEL_BIAS(0), 2), 0, 0,
@@ -176,7 +186,9 @@ int main(int argc, char* argv[]) {
 	imu_preintegration_params->biasOmegaCovariance = gyro_bias_cov;
 	imu_preintegration_params->biasAccOmegaInt = initial_bias_cov;
 
-	// Transform that Jose calculated
+
+
+
 	Matrix33 transform;
 	transform << 1, 0, 0,
 		0, 0, 1,
@@ -239,8 +251,9 @@ int main(int argc, char* argv[]) {
 			Pose3 find_first_gt_pose;
 			for (json mes : sensor_stream) {
 				if (mes["type"] == "gt_pose") {
-					get_GT(mes, find_first_gt_pose);
-					find_first_gt_pose = slam_to_world * find_first_gt_pose;
+					Pose3 gt_slam;
+					get_GT(mes, gt_slam);
+					find_first_gt_pose = slam_to_world * gt_slam;
 					break;
 				}
 			}
@@ -315,8 +328,10 @@ int main(int argc, char* argv[]) {
 				user.Iv++;
 				user.Ib++;
 
-				Pose3 gt_pose;
-				get_GT(mes, gt_pose);
+				Pose3 gt_pose_slam;
+				get_GT(mes, gt_pose_slam);
+
+				Pose3 gt_pose = slam_to_world * gt_pose_slam;
 
 				// TODO: There must be a transform from the camera to IMU.
 				// TODO: There must be some translation from the SLAM world coordinate frame to mine???
@@ -328,7 +343,7 @@ int main(int argc, char* argv[]) {
 				graph->add(imu_factor);
 
 				// GT correction (currently as GPS factor)
-				auto correction_noise = noiseModel::Isotropic::Sigma(3, 0.1);
+				//auto correction_noise = noiseModel::Isotropic::Sigma(3, 0.01);
 				//graph->add(GPSFactor(X(user.Ix), gt_pose.translation(), correction_noise));
 				graph->add(PriorFactor<Pose3>(X(user.Ix), gt_pose, GT_noise_model));
 
@@ -382,10 +397,11 @@ int main(int argc, char* argv[]) {
 			user.Iv++;
 			user.Ib++;
 
-			double true_range = distance3(info[src_user].gt_poses.back().translation(), info[dst_user].gt_poses.back().translation());
+			//// This is assuming we have GT poses at IMU frequency. We have GT poses at 20Hz.
+			//double true_range = distance3(info[src_user].gt_poses.back().translation(), info[dst_user].gt_poses.back().translation());
 
-			//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
-			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
+			////graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
+			//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
 
 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
 			CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
