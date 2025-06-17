@@ -30,6 +30,8 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
                 hold(on);                                                  \
                 draw_trajectory(user_info.gt_poses, "green");              \
                 hold(on);   \
+				draw_points(user_info.gt_poses, "green"); \
+				hold(on); \
                 xlabel("X (m)");                                             \
                 ylabel("Y (m)");                                             \
                 zlabel("Z (m)");                                             \
@@ -56,6 +58,8 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
                 hold(on);                                                  \
                 draw_trajectory(user_info.gt_poses, "green");              \
                 hold(on);                                                  \
+				draw_points(user_info.gt_poses, "green"); \
+				hold(on); \
                 draw_trajectory(user_info.est_poses, "blue");              \
                 hold(on);                                                           \
                 xlabel("X (m)");                                           \
@@ -122,14 +126,14 @@ int main(int argc, char* argv[]) {
 
 	// UWB noise model
 
-	//double uwb_stdev = 0.1;
-	double uwb_stdev = 0.5;
+	double uwb_stdev = 0.1;
+	//double uwb_stdev = 0.5;
 	// They set this to 100 or 1000 in this example: https://github.com/borglab/gtsam/blob/develop/examples/RangeISAMExample_plaza2.cpp
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
 	// GT noise model - (use to define pose prior)
-	double gt_pos_stdev = 1e-2;
-	double gt_ori_stdev = 1e-2;
+	double gt_pos_stdev = 1e-3;
+	double gt_ori_stdev = 1e-3;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
 	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 0.01);
 	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 0.01);
@@ -323,8 +327,14 @@ int main(int argc, char* argv[]) {
 	int last_imu_counter = 0;
 	bool initialization_complete = true;
 	bool start_graph = false;
-	bool use_gt = false;
-	bool use_uwb = true;
+
+	bool use_gt = true;
+	int gt_correction_hz_max = 20;
+	double gt_correction_hz = 1;
+	int skip = (int) (gt_correction_hz_max / gt_correction_hz);
+
+	bool use_uwb = false;
+
 	// Setting a constraint that graph can only start on the first imu measurement
 	// long string of uwb measurements leads to integration on nothing ~40 times.
 
@@ -346,6 +356,8 @@ int main(int argc, char* argv[]) {
 
 			// Periodically generate a GT correction
 
+			if (GT_CORRECTION_COUNT % skip == 0) {
+				cout << "Used GT" << endl;
 				user.Ix++;
 				user.Iv++;
 				user.Ib++;
@@ -365,8 +377,6 @@ int main(int argc, char* argv[]) {
 				graph->add(imu_factor);
 
 				// GT correction (currently as GPS factor)
-				//auto correction_noise = noiseModel::Isotropic::Sigma(3, 0.01);
-				//graph->add(GPSFactor(X(user.Ix), gt_pose.translation(), correction_noise));
 				graph->add(PriorFactor<Pose3>(X(user.Ix), gt_pose, GT_noise_model));
 
 				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
@@ -403,7 +413,77 @@ int main(int argc, char* argv[]) {
 				vals.clear();
 
 				imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
-				GT_CORRECTION_COUNT++;
+			}
+			else {
+				cout << "Skipped GT prior, used UWB to GT synthetic instead" << endl;
+
+				double range;
+				string src_user = "2";
+				string dst_user = anchors[uwb_counter % 3];
+
+				uwb_counter++;
+
+				//get_UWB(mes, src_user, dst_user, range);
+
+
+				Pose3 gt_pose_slam;
+				get_GT(mes, gt_pose_slam);
+				Pose3 gt_pose = slam_to_world * gt_pose_slam;
+				user.gt_poses.push_back(gt_pose);
+
+				user.Ix++;
+				user.Iv++;
+				user.Ib++;
+
+				//// This is assuming we have GT poses at IMU frequency. We have GT poses at 20Hz.
+				double true_range = distance3(user.gt_poses.back().translation(), info[dst_user].gt_poses.back().translation());
+
+				////graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
+				graph->add(RangeFactor<Pose3, Pose3, double>(X(user.Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
+
+				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+				CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
+				graph->add(imu_factor);
+
+				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
+
+				vals.insert(X(user.Ix), proposed.pose());
+				vals.insert(V(user.Iv), proposed.v());
+				vals.insert(B(user.Ib), user.constant_bias);
+
+				Values result;
+				try {
+					isam->update(*graph, vals);
+					result = isam->calculateEstimate();
+					user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
+					user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
+				}
+				catch (const std::exception& e) {
+					std::cerr << "Optimizer update failed: " << e.what() << std::endl;
+
+					// Dump factor graph to .dot file
+					std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
+					graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
+					os.close();
+
+					PLOT_ANCHORS(info);
+					PLOT_ESTIMATED_FOR_USERS(info, show_list);
+
+					std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
+					throw; // rethrow after dumping
+				}
+
+				prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
+				// Here, you need to re-insert the optimization results as the base of the next preintegration.
+				graph->resize(0);
+				vals.clear();
+				// iSam internally caches past graph and vals states it was called on, 
+				// so if you don't resize, you'll get duplicate keys
+
+				imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
+			}
+
+			GT_CORRECTION_COUNT++;
 			
 		}
 		else if (use_uwb && mes["type"] == "uwb" && start_graph) {
@@ -420,7 +500,7 @@ int main(int argc, char* argv[]) {
 			user.Ib++;
 
 			//// This is assuming we have GT poses at IMU frequency. We have GT poses at 20Hz.
-			//double true_range = distance3(info[src_user].gt_poses.back().translation(), info[dst_user].gt_poses.back().translation());
+			double true_range = distance3(info[src_user].gt_poses.back().translation(), info[dst_user].gt_poses.back().translation());
 
 			////graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
 			//graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
