@@ -208,7 +208,8 @@ void draw_points(vector<Pose3> points, string color) {
 		ys.push_back(pose.y());
 		zs.push_back(pose.z());
 	}
-	scatter3(xs, ys, zs)->marker_face_color({1.0,0.0,0.0}); // Hard coded to green
+	auto s = scatter3(xs, ys, zs)->marker_face_color({1.0,0.0,0.0}); // Hard coded to green
+	s.marker_size(0.05);
 }
 
 void unpack_results(Values results, const function<Key(string, int)>& MK, map<string, tracking>& info) {

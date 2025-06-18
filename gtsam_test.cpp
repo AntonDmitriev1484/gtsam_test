@@ -30,8 +30,6 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
                 hold(on);                                                  \
                 draw_trajectory(user_info.gt_poses, "green");              \
                 hold(on);   \
-				draw_points(user_info.gt_poses, "green"); \
-				hold(on); \
                 xlabel("X (m)");                                             \
                 ylabel("Y (m)");                                             \
                 zlabel("Z (m)");                                             \
@@ -126,7 +124,7 @@ int main(int argc, char* argv[]) {
 
 	// UWB noise model
 
-	double uwb_stdev = 0.1;
+	double uwb_stdev = 0.001;
 	//double uwb_stdev = 0.5;
 	// They set this to 100 or 1000 in this example: https://github.com/borglab/gtsam/blob/develop/examples/RangeISAMExample_plaza2.cpp
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
@@ -141,40 +139,8 @@ int main(int argc, char* argv[]) {
 
 	//// IMU noise model
 
-	//// Realsense Gyro is in radians / sec: https://support.intelrealsense.com/hc/en-us/community/posts/9489403831059-d435i-gyro-data-unit 
 
-	//// Hard coded from IMU comparison sheet
-	//double GYRO_NOISE = 0.014 * M_PI / 180; // deg / s / sqrt(Hz) -> Since realsense gyro returns data in rad, GYRO_NOISE should also be given in rad
-	//double ACCEL_NOISE = 0.0014715; // m / s^2 / sqrt(Hz)
-	//Matrix33 accel_noise_cov = I_3x3 * pow(ACCEL_NOISE, 2);
-	//Matrix33 gyro_noise_cov = I_3x3 * pow(GYRO_NOISE, 2);
-	//Matrix33 noise_integration_cov = I_3x3 * 1e-8;  // error committed in integrating position from velocities
-
-	//// Hard coded from calibration.json
-	//Vector3 GYRO_BIAS(-0.00307518, 0.0003668, 0.00393268); 
-	//Vector3 ACCEL_BIAS(-0.031682, -0.0617278, 0.02699346);
-
-	////double GYRO_BIAS = 2.049600985797649e-4; // TODO: Check that allan variance ROS output is in rad/s
-	////double ACCEL_BIAS = ; // Is "GyroWalk supposed to be bias? I thought random walk was just noise.
-	//// Random walk is the accumulation of noise. NOT related to bias.
-
-	//Matrix33 accel_bias_cov;
-
-	//accel_bias_cov << pow(ACCEL_BIAS(0), 2), 0, 0,
-	//	0, pow(ACCEL_BIAS(1), 2), 0,
-	//	0, 0, pow(ACCEL_BIAS(2), 2);
-
-	//Matrix33 gyro_bias_cov;
-	//gyro_bias_cov << pow(GYRO_BIAS(0), 2), 0, 0,
-	//	0, pow(GYRO_BIAS(1), 2), 0,
-	//	0, 0, pow(GYRO_BIAS(2), 2);
-
-	//Matrix66 initial_bias_cov = I_6x6 * 1e-5; // 
-
-
-	// IMU Noise Model
-
-	double SCALE = 10;
+	double SCALE = 1;
 
 	double GYRO_NOISE_DENSITY = 0.0002049600985797649; 
 	double ACCEL_NOISE_DENSITY = 0.002064189891192468;
@@ -199,7 +165,7 @@ int main(int argc, char* argv[]) {
 	// SEE this: https://github.com/ethz-asl/kalibr/wiki/IMU-Noise-Model
 	// AND this: kalibr_mount.zip/kalibr_mount/allan_variance_out
 
-	boost::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
+	boost::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedD();
 	imu_preintegration_params->accelerometerCovariance = continuous_time_accel_noise_cov;
 	imu_preintegration_params->gyroscopeCovariance = continuous_time_gyro_noise_cov;
 
@@ -209,7 +175,7 @@ int main(int argc, char* argv[]) {
 	imu_preintegration_params->integrationCovariance = integration_cov;
 	imu_preintegration_params->biasAccOmegaInt = initial_bias_cov;
 
-	imu_preintegration_params->use2ndOrderCoriolis = true;
+	imu_preintegration_params->use2ndOrderCoriolis = false;
 
 
 	imuBias::ConstantBias prior_imu_bias;
@@ -236,21 +202,6 @@ int main(int argc, char* argv[]) {
 
 	Pose3 slam_to_world(Rot3(transform), Vector3(0, 0, 1.82));
 
-	//int c = 0;
-	//// Viewing GT trajectory to make sure it's in my world frame first.
-	//for (json mes : sensor_stream) {
-	//	if (mes["type"] == "gt_pose") {
-
-	//		// Periodically generate a GT correction
-
-	//		Pose3 gt_pose;
-	//		get_GT(mes, gt_pose);
-
-	//		info["2"].gt_poses.push_back(slam_to_world * gt_pose);
-
-	//	}
-	//}
-
 	//PLOT_ANCHORS(info);
 	//////draw_trajectory(info["2"].gt_poses, "green");
 	//PLOT_ESTIMATED_FOR_USERS(info, show_list);
@@ -268,8 +219,8 @@ int main(int argc, char* argv[]) {
 			track.pose_key = MK_Anchor(u, 0);
 			Pose3 prior_beacon_pose(track.gt_poses[0]); // Position of beacon in U frame extracted from GT
 			vals.insert(track.pose_key, prior_beacon_pose);
-			graph->add(NonlinearEquality<Pose3>(track.pose_key, prior_beacon_pose));
-			//graph->add(PriorFactor<Pose3>(track.pose_key, prior_beacon_pose, GT_noise_model));
+			//graph->add(NonlinearEquality<Pose3>(track.pose_key, prior_beacon_pose));
+			graph->add(PriorFactor<Pose3>(track.pose_key, prior_beacon_pose, GT_noise_model));
 		}
 		else { // Since we only have one user, user 2.
 			
@@ -330,7 +281,7 @@ int main(int argc, char* argv[]) {
 
 	bool use_gt = true;
 	int gt_correction_hz_max = 20;
-	double gt_correction_hz = 1;
+	double gt_correction_hz = 10;
 	int skip = (int) (gt_correction_hz_max / gt_correction_hz);
 
 	bool use_uwb = false;
@@ -371,6 +322,10 @@ int main(int argc, char* argv[]) {
 				// TODO: There must be some translation from the SLAM world coordinate frame to mine???
 
 				user.gt_poses.push_back(gt_pose);
+
+				//vector<Pose3> p = { gt_pose };
+				//hold(on);
+				//draw_points(p, "green");
 
 				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
 				CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
@@ -415,72 +370,79 @@ int main(int argc, char* argv[]) {
 				imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
 			}
 			else {
-				cout << "Skipped GT prior, used UWB to GT synthetic instead" << endl;
-
-				double range;
-				string src_user = "2";
-				string dst_user = anchors[uwb_counter % 3];
-
-				uwb_counter++;
-
-				//get_UWB(mes, src_user, dst_user, range);
 
 
-				Pose3 gt_pose_slam;
-				get_GT(mes, gt_pose_slam);
-				Pose3 gt_pose = slam_to_world * gt_pose_slam;
-				user.gt_poses.push_back(gt_pose);
+				//cout << "Skipped GT prior, used UWB to GT synthetic instead" << endl;
 
-				user.Ix++;
-				user.Iv++;
-				user.Ib++;
+				//double range;
+				//string src_user = "2";
+				//string dst_user = anchors[uwb_counter % 3];
 
-				//// This is assuming we have GT poses at IMU frequency. We have GT poses at 20Hz.
-				double true_range = distance3(user.gt_poses.back().translation(), info[dst_user].gt_poses.back().translation());
+				//uwb_counter++;
 
-				////graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
-				graph->add(RangeFactor<Pose3, Pose3, double>(X(user.Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
+				////get_UWB(mes, src_user, dst_user, range);
+
+
+				//Pose3 gt_pose_slam;
+				//get_GT(mes, gt_pose_slam);
+				//Pose3 gt_pose = slam_to_world * gt_pose_slam;
+				//user.gt_poses.push_back(gt_pose);
+
+				//user.Ix++;
+				//user.Iv++;
+				//user.Ib++;
+
+				////// This is assuming we have GT poses at IMU frequency. We have GT poses at 20Hz.
+				//double true_range = distance3(user.gt_poses.back().translation(), info[dst_user].gt_poses.back().translation()); // This is correct
+				////draw_vector(user.gt_poses.back().translation(), info[dst_user].gt_poses.back().translation(), "black");
+
+				//////graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
+				////graph->add(RangeFactor<Pose3, Pose3, double>(X(user.Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
+				//// Could my arguments be flipped here?
+				//PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+				//CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
+				//graph->add(imu_factor);
+
+				//auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
+
+				//vals.insert(X(user.Ix), proposed.pose());
+				//vals.insert(V(user.Iv), proposed.v());
+				//vals.insert(B(user.Ib), user.constant_bias);
+
+				//Values result;
+				//try {
+				//	isam->update(*graph, vals);
+				//	result = isam->calculateEstimate();
+				//	user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
+				//	user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
+				//}
+				//catch (const std::exception& e) {
+				//	std::cerr << "Optimizer update failed: " << e.what() << std::endl;
+
+				//	// Dump factor graph to .dot file
+				//	std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
+				//	graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
+				//	os.close();
+
+				//	PLOT_ANCHORS(info);
+				//	PLOT_ESTIMATED_FOR_USERS(info, show_list);
+
+				//	std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
+				//	throw; // rethrow after dumping
+				//}
+
+				//prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
+				//// Here, you need to re-insert the optimization results as the base of the next preintegration.
+				//graph->resize(0);
+				//vals.clear();
+				//// iSam internally caches past graph and vals states it was called on, 
+				//// so if you don't resize, you'll get duplicate keys
+
+				//imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
 
 				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-				CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
-				graph->add(imu_factor);
-
 				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
-
-				vals.insert(X(user.Ix), proposed.pose());
-				vals.insert(V(user.Iv), proposed.v());
-				vals.insert(B(user.Ib), user.constant_bias);
-
-				Values result;
-				try {
-					isam->update(*graph, vals);
-					result = isam->calculateEstimate();
-					user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
-					user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
-				}
-				catch (const std::exception& e) {
-					std::cerr << "Optimizer update failed: " << e.what() << std::endl;
-
-					// Dump factor graph to .dot file
-					std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
-					graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
-					os.close();
-
-					PLOT_ANCHORS(info);
-					PLOT_ESTIMATED_FOR_USERS(info, show_list);
-
-					std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
-					throw; // rethrow after dumping
-				}
-
-				prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
-				// Here, you need to re-insert the optimization results as the base of the next preintegration.
-				graph->resize(0);
-				vals.clear();
-				// iSam internally caches past graph and vals states it was called on, 
-				// so if you don't resize, you'll get duplicate keys
-
-				imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
+				user.est_poses.push_back(proposed.pose());
 			}
 
 			GT_CORRECTION_COUNT++;
