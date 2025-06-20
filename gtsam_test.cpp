@@ -281,10 +281,10 @@ int main(int argc, char* argv[]) {
 
 	bool use_gt = true;
 	int gt_correction_hz_max = 20;
-	double gt_correction_hz = 10;
+	double gt_correction_hz = 20;
 	int skip = (int) (gt_correction_hz_max / gt_correction_hz);
 
-	bool use_uwb = false;
+	bool use_uwb = true;
 
 	// Setting a constraint that graph can only start on the first imu measurement
 	// long string of uwb measurements leads to integration on nothing ~40 times.
@@ -301,6 +301,10 @@ int main(int argc, char* argv[]) {
 			get_IMU(mes, accel, gyro);
 			imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 			imu_counter++;
+
+			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+			auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
+			user.est_poses.push_back(proposed.pose());
 		
 		}
 		else if (use_gt && mes["type"] == "gt_pose" && start_graph) {
@@ -317,9 +321,6 @@ int main(int argc, char* argv[]) {
 				get_GT(mes, gt_pose_slam);
 
 				Pose3 gt_pose = slam_to_world * gt_pose_slam;
-
-				// TODO: There must be a transform from the camera to IMU.
-				// TODO: There must be some translation from the SLAM world coordinate frame to mine???
 
 				user.gt_poses.push_back(gt_pose);
 
@@ -346,6 +347,8 @@ int main(int argc, char* argv[]) {
 					result = isam->calculateEstimate();
 					user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
 					user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
+
+					cout << "Successful estimate on GT factor" << endl;
 				}
 				catch (const std::exception& e) {
 					std::cerr << "Optimizer update failed: " << e.what() << std::endl;
@@ -364,8 +367,11 @@ int main(int argc, char* argv[]) {
 
 				prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
 				// Here, you need to re-insert the optimization results as the base of the next preintegration.
-				graph->resize(0);
-				vals.clear();
+
+				int size = graph->size();
+				cout << "size = " << size << endl;
+				//graph->resize(0);
+				//vals.clear();
 
 				imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
 			}
@@ -440,9 +446,9 @@ int main(int argc, char* argv[]) {
 
 				//imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
 
-				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
-				user.est_poses.push_back(proposed.pose());
+				//PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+				//auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
+				//user.est_poses.push_back(proposed.pose());
 			}
 
 			GT_CORRECTION_COUNT++;
@@ -483,9 +489,11 @@ int main(int argc, char* argv[]) {
 				result = isam->calculateEstimate();
 				user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
 				user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
+
+				cout << "Successful estimate on UWB factor" << endl;
 			}
 			catch (const std::exception& e) {
-				std::cerr << "Optimizer update failed: " << e.what() << std::endl;
+				std::cerr << "Optimizer update failed on UWB count: " << e.what() << std::endl;
 
 				// Dump factor graph to .dot file
 				std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
@@ -501,8 +509,8 @@ int main(int argc, char* argv[]) {
 
 			prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
 			// Here, you need to re-insert the optimization results as the base of the next preintegration.
-			graph->resize(0);
-			vals.clear();
+			//graph->resize(0);
+			//vals.clear();
 			// iSam internally caches past graph and vals states it was called on, 
 			// so if you don't resize, you'll get duplicate keys
 
