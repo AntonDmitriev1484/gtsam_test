@@ -104,8 +104,16 @@ int main(int argc, char* argv[]) {
 	ifstream beacon_fs(directory + trial_name + "/anchors.json");
 
 	// Redirect stdout output to a text file.
-	std::ofstream out("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/print_dump.txt");
-	std::cout.rdbuf(out.rdbuf()); // redirect cout to file
+	// 
+	bool DBG_REDIRECT = false;
+
+
+
+	if (DBG_REDIRECT) {
+		std::ofstream out("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/print_dump.txt");
+		std::cout.rdbuf(out.rdbuf()); // redirect cout to file
+	}
+
 
 	json sensor_stream = json::parse(raw_fs);
 	map<string, tracking> info; // Map of username to tracking information
@@ -264,6 +272,7 @@ int main(int argc, char* argv[]) {
 	PreintegrationType* imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
 
 	ISAM2Params isam_params;
+	// Must be some way to set up a verbose option.
 	isam_params.factorization = ISAM2Params::QR;
 	isam_params.relinearizeThreshold = 0.01;
 	isam_params.relinearizeSkip = 1; // More informed optimization at the cost of more computing.
@@ -545,7 +554,7 @@ int main(int argc, char* argv[]) {
 				prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
 				// Here, you need to re-insert the optimization results as the base of the next preintegration.
 
-			graph->resize(0);
+				graph->resize(0);
 				vals.clear();
 
 				imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
@@ -641,7 +650,6 @@ int main(int argc, char* argv[]) {
 			// so if you don't resize, you'll get duplicate keys
 
 			imu_count_at_last_imu_factor = imu_counter;
-
 			imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
 		}
 		else {
