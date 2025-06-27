@@ -1,6 +1,6 @@
 #include "data_tools.h"
 
-// If something's going funky, check here to make sure I'm not reading in the matrix as it's transpose.
+
 void get_pose_matrix(json d, string& user, Matrix44& pose_matrix) {
 
 	//user = d["user"];
@@ -18,6 +18,7 @@ void get_pose_matrix(json d, string& user, Matrix44& pose_matrix) {
 		j = 0;
 		i++;
 	}
+
 }
 
 void get_GT(json d, Pose3& gt_pose) {

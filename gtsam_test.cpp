@@ -93,6 +93,193 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 	 } \
 }
 
+void processGT(
+	json mes,
+	tracking& user,
+	NonlinearFactorGraph* graph,
+	Values& vals,
+	ISAM2* isam,
+	PreintegrationType* imu_preintegrated,
+	const NavState& prev_state,
+	const SharedNoiseModel& GT_noise_model)
+{
+	cout << "Used GT" << endl;
+	user.Ix++;
+	user.Iv++;
+	user.Ib++;
+
+	// Extract GT pose
+	Matrix44 gt_pose_slam;
+	string usrname;
+	get_pose_matrix(mes, usrname, gt_pose_slam);
+	Pose3 gt_pose(gt_pose_slam);
+	user.gt_poses.push_back(gt_pose);
+
+
+	if (gt_pose.z() < 1) {
+		cout << "some bullshit is going on" << endl;
+		double t = double(mes["t"]);
+		cout << " Timestamp " << t << endl;
+	}
+
+	// Add IMU factor
+	auto* current_imu_preintegration =
+		dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+
+	CombinedImuFactor imu_factor(
+		X(user.Ix - 1), V(user.Iv - 1),
+		X(user.Ix), V(user.Iv),
+		B(user.Ib - 1), B(user.Ib),
+		*current_imu_preintegration);
+
+	graph->add(imu_factor);
+	cout << "Added IMU factor " << graph->size() - 1 << endl;
+
+	// Add GT prior factor
+	graph->add(PriorFactor<Pose3>(X(user.Ix), gt_pose, GT_noise_model));
+	cout << "Added Prior factor " << graph->size() - 1 << endl;
+
+	// Predict current state
+	NavState proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
+
+	// Insert initial values
+	vals.insert(X(user.Ix), proposed.pose());
+	vals.insert(V(user.Iv), proposed.v());
+	vals.insert(B(user.Ib), user.constant_bias);
+
+	Values result;
+	try {
+		isam->update(*graph, vals);
+		result = isam->calculateEstimate();
+
+		user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
+		user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv)));
+
+		cout << "Successful estimate on GT factor" << endl;
+	}
+	catch (const std::exception& e) {
+		cerr << "Optimizer update failed: " << e.what() << endl;
+
+		ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
+		graph->saveGraph(os, result);
+		os.close();
+
+		graph->print("");
+
+		cerr << "Graph dumped to factor_graph.dot" << endl;
+		throw; // rethrow
+	}
+
+	// Reset preintegration
+	imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias);
+
+	// Clear for next iteration
+	graph->resize(0);
+	vals.clear();
+}
+
+void processUWB(
+	json mes,
+	string src_user,
+	map<string, tracking > & info,
+	NonlinearFactorGraph* graph,
+	Values& vals,
+	ISAM2* isam,
+	PreintegrationType* imu_preintegrated,
+	NavState& prev_state,
+	const SharedNoiseModel& UWB_noise_model,
+	const SharedNoiseModel& GT_noise_model,
+	int& imu_counter,
+	int& imu_count_at_last_correction,
+	double dt,
+	int& uwb_counter)
+{
+	uwb_counter++;
+
+	std::string dst_user;
+	double range;
+	get_UWB(mes, src_user, dst_user, range);
+
+	tracking& user = info[src_user];
+	tracking& dst = info[dst_user];
+
+	user.Ix++;
+	user.Iv++;
+	user.Ib++;
+
+	// Ground truth range from GT poses
+	double true_range = distance3(
+		info[src_user].gt_poses.back().translation(),
+		info[dst_user].gt_poses.back().translation());
+
+	// Add UWB (range) factor — use ground truth here for stability
+	graph->add(RangeFactor<Pose3, Pose3, double>(
+		X(user.Ix), dst.pose_key, true_range, UWB_noise_model));
+	cout << "Added Range factor " << graph->size() - 1 << endl;
+
+	// Add fake GT-style prior to help stabilize
+	Pose3 last_correction = user.gt_poses.back();
+	Vector3 last_velocity = user.est_velocitys.back();
+
+	Vector3 reckoned_translation = last_velocity.x() *
+		(imu_counter - imu_count_at_last_correction) * dt *
+		Vector3(1, 0, 0);  // assume forward motion in x
+
+	Pose3 reckoned_pose = last_correction * Pose3(Rot3::Identity(), reckoned_translation);
+	graph->add(PriorFactor<Pose3>(X(user.Ix), reckoned_pose, GT_noise_model));
+	cout << "Added (fake) Prior factor " << graph->size() - 1 << endl;
+
+	// Add IMU factor
+	auto* current_imu_preintegration =
+		dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+
+	CombinedImuFactor imu_factor(
+		X(user.Ix - 1), V(user.Iv - 1),
+		X(user.Ix), V(user.Iv),
+		B(user.Ib - 1), B(user.Ib),
+		*current_imu_preintegration);
+
+	graph->add(imu_factor);
+	cout << "Added IMU factor " << graph->size() - 1 << endl;
+
+	// Predict state and insert
+	NavState proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
+	vals.insert(X(user.Ix), proposed.pose());
+	vals.insert(V(user.Iv), proposed.v());
+	vals.insert(B(user.Ib), user.constant_bias);
+
+	// Run optimization
+	Values result;
+	try {
+		isam->update(*graph, vals);
+		result = isam->calculateEstimate();
+
+		user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
+		user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv)));
+
+		cout << "Successful estimate on UWB factor" << endl;
+	}
+	catch (const std::exception& e) {
+		cerr << "Optimizer update failed on UWB count: " << e.what() << endl;
+
+		std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
+		graph->saveGraph(os, result);
+		os.close();
+
+		cerr << "Graph dumped to factor_graph.dot" << endl;
+		throw; // rethrow
+	}
+
+	prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
+
+	// Prepare for next iteration
+	graph->resize(0);
+	vals.clear();
+	imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias);
+}
+
+
+
 int main(int argc, char* argv[]) {
 
 
@@ -138,7 +325,7 @@ int main(int argc, char* argv[]) {
 
 	// UWB noise model
 
-	double uwb_stdev = 0.001;
+	double uwb_stdev = 0.01;
 	//double uwb_stdev = 0.5;
 	// They set this to 100 or 1000 in this example: https://github.com/borglab/gtsam/blob/develop/examples/RangeISAMExample_plaza2.cpp
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
@@ -227,14 +414,6 @@ int main(int argc, char* argv[]) {
 	// Establish and attach priors to keys
 
 	Values vals;
-
-	Pose3 slam_to_world(Rot3(transform), Vector3(0, 0, 1.82));
-
-	//PLOT_ANCHORS(info);
-	//////draw_trajectory(info["1"].gt_poses, "green");
-	//PLOT_ESTIMATED_FOR_USERS(info, show_list);
-	//show();
-
 	// Initialize the first GT pose.
 
 	int pose_num = 0;
@@ -342,6 +521,8 @@ int main(int argc, char* argv[]) {
 			imu_counter++;
 
 			cout << "Preintegration on a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
+
+			// Just for plotting
 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
 			auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
 			user.est_poses.push_back(proposed.pose());
@@ -349,240 +530,28 @@ int main(int argc, char* argv[]) {
 			for (json mes : gt_pose_buffer) {
 				if (GT_CORRECTION_COUNT % skip == 0) {
 
-					cout << "Used GT" << endl;
-					user.Ix++;
-					user.Iv++;
-					user.Ib++;
-
-					Matrix44 gt_pose_slam;
-					string usrname;
-					get_pose_matrix(mes, usrname, gt_pose_slam);
-
-					//Pose3 gt_pose = slam_to_world * gt_pose_slam;
-					Pose3 gt_pose(gt_pose_slam);
-
-					user.gt_poses.push_back(gt_pose);
-
-
-					//vector<Pose3> p = { gt_pose };
-					//hold(on);
-					//draw_points(p, "green");
-
-					PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-					CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
-					graph->add(imu_factor);
-					cout << "Added IMU factor " << graph->size() - 1 << endl;
-
-					// GT correction (currently as GPS factor)
-					graph->add(PriorFactor<Pose3>(X(user.Ix), gt_pose, GT_noise_model));
-					cout << "Added Prior factor " << graph->size() - 1 << endl;
-
-					auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
-
-					vals.insert(X(user.Ix), proposed.pose());
-					vals.insert(V(user.Iv), proposed.v());
-					vals.insert(B(user.Ib), user.constant_bias);
-					Values result;
-
-					try {
-						isam->update(*graph, vals);
-						result = isam->calculateEstimate();
-						user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
-						user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
-
-						cout << "Successful estimate on GT factor" << endl;
-					}
-					catch (const std::exception& e) {
-						std::cerr << "Optimizer update failed: " << e.what() << std::endl;
-
-						// Dump factor graph to .dot file
-						std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
-						graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
-						os.close();
-
-						graph->print("");
-
-						//PLOT_ANCHORS(info);
-						//PLOT_ESTIMATED_FOR_USERS(info, show_list);
-
-						std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
-						throw; // rethrow after dumping
-					}
-
-					prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
-					// Here, you need to re-insert the optimization results as the base of the next preintegration.
-
-				//graph->resize(0);
-					vals.clear();
-
-					imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
+					processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model);
 				}
-
-				imu_count_at_last_correction = imu_counter;
-				imu_count_at_last_imu_factor = imu_counter;
-
-				GT_CORRECTION_COUNT++;
 			}
 			gt_pose_buffer.clear();
 
 			for (json mes : range_buffer) {
-				double range;
-				string src_user = "1";
-				string dst_user;
 
-				uwb_counter++;
-
-				get_UWB(mes, src_user, dst_user, range);
-
-				user.Ix++;
-				user.Iv++;
-				user.Ib++;
-
-				//// This is assuming we have GT poses at IMU frequency. We have GT poses at 20Hz.
-				double true_range = distance3(info[src_user].gt_poses.back().translation(), info[dst_user].gt_poses.back().translation());
-
-
-
-				////graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
-				graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
-				cout << "Added Range factor " << graph->size() - 1 << endl;
-
-				// Placing a faked observation on this state, following the assumption that we're always moving forward where our head is going.
-				// I would think this fully constrains it but apparently not???
-				Pose3 last_correction = user.gt_poses.back();
-				Vector3 last_velocty = user.est_velocitys.back();
-				Vector3 reckoned_translation(last_velocty.x() * (imu_counter - imu_count_at_last_correction) * dt, 0, 0); // V * dT since last correction
-				Pose3 reckoned_pose = last_correction * Pose3(Rot3::Identity(), reckoned_translation); // Where would be be X seconds from now, if we followed a straight line trajectory from the last GT orientation?
-				graph->add(PriorFactor<Pose3>(X(user.Ix), reckoned_pose, GT_noise_model));
-				cout << "Added (fake) Prior factor " << graph->size() - 1 << endl;
-
-
-				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-				CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
-				graph->add(imu_factor);
-				cout << "Added IMU factor " << graph->size() - 1 << endl;
-
-				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
-
-				vals.insert(X(user.Ix), proposed.pose());
-				vals.insert(V(user.Iv), proposed.v());
-				vals.insert(B(user.Ib), user.constant_bias);
-
-				Values result;
-				try {
-					isam->update(*graph, vals);
-					result = isam->calculateEstimate();
-					user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
-					user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
-
-					cout << "Successful estimate on UWB factor" << endl;
-				}
-				catch (const std::exception& e) {
-					std::cerr << "Optimizer update failed on UWB count: " << e.what() << std::endl;
-
-					// Dump factor graph to .dot file
-					std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
-					graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
-					os.close();
-
-					//PLOT_ANCHORS(info);
-					//PLOT_ESTIMATED_FOR_USERS(info, show_list);
-
-
-					std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
-					throw; // rethrow after dumping
-				}
-
-				prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
-				// Here, you need to re-insert the optimization results as the base of the next preintegration.
-				//graph->resize(0);
-				vals.clear();
-				// iSam internally caches past graph and vals states it was called on, 
-				// so if you don't resize, you'll get duplicate keys
-
-				imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
+				processUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state, 
+					UWB_noise_model, GT_noise_model,
+					imu_counter, imu_count_at_last_correction, dt, uwb_counter);
 			}
 			range_buffer.clear();
 		
 		}
 		else if (use_gt && mes["type"] == "slam_pose" && start_graph) {
-
 			if (GT_CORRECTION_COUNT % skip == 0) {
-
-
 				if (imu_counter == imu_count_at_last_imu_factor) {
 					// Pass this measurement and buffer it until the next IMU becomes available
 					gt_pose_buffer.push_back(mes);
 					continue;
 				}
-
-				cout << "Used GT non-buffered" << endl;
-				user.Ix++;
-				user.Iv++;
-				user.Ib++;
-
-				Matrix44 gt_pose_slam;
-				string usrname;
-				get_pose_matrix(mes, usrname, gt_pose_slam);
-
-				//Pose3 gt_pose = slam_to_world * gt_pose_slam;
-				Pose3 gt_pose(gt_pose_slam);
-
-				user.gt_poses.push_back(gt_pose);
-
-
-				//vector<Pose3> p = { gt_pose };
-				//hold(on);
-				//draw_points(p, "green");
-
-				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-				CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
-				graph->add(imu_factor);
-				cout << "Added IMU factor " << graph->size() - 1 << endl;
-
-				// GT correction (currently as GPS factor)
-				graph->add(PriorFactor<Pose3>(X(user.Ix), gt_pose, GT_noise_model));
-				cout << "Added Prior factor " << graph->size() - 1 << endl;
-
-				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
-
-				vals.insert(X(user.Ix), proposed.pose());
-				vals.insert(V(user.Iv), proposed.v());
-				vals.insert(B(user.Ib), user.constant_bias);
-				Values result;
-
-				try {
-					isam->update(*graph, vals);
-					result = isam->calculateEstimate();
-					user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
-					user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
-
-					cout << "Successful estimate on GT factor" << endl;
-				}
-				catch (const std::exception& e) {
-					std::cerr << "Optimizer update failed: " << e.what() << std::endl;
-
-					// Dump factor graph to .dot file
-					std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
-					graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
-					os.close();
-
-					graph->print("");
-
-					//PLOT_ANCHORS(info);
-					//PLOT_ESTIMATED_FOR_USERS(info, show_list);
-
-					std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
-					throw; // rethrow after dumping
-				}
-
-				prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
-				// Here, you need to re-insert the optimization results as the base of the next preintegration.
-
-				graph->resize(0);
-				vals.clear();
-
-				imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
+				processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model);
 			}
 
 			imu_count_at_last_correction = imu_counter;
@@ -592,90 +561,15 @@ int main(int argc, char* argv[]) {
 			
 		}
 		else if (use_uwb && mes["type"] == "uwb" && start_graph) {
-
-
 			if (imu_counter == imu_count_at_last_imu_factor) {
 				// Pass this measurement and buffer it until the next IMU becomes available
 				range_buffer.push_back(mes);
 				continue;
 			}
 
-			double range;
-			string src_user = "1";
-			string dst_user;
-
-			uwb_counter++;
-
-			get_UWB(mes, src_user, dst_user, range);
-
-			user.Ix++;
-			user.Iv++;
-			user.Ib++;
-
-			//// This is assuming we have GT poses at IMU frequency. We have GT poses at 20Hz.
-			double true_range = distance3(info[src_user].gt_poses.back().translation(), info[dst_user].gt_poses.back().translation());
-
-
-
-			////graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), MK_Anchor(dst_user, info[dst_user].Ix), range, UWB_noise_model));
-			graph->add(RangeFactor<Pose3, Pose3, double>(X(info[src_user].Ix), info[dst_user].pose_key, true_range, UWB_noise_model));
-			cout << "Added Range factor " << graph->size()-1 << endl;
-
-			// Placing a faked observation on this state, following the assumption that we're always moving forward where our head is going.
-			// I would think this fully constrains it but apparently not???
-			Pose3 last_correction = user.gt_poses.back();
-			Vector3 last_velocty = user.est_velocitys.back();
-			Vector3 reckoned_translation( last_velocty.x() * (imu_counter - imu_count_at_last_correction) * dt, 0, 0); // V * dT since last correction
-			Pose3 reckoned_pose = last_correction * Pose3(Rot3::Identity(), reckoned_translation); // Where would be be X seconds from now, if we followed a straight line trajectory from the last GT orientation?
-			graph->add(PriorFactor<Pose3>(X(user.Ix), reckoned_pose, GT_noise_model));
-			cout << "Added (fake) Prior factor " << graph->size() - 1 << endl;
-
-
-			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-			CombinedImuFactor imu_factor(X(user.Ix - 1), V(user.Iv - 1), X(user.Ix), V(user.Iv), B(user.Ib - 1), B(user.Ib), *current_imu_preintegration);
-			graph->add(imu_factor);
-			cout << "Added IMU factor " << graph->size() - 1 << endl;
-
-			auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
-
-			vals.insert(X(user.Ix), proposed.pose());
-			vals.insert(V(user.Iv), proposed.v());
-			vals.insert(B(user.Ib), user.constant_bias);
-
-			Values result;
-			try {
-				isam->update(*graph, vals);
-				result = isam->calculateEstimate();
-				user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
-				user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv))); // Assuming V and X are on same index
-
-				cout << "Successful estimate on UWB factor" << endl;
-			}
-			catch (const std::exception& e) {
-				std::cerr << "Optimizer update failed on UWB count: " << e.what() << std::endl;
-
-				// Dump factor graph to .dot file
-				std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
-				graph->saveGraph(os, result); // Uses current result (could also pass an empty Values())
-				os.close();
-
-				//PLOT_ANCHORS(info);
-				//PLOT_ESTIMATED_FOR_USERS(info, show_list);
-
-
-				std::cerr << "Graph dumped to factor_graph.dot" << std::endl;
-				throw; // rethrow after dumping
-			}
-
-			prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
-			// Here, you need to re-insert the optimization results as the base of the next preintegration.
-			graph->resize(0);
-			vals.clear();
-			// iSam internally caches past graph and vals states it was called on, 
-			// so if you don't resize, you'll get duplicate keys
-
-			imu_count_at_last_imu_factor = imu_counter;
-			imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias); // Clear preintegrator
+			processUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
+				UWB_noise_model, GT_noise_model,
+				imu_counter, imu_count_at_last_correction, dt, uwb_counter);
 		}
 		else {
 
