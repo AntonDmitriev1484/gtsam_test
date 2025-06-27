@@ -26,7 +26,7 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
         if (!user_info.is_beacon) {                                          \
             if (std::find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
                 hold(on);                                                    \
-                draw_trajectory(user_info.est_poses, "blue");                \
+                /*draw_trajectory(user_info.est_poses, "blue");               */ \
                 hold(on);                                                  \
                 draw_trajectory(user_info.gt_poses, "green");              \
                 hold(on);   \
@@ -97,11 +97,13 @@ int main(int argc, char* argv[]) {
 
 
 	string directory = "/home/admitriev/Datasets/UWBSLAM_pilot/";
-	string trial_name = "pilot3_slow_low_post";
+	string trial_name = "stereoi_circle2_post";
 	string out_directory = "/home/admitriev/Research/pilot_results/" + trial_name;
 
 	ifstream raw_fs(directory + trial_name + "/" + "all.json");
 	ifstream beacon_fs(directory + trial_name + "/anchors.json");
+
+	ifstream transform_fs(directory + trial_name + "/transforms.json");
 
 	// Redirect stdout output to a text file.
 	// 
@@ -121,7 +123,7 @@ int main(int argc, char* argv[]) {
 	//get_gt_info(info, json::parse(gt_fs)); // fill user_info with gt_pose trajectory
 
 	get_beacon_info(info, json::parse(beacon_fs));
-	info.insert(pair<string, tracking>("2", tracking()));
+	info.insert(pair<string, tracking>("1", tracking()));
 
 	double dt = 1.0 / 200.0; // IMU gyro and accelerometer operate at 200Hz
 
@@ -172,11 +174,6 @@ int main(int argc, char* argv[]) {
 	Matrix33 integration_cov = I_3x3 * 1e-5 * SCALE;
 
 
-	// LOOK AT ALL OF THE IMU CALIBRATION YOU'VE DONE.
-	// MAKE SURE THE UNITS ARE CORRECT. REMEMBER YOU HAVE NOTES ON THE IMU PARAMETERS
-	// SEE this: https://github.com/ethz-asl/kalibr/wiki/IMU-Noise-Model
-	// AND this: kalibr_mount.zip/kalibr_mount/allan_variance_out
-
 	boost::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedD();
 	imu_preintegration_params->accelerometerCovariance = continuous_time_accel_noise_cov;
 	imu_preintegration_params->gyroscopeCovariance = continuous_time_gyro_noise_cov;
@@ -198,7 +195,26 @@ int main(int argc, char* argv[]) {
 		0, -1, 0;
 	Pose3 sensor_to_body_transform(Rot3(transform), Vector3(0, 0, 0));
 	// body_P_sensor : "pose of sensor frame w.r.t body frame"
-	imu_preintegration_params->body_P_sensor = sensor_to_body_transform;
+
+	auto trans = json::parse(transform_fs);
+	Matrix44 pose_matrix;
+	int i = 0;
+	int j = 0;
+	for (const auto& row : trans["T_slam_world"]) {
+		if (row.is_array()) {
+			for (const double& element : row) {
+				//HTM_L_G(i, j) = static_cast<double>(element.get<float>());
+				pose_matrix(i, j) = element;
+				j++;
+			}
+		}
+		j = 0;
+		i++;
+	}
+	Pose3 T_imu_world(pose_matrix);
+
+	Pose3 T_imu_body(T_imu_world.rotation(), Vector3(0, 0, 0));
+	imu_preintegration_params->body_P_sensor = T_imu_body;
 
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
 
@@ -215,7 +231,7 @@ int main(int argc, char* argv[]) {
 	Pose3 slam_to_world(Rot3(transform), Vector3(0, 0, 1.82));
 
 	//PLOT_ANCHORS(info);
-	//////draw_trajectory(info["2"].gt_poses, "green");
+	//////draw_trajectory(info["1"].gt_poses, "green");
 	//PLOT_ESTIMATED_FOR_USERS(info, show_list);
 	//show();
 
@@ -238,10 +254,15 @@ int main(int argc, char* argv[]) {
 			
 			Pose3 find_first_gt_pose;
 			for (json mes : sensor_stream) {
-				if (mes["type"] == "gt_pose") {
-					Pose3 gt_slam;
-					get_GT(mes, gt_slam);
-					find_first_gt_pose = slam_to_world * gt_slam;
+				if (mes["type"] == "slam_pose") {
+					Matrix44 gt_pose_slam;
+					string usrname;
+					get_pose_matrix(mes, usrname, gt_pose_slam);
+
+					//Pose3 gt_pose = slam_to_world * gt_pose_slam;
+					Pose3 gt_pose(gt_pose_slam);
+
+					find_first_gt_pose = gt_pose;
 					break;
 				}
 			}
@@ -265,8 +286,8 @@ int main(int argc, char* argv[]) {
 
 	}
 
-	vector<string> show_list = { "2" };
-	vector<string> anchors = { "1", "3", "5" };
+	vector<string> show_list = { "1" };
+	vector<string> anchors = { "2", "3", "5" };
 
 	// Use Preintegrator params, and bias prior, to create a new preintegrator object that we can use for an IMU factor.
 	PreintegrationType* imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
@@ -280,7 +301,7 @@ int main(int argc, char* argv[]) {
 	isam_params.optimizationParams = dogleg;
 	ISAM2* isam = new ISAM2(isam_params);
 
-	tracking& user = info.at("2");
+	tracking& user = info.at("1");
 	NavState prev_state(user.est_poses.back(), user.est_velocitys.back());
 
 	int T_UWB = 10; // Every 30 IMU measurements, generate 1 synthetic UWB measurement.
@@ -333,10 +354,12 @@ int main(int argc, char* argv[]) {
 					user.Iv++;
 					user.Ib++;
 
-					Pose3 gt_pose_slam;
-					get_GT(mes, gt_pose_slam);
+					Matrix44 gt_pose_slam;
+					string usrname;
+					get_pose_matrix(mes, usrname, gt_pose_slam);
 
-					Pose3 gt_pose = slam_to_world * gt_pose_slam;
+					//Pose3 gt_pose = slam_to_world * gt_pose_slam;
+					Pose3 gt_pose(gt_pose_slam);
 
 					user.gt_poses.push_back(gt_pose);
 
@@ -404,7 +427,7 @@ int main(int argc, char* argv[]) {
 
 			for (json mes : range_buffer) {
 				double range;
-				string src_user = "2";
+				string src_user = "1";
 				string dst_user;
 
 				uwb_counter++;
@@ -482,7 +505,7 @@ int main(int argc, char* argv[]) {
 			range_buffer.clear();
 		
 		}
-		else if (use_gt && mes["type"] == "gt_pose" && start_graph) {
+		else if (use_gt && mes["type"] == "slam_pose" && start_graph) {
 
 			if (GT_CORRECTION_COUNT % skip == 0) {
 
@@ -498,10 +521,12 @@ int main(int argc, char* argv[]) {
 				user.Iv++;
 				user.Ib++;
 
-				Pose3 gt_pose_slam;
-				get_GT(mes, gt_pose_slam);
+				Matrix44 gt_pose_slam;
+				string usrname;
+				get_pose_matrix(mes, usrname, gt_pose_slam);
 
-				Pose3 gt_pose = slam_to_world * gt_pose_slam;
+				//Pose3 gt_pose = slam_to_world * gt_pose_slam;
+				Pose3 gt_pose(gt_pose_slam);
 
 				user.gt_poses.push_back(gt_pose);
 
@@ -576,7 +601,7 @@ int main(int argc, char* argv[]) {
 			}
 
 			double range;
-			string src_user = "2";
+			string src_user = "1";
 			string dst_user;
 
 			uwb_counter++;

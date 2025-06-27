@@ -3,8 +3,8 @@
 // If something's going funky, check here to make sure I'm not reading in the matrix as it's transpose.
 void get_pose_matrix(json d, string& user, Matrix44& pose_matrix) {
 
-	user = d["user"];
-	auto m_pose_matrix = d["pose"];
+	//user = d["user"];
+	auto m_pose_matrix = d["T_body_world"];
 	int i = 0;
 	int j = 0;
 	for (const auto& row : m_pose_matrix) {
