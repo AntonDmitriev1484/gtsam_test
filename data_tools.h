@@ -49,4 +49,4 @@ void get_gt_info(map<string, tracking>& info, json gt_data);
 void get_beacon_info(map<string, tracking>& info, json beacon_data);
 
 void write_trajectory_KITTI_format(vector<Pose3> trajectory, ofstream& fs);
-
+void write_trajectory_TUM_format(vector<Pose3> trajectory, ofstream& fs);

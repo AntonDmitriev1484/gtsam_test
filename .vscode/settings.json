@@ -1,0 +1,19 @@
+{
+    "terminal.integrated.env.linux": {
+        "GTK_PATH": "",
+        "LD_LIBRARY_PATH": "",
+        "GIO_MODULE_DIR": "",
+        "Test": "test"
+    },
+    "files.associations": {
+        "array": "cpp",
+        "bitset": "cpp",
+        "string_view": "cpp",
+        "hash_map": "cpp",
+        "initializer_list": "cpp",
+        "ranges": "cpp",
+        "span": "cpp",
+        "regex": "cpp",
+        "valarray": "cpp"
+    },
+}

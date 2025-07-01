@@ -26,7 +26,7 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
         if (!user_info.is_beacon) {                                          \
             if (std::find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
                 hold(on);                                                    \
-                /*draw_trajectory(user_info.est_poses, "blue");               */ \
+                draw_trajectory(user_info.est_poses, "blue");                \
                 hold(on);                                                  \
                 draw_trajectory(user_info.gt_poses, "green");              \
                 hold(on);   \
@@ -115,7 +115,7 @@ void processGT(
 	Values& vals,
 	ISAM2* isam,
 	PreintegrationType* imu_preintegrated,
-	const NavState& prev_state,
+	NavState& prev_state,
 	const SharedNoiseModel& GT_noise_model)
 {
 	cout << "Used GT" << endl;
@@ -172,6 +172,9 @@ void processGT(
 		cerr << "Graph dumped to factor_graph.dot" << endl;
 		throw; // rethrow
 	}
+
+
+	prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
 
 	// Reset preintegration
 	imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias);
@@ -391,8 +394,6 @@ int main(int argc, char* argv[]) {
 	json sensor_stream = json::parse(raw_fs);
 	map<string, tracking> info; // Map of username to tracking information
 
-	//get_gt_info(info, json::parse(gt_fs)); // fill user_info with gt_pose trajectory
-
 	get_beacon_info(info, json::parse(beacon_fs));
 	info.insert(pair<string, tracking>("1", tracking()));
 
@@ -573,9 +574,8 @@ int main(int argc, char* argv[]) {
 	bool initialization_complete = true;
 	bool start_graph = false;
 
-	// If you want to simulate, set these both to false.
 	bool use_gt = true;
-	bool use_uwb = true;
+	bool use_uwb = false;
 	bool simulating = true;
 
 	int T_UWB = 10; // Every X IMU measurements, generate 1 synthetic UWB measurement.
@@ -687,11 +687,13 @@ int main(int argc, char* argv[]) {
 		
 	}
 
+	ofstream estimated_trajectory_fs("./out_trajectory/estimated.txt");
+	write_trajectory_TUM_format( user.est_poses, estimated_trajectory_fs);
+	estimated_trajectory_fs.close();
 
-	PLOT_ANCHORS(info);
-	PLOT_ESTIMATED_FOR_USERS(info, show_list);
-
-	show();
+	ofstream slam_trajectory_fs("./out_trajectory/slam.txt");
+	write_trajectory_TUM_format( user.gt_poses, slam_trajectory_fs);
+	slam_trajectory_fs.close();
 
 	return 0;
 }
