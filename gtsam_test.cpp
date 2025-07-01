@@ -1,10 +1,11 @@
 ﻿#include "gtsam_test.h"
 #include "data_tools.h"
 #include "utils.h"
-
 #include "cmath"
 #include <regex>
 
+using PreintegrationType = gtsam::PreintegrationBase;
+s
 using namespace gtsam;
 using namespace std;
 
@@ -160,9 +161,7 @@ void processGT(
 	catch (const std::exception& e) {
 		cerr << "Optimizer update failed: " << e.what() << endl;
 
-		ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
-		graph->saveGraph(os, result);
-		os.close();
+		graph->saveGraph("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot", result);
 
 		graph->print("");
 
@@ -262,9 +261,7 @@ void processUWB(
 	catch (const std::exception& e) {
 		cerr << "Optimizer update failed on UWB count: " << e.what() << endl;
 
-		std::ofstream os("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot");
-		graph->saveGraph(os, result);
-		os.close();
+		graph->saveGraph("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot", result);
 
 		cerr << "Graph dumped to factor_graph.dot" << endl;
 		throw; // rethrow
@@ -361,7 +358,7 @@ int main(int argc, char* argv[]) {
 	Matrix33 integration_cov = I_3x3 * 1e-5 * SCALE;
 
 
-	boost::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedD();
+	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedD();
 	imu_preintegration_params->accelerometerCovariance = continuous_time_accel_noise_cov;
 	imu_preintegration_params->gyroscopeCovariance = continuous_time_gyro_noise_cov;
 

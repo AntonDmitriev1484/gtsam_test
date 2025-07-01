@@ -5,10 +5,12 @@ cmake_minimum_required (VERSION 3.8)
 
 project ("gtsam_test")
 
-include_directories("/usr/include/gtsam/")
+# include_directories("/usr/include/gtsam/")
+# include_directories("/home/antond2/gtsam")
+include_directories("/usr/local/include/gtsam")
 include_directories("/usr/include/eigen3/")
 include_directories("/usr/local/include/matplot")
-include_directories("/usr/include/json/single_include")
+include_directories("/home/antond2/json/single_include")
 
 # Note: Matplot++ is different from,.and more up to date than Matplotlib-cpp.
 
@@ -17,7 +19,9 @@ include(GtsamBuildTypes) # Load build type flags and default to Debug mode
 include(GtsamTesting)    # Easy functions for creating unit tests and scripts
 
 # Ok apparently most of my .so files are in /lib/x86_64
-set(GTSAM_LIB_PATH "/lib/x86_64-linux-gnu/libgtsam.so")
+# set(GTSAM_LIB_PATH "/lib/x86_64-linux-gnu/libgtsam.so")
+# set(GTSAM_LIB_PATH "/home/antond2/gtsam/libtsam.so") # I have another one of these in /usr/local/lib
+set(GTSAM_LIB_PATH "/usr/local/lib/libgtsam.so")
 set(TBB_LIB_PATH "/lib/x86_64-linux-gnu/libtbb.so")
 set(MATPLOTPLUSPLUS_LIB_PATH "/usr/local/lib/libmatplot.a")
 
@@ -29,6 +33,7 @@ target_link_libraries(gtsam_test
 "${GTSAM_LIB_PATH}" "${TBB_LIB_PATH}"
 "${MATPLOTPLUSPLUS_LIB_PATH}" "/usr/lib/x86_64-linux-gnu/libjpeg.so" "/usr/lib/x86_64-linux-gnu/libtiff.so" "/usr/lib/x86_64-linux-gnu/libz.so" "/usr/lib/x86_64-linux-gnu/libpng.so" "/usr/local/lib/Matplot++/libnodesoup.a")
 
+add_compile_options(-w)
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET gtsam_test PROPERTY CXX_STANDARD 20)
