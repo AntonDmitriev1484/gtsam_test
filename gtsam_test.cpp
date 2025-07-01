@@ -5,7 +5,6 @@
 #include <regex>
 
 using PreintegrationType = gtsam::PreintegrationBase;
-s
 using namespace gtsam;
 using namespace std;
 
@@ -94,6 +93,21 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 	 } \
 }
 
+// WSL paths 
+// string directory = "/home/admitriev/Datasets/UWBSLAM_pilot/";
+// string trial_name = "stereoi_circle2_post";
+// string out_directory = "/home/admitriev/Research/pilot_results/" + trial_name;
+
+// Thinkpad paths
+string directory = "/home/antond2/ws/post/out"; // Need to post process on NUC, then SFTP to here.
+string trial_name = "/stereoi_circle2_post";
+string out_directory = "./out_trajectory";
+string debug_dump_directory = "./debug";
+
+ifstream raw_fs(directory + trial_name + "/" + "all_synthetic.json");
+ifstream beacon_fs(directory + trial_name + "/anchors.json");
+ifstream transform_fs(directory + trial_name + "/transforms.json");
+
 void processGT(
 	json mes,
 	tracking& user,
@@ -115,13 +129,6 @@ void processGT(
 	get_pose_matrix(mes, usrname, gt_pose_slam);
 	Pose3 gt_pose(gt_pose_slam);
 	user.gt_poses.push_back(gt_pose);
-
-
-	if (gt_pose.z() < 1) {
-		cout << "some bullshit is going on" << endl;
-		double t = double(mes["t"]);
-		cout << " Timestamp " << t << endl;
-	}
 
 	// Add IMU factor
 	auto* current_imu_preintegration =
@@ -160,11 +167,8 @@ void processGT(
 	}
 	catch (const std::exception& e) {
 		cerr << "Optimizer update failed: " << e.what() << endl;
-
-		graph->saveGraph("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot", result);
-
+		graph->saveGraph(debug_dump_directory+"/graph.dot", result);
 		graph->print("");
-
 		cerr << "Graph dumped to factor_graph.dot" << endl;
 		throw; // rethrow
 	}
@@ -259,10 +263,106 @@ void processUWB(
 		cout << "Successful estimate on UWB factor" << endl;
 	}
 	catch (const std::exception& e) {
-		cerr << "Optimizer update failed on UWB count: " << e.what() << endl;
+		cerr << "Optimizer update failed: " << e.what() << endl;
+		graph->saveGraph(debug_dump_directory+"/graph.dot", result);
+		graph->print("");
+		cerr << "Graph dumped to factor_graph.dot" << endl;
+		throw; // rethrow
+	}
 
-		graph->saveGraph("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/factor_graph.dot", result);
+	prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
 
+	// Prepare for next iteration
+	graph->resize(0);
+	vals.clear();
+	imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias);
+}
+
+void processSyntheticUWB(
+	json gt_mes,
+	string src_user,
+	map<string, tracking > & info,
+	NonlinearFactorGraph* graph,
+	Values& vals,
+	ISAM2* isam,
+	PreintegrationType* imu_preintegrated,
+	NavState& prev_state,
+	const SharedNoiseModel& UWB_noise_model,
+	const SharedNoiseModel& GT_noise_model,
+	const SharedNoiseModel& FakePrior_noise_model,
+	int& imu_counter,
+	int& imu_count_at_last_correction,
+	double dt,
+	int& uwb_counter)
+{
+	cout << "Processing synthetic range for : " << gt_mes["t"] << endl;
+	uwb_counter++;
+
+		// Extract GT pose
+	Matrix44 gt_pose_slam;
+	string usrname;
+	get_pose_matrix(gt_mes, usrname, gt_pose_slam);
+	Pose3 gt_pose(gt_pose_slam);
+
+	vector<string> users = {"2", "3", "5"};
+	string dst_user = users[uwb_counter % 3];
+
+	tracking& user = info[src_user];
+	tracking& dst = info[dst_user];
+
+	user.Ix++;
+	user.Iv++;
+	user.Ib++;
+
+	// Ground truth range from GT poses
+	double true_range = distance3(
+		gt_pose.translation(),
+		info[dst_user].gt_poses.back().translation());
+
+	// Add UWB (range) factor — use ground truth here for stability
+	graph->add(RangeFactor<Pose3, Pose3, double>(
+		X(user.Ix), dst.pose_key, true_range, UWB_noise_model));
+	cout << "Added Range factor " << graph->size() - 1 << endl;
+
+	// Add fake GT-style prior to help stabilize
+	graph->add(PriorFactor<Pose3>(X(user.Ix), gt_pose, FakePrior_noise_model));
+	cout << "Added (fake) Prior factor " << graph->size() - 1 << endl;
+
+	// Add IMU factor
+	auto* current_imu_preintegration =
+		dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+
+	CombinedImuFactor imu_factor(
+		X(user.Ix - 1), V(user.Iv - 1),
+		X(user.Ix), V(user.Iv),
+		B(user.Ib - 1), B(user.Ib),
+		*current_imu_preintegration);
+
+	graph->add(imu_factor);
+	cout << "Added IMU factor " << graph->size() - 1 << endl;
+
+	// Predict state and insert
+	NavState proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
+	vals.insert(X(user.Ix), proposed.pose());
+	vals.insert(V(user.Iv), proposed.v());
+	vals.insert(B(user.Ib), user.constant_bias);
+
+	// Run optimization
+	Values result;
+	try {
+		isam->update(*graph, vals);
+		result = isam->calculateEstimate();
+
+		user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
+		user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv)));
+
+		cout << "Successful estimate on UWB factor" << endl;
+	}
+	catch (const std::exception& e) {
+		cerr << "Optimizer update failed: " << e.what() << endl;
+		cerr << "Data timestamp is " << gt_mes["t"] << endl;
+		graph->saveGraph(debug_dump_directory+"/graph.dot", result);
+		graph->print("");
 		cerr << "Graph dumped to factor_graph.dot" << endl;
 		throw; // rethrow
 	}
@@ -276,27 +376,14 @@ void processUWB(
 }
 
 
-
 int main(int argc, char* argv[]) {
-
-
-	string directory = "/home/admitriev/Datasets/UWBSLAM_pilot/";
-	string trial_name = "stereoi_circle2_post";
-	string out_directory = "/home/admitriev/Research/pilot_results/" + trial_name;
-
-	ifstream raw_fs(directory + trial_name + "/" + "all.json");
-	ifstream beacon_fs(directory + trial_name + "/anchors.json");
-
-	ifstream transform_fs(directory + trial_name + "/transforms.json");
 
 	// Redirect stdout output to a text file.
 	// 
 	bool DBG_REDIRECT = false;
 
-
-
 	if (DBG_REDIRECT) {
-		std::ofstream out("/home/admitriev/Research/gtsam_test/pilot_factor_graphs/print_dump.txt");
+		std::ofstream out(debug_dump_directory+"/print_dump.txt");
 		std::cout.rdbuf(out.rdbuf()); // redirect cout to file
 	}
 
@@ -480,25 +567,28 @@ int main(int argc, char* argv[]) {
 	tracking& user = info.at("1");
 	NavState prev_state(user.est_poses.back(), user.est_velocitys.back());
 
-	int T_UWB = 10; // Every 30 IMU measurements, generate 1 synthetic UWB measurement.
-	int uwb_counter = 0;
-	int GT_CORRECTION_COUNT = 0;
 
 	int imu_counter = 0;
 	int last_imu_counter = 0;
 	bool initialization_complete = true;
 	bool start_graph = false;
 
+	// If you want to simulate, set these both to false.
 	bool use_gt = true;
-	int gt_correction_hz_max = 20;
-	double gt_correction_hz = 20;
-	int skip = (int) (gt_correction_hz_max / gt_correction_hz);
-
 	bool use_uwb = true;
+	bool simulating = true;
+
+	int T_UWB = 10; // Every X IMU measurements, generate 1 synthetic UWB measurement.
+	int uwb_counter = 0;
+	
+	int gt_correction_hz_max = 200; // This will be the frequency that you interpolated to, 20 by default
+	double gt_correction_hz = 20;
+	int T_GT = (int) (gt_correction_hz_max / gt_correction_hz); // Every X SLAM measurements, generate 1 GT correction
+	int gt_counter = 0;
+
 
 	int imu_count_at_last_correction = 0;
 	int imu_count_at_last_imu_factor = 0;
-
 	int factor_counter = 0;
 
 	vector<json> gt_pose_buffer;
@@ -517,7 +607,7 @@ int main(int argc, char* argv[]) {
 			imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 			imu_counter++;
 
-			cout << "Preintegration on a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
+			cout << "Preintegration on at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
 
 			// Just for plotting
 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
@@ -525,52 +615,76 @@ int main(int argc, char* argv[]) {
 			user.est_poses.push_back(proposed.pose());
 
 			for (json mes : gt_pose_buffer) {
-				if (GT_CORRECTION_COUNT % skip == 0) {
-
-					processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model);
-				}
+				processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model);
 			}
 			gt_pose_buffer.clear();
 
 			for (json mes : range_buffer) {
 
-				processUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state, 
-					UWB_noise_model, GT_noise_model,
+				if (simulating) {
+					processSyntheticUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
+					UWB_noise_model, GT_noise_model, VIO_pose_noise_model,
 					imu_counter, imu_count_at_last_correction, dt, uwb_counter);
+				}
+				else {
+					processUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state, 
+						UWB_noise_model, GT_noise_model,
+						imu_counter, imu_count_at_last_correction, dt, uwb_counter);
+				}
+
 			}
 			range_buffer.clear();
-		
 		}
 		else if (use_gt && mes["type"] == "slam_pose" && start_graph) {
-			if (GT_CORRECTION_COUNT % skip == 0) {
-				if (imu_counter == imu_count_at_last_imu_factor) {
-					// Pass this measurement and buffer it until the next IMU becomes available
-					gt_pose_buffer.push_back(mes);
-					continue;
-				}
-				processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model);
+
+			if (imu_counter == imu_count_at_last_imu_factor) {
+				// Pass this measurement and buffer it until the next IMU becomes available
+				gt_pose_buffer.push_back(mes);
+				continue;
 			}
+			processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model);
+
 
 			imu_count_at_last_correction = imu_counter;
 			imu_count_at_last_imu_factor = imu_counter;
 
-			GT_CORRECTION_COUNT++;
+			gt_counter++;
 			
 		}
 		else if (use_uwb && mes["type"] == "uwb" && start_graph) {
+
+			if (imu_counter == imu_count_at_last_correction) { continue; }
 			if (imu_counter == imu_count_at_last_imu_factor) {
 				// Pass this measurement and buffer it until the next IMU becomes available
 				range_buffer.push_back(mes);
 				continue;
 			}
+			else {
+				processUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
+					UWB_noise_model, GT_noise_model,
+					imu_counter, imu_count_at_last_correction, dt, uwb_counter);
+			}
 
-			processUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
-				UWB_noise_model, GT_noise_model,
-				imu_counter, imu_count_at_last_correction, dt, uwb_counter);
+			imu_count_at_last_imu_factor = imu_counter;
 		}
-		else {
+		else if (simulating && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
 
+
+			if (imu_counter == imu_count_at_last_correction) { continue; }
+			if (imu_counter == imu_count_at_last_imu_factor) {
+				// Pass this measurement and buffer it until the next IMU becomes available
+				range_buffer.push_back(mes);
+				continue;
+			}
+			else {
+				processSyntheticUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
+					UWB_noise_model, GT_noise_model, VIO_pose_noise_model,
+					imu_counter, imu_count_at_last_correction, dt, uwb_counter);
+			}
+
+			imu_count_at_last_imu_factor = imu_counter;
 		}
+		
 	}
 
 
