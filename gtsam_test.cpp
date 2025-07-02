@@ -104,7 +104,7 @@ string trial_name = "/stereoi_circle2_post";
 string out_directory = "./out_trajectory";
 string debug_dump_directory = "./debug";
 
-ifstream raw_fs(directory + trial_name + "/synthetic/" + "all_synthetic_20_60.json");
+ifstream raw_fs(directory + trial_name + "/synthetic/" + "all_synthetic_10_20.json");
 ifstream beacon_fs(directory + trial_name + "/anchors.json");
 ifstream transform_fs(directory + trial_name + "/transforms.json");
 
@@ -298,22 +298,25 @@ void processSyntheticUWB(
 	int& imu_counter,
 	int& imu_count_at_last_correction,
 	double dt,
-	int& uwb_counter)
+	int& uwb_counter,
+	Pose3 T_imu_body)
 {
 	cout << "Processing synthetic range for : " << gt_mes["t"] << endl;
 	uwb_counter++;
+
+
+	vector<string> users = {"2", "3", "5"};
+	string dst_user = users[uwb_counter % 3];
+	tracking& user = info[src_user];
+	tracking& dst = info[dst_user];
 
 		// Extract GT pose
 	Matrix44 gt_pose_slam;
 	string usrname;
 	get_pose_matrix(gt_mes, usrname, gt_pose_slam);
-	Pose3 gt_pose(gt_pose_slam);
+	Pose3 gt_pose = Pose3(gt_pose_slam) * T_imu_body.inverse(); // Transform pose to the body frame.
+	user.gt_poses.push_back(gt_pose);
 
-	vector<string> users = {"2", "3", "5"};
-	string dst_user = users[uwb_counter % 3];
-
-	tracking& user = info[src_user];
-	tracking& dst = info[dst_user];
 
 	user.Ix++;
 	user.Iv++;
@@ -503,6 +506,7 @@ int main(int argc, char* argv[]) {
 
 	Values vals;
 	// Initialize the first GT pose.
+	int first_gt_mes_index = 0;
 
 	int pose_num = 0;
 	for (auto& [u, track] : info) {
@@ -520,8 +524,10 @@ int main(int argc, char* argv[]) {
 		else { // Since we only have one user, user 2.
 			
 			Pose3 find_first_gt_pose;
+			int i = 0;
 			for (json mes : sensor_stream) {
 				if (mes["type"] == "slam_pose") {
+					first_gt_mes_index = i;
 					Matrix44 gt_pose_world;
 					string usrname;
 					get_pose_matrix(mes, usrname, gt_pose_world);
@@ -532,6 +538,7 @@ int main(int argc, char* argv[]) {
 					find_first_gt_pose = gt_pose;
 					break;
 				}
+				i++;
 			}
 
 			Pose3 start_pose = find_first_gt_pose;
@@ -586,7 +593,8 @@ int main(int argc, char* argv[]) {
 	
 	int gt_correction_hz_max = 200; // This will be the frequency that you interpolated to, 20 by default
 	double gt_correction_hz = 20;
-	int T_GT = (int) (gt_correction_hz_max / gt_correction_hz); // Every X SLAM measurements, generate 1 GT correction
+	// int T_GT = (int) (gt_correction_hz_max / gt_correction_hz); // Every X SLAM measurements, generate 1 GT correction
+	int T_GT = 1;
 	int gt_counter = 0;
 	int gt_applied = 0;
 
@@ -599,27 +607,31 @@ int main(int argc, char* argv[]) {
 	vector<json> range_buffer;
 
 
+	int mes_index = 0;
+	cout << "first gt mes idx " << first_gt_mes_index << endl;
 	for (json mes : sensor_stream) {
 
-		if (mes["type"] == "imu") {
+		start_graph = mes_index > first_gt_mes_index;
 
-			// Add IMU measurement
-			start_graph = true;
-			Vector3 accel;
-			Vector3 gyro;
-			get_IMU(mes, accel, gyro);
-			imu_preintegrated->integrateMeasurement(accel, gyro, dt);
-			imu_counter++;
+		if (start_graph && mes["type"] == "imu") {
 
-			cout << "Preintegration on at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
+				// Add IMU measurement
+				Vector3 accel;
+				Vector3 gyro;
+				get_IMU(mes, accel, gyro);
+				imu_preintegrated->integrateMeasurement(accel, gyro, dt);
+				imu_counter++;
 
-			// Just for plotting
-			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-			auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
-			user.est_poses.push_back(proposed.pose());
+				cout << "Preintegration at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
+
+			
+				// Just for plotting
+				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
+				user.est_poses.push_back(proposed.pose());
 
 			for (json mes : gt_pose_buffer) {
-				if (gt_counter % 5 == 0) {
+				if (gt_counter % T_GT == 0) {
 					processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model, T_imu_body);
 					gt_applied ++;
 				}
@@ -634,7 +646,7 @@ int main(int argc, char* argv[]) {
 				if (simulating) {
 					processSyntheticUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
 					UWB_noise_model, GT_noise_model, VIO_pose_noise_model,
-					imu_counter, imu_count_at_last_correction, dt, uwb_counter);
+					imu_counter, imu_count_at_last_correction, dt, uwb_counter, T_imu_body);
 
 					uwb_counter++;
 				}
@@ -649,7 +661,7 @@ int main(int argc, char* argv[]) {
 		}
 		else if (use_gt && mes["type"] == "slam_pose" && start_graph) {
 
-			if (gt_counter % 5 == 0) {
+			if (gt_counter % T_GT == 0) {
 				if (imu_counter == imu_count_at_last_imu_factor) {
 					// Pass this measurement and buffer it until the next IMU becomes available
 					gt_pose_buffer.push_back(mes);
@@ -695,11 +707,13 @@ int main(int argc, char* argv[]) {
 			else {
 				processSyntheticUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
 					UWB_noise_model, GT_noise_model, VIO_pose_noise_model,
-					imu_counter, imu_count_at_last_correction, dt, uwb_counter);
+					imu_counter, imu_count_at_last_correction, dt, uwb_counter, T_imu_body);
 			}
 
 			imu_count_at_last_imu_factor = imu_counter;
 		}
+
+		mes_index++;
 		
 	}
 
