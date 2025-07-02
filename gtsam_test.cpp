@@ -120,6 +120,7 @@ void processGT(
 	Pose3 T_imu_body)
 {
 	cout << "Used GT" << endl;
+
 	user.Ix++;
 	user.Iv++;
 	user.Ib++;
@@ -171,7 +172,7 @@ void processGT(
 		cerr << "Data timestamp is " << mes["t"] << endl;
 		graph->saveGraph(debug_dump_directory+"/graph.dot", result);
 		graph->print("");
-		cerr << "Graph dumped to factor_graph.dot" << endl;
+		cerr << "Graph dumped to graph.dot" << endl;
 		throw; // rethrow
 	}
 
@@ -271,7 +272,7 @@ void processUWB(
 		cerr << "Optimizer update failed: " << e.what() << endl;
 		graph->saveGraph(debug_dump_directory+"/graph.dot", result);
 		graph->print("");
-		cerr << "Graph dumped to factor_graph.dot" << endl;
+		cerr << "Graph dumped to graph.dot" << endl;
 		throw; // rethrow
 	}
 
@@ -371,7 +372,7 @@ void processSyntheticUWB(
 		cerr << "Data timestamp is " << gt_mes["t"] << endl;
 		graph->saveGraph(debug_dump_directory+"/graph.dot", result);
 		graph->print("");
-		cerr << "Graph dumped to factor_graph.dot" << endl;
+		cerr << "Graph dumped to graph.dot" << endl;
 		throw; // rethrow
 	}
 
@@ -585,7 +586,7 @@ int main(int argc, char* argv[]) {
 	bool start_graph = false;
 
 	bool use_gt = true;
-	bool use_uwb = false;
+	bool use_uwb = true;
 	bool simulating = true;
 
 	int T_UWB = 10; // Every X IMU measurements, generate 1 synthetic UWB measurement.
@@ -600,11 +601,12 @@ int main(int argc, char* argv[]) {
 
 
 	int imu_count_at_last_correction = 0;
-	int imu_count_at_last_imu_factor = 0;
+	int imu_since_last_nonimu = 0; // the count of IMU measurements that have occured since our last non-IMU measurement.
 	int factor_counter = 0;
 
 	vector<json> gt_pose_buffer;
 	vector<json> range_buffer;
+	vector<json> nonimu_buffer;
 
 
 	int mes_index = 0;
@@ -612,8 +614,21 @@ int main(int argc, char* argv[]) {
 	for (json mes : sensor_stream) {
 
 		start_graph = mes_index > first_gt_mes_index;
+		mes_index++;
+		if (!start_graph) continue; // Fast forward to first gt pose
 
-		if (start_graph && mes["type"] == "imu") {
+		cout << "Timestamp " << mes["t"] << endl;
+
+		for (json mes: nonimu_buffer) {
+			// Simple policy, discard the measurement that isn't SLAM
+			if (mes["type"] == "slam_pose") {
+				processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model, T_imu_body);
+				gt_applied ++;
+			}
+		}
+		nonimu_buffer.clear();
+
+		if (mes["type"] == "imu") {
 
 				// Add IMU measurement
 				Vector3 accel;
@@ -622,7 +637,7 @@ int main(int argc, char* argv[]) {
 				imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 				imu_counter++;
 
-				cout << "Preintegration at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
+				cout << "Preintegration a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
 
 			
 				// Just for plotting
@@ -630,78 +645,48 @@ int main(int argc, char* argv[]) {
 				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
 				user.est_poses.push_back(proposed.pose());
 
-			for (json mes : gt_pose_buffer) {
-				if (gt_counter % T_GT == 0) {
-					processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model, T_imu_body);
-					gt_applied ++;
-				}
-				imu_count_at_last_correction = imu_counter;
-				imu_count_at_last_imu_factor = imu_counter;
-				gt_counter++;
-			}
-			gt_pose_buffer.clear();
+				imu_since_last_nonimu++;
 
-			for (json mes : range_buffer) {
-
-				if (simulating) {
-					processSyntheticUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
-					UWB_noise_model, GT_noise_model, VIO_pose_noise_model,
-					imu_counter, imu_count_at_last_correction, dt, uwb_counter, T_imu_body);
-
-					uwb_counter++;
-				}
-				else {
-					processUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state, 
-						UWB_noise_model, GT_noise_model,
-						imu_counter, imu_count_at_last_correction, dt, uwb_counter);
-				}
-
-			}
-			range_buffer.clear();
 		}
-		else if (use_gt && mes["type"] == "slam_pose" && start_graph) {
+		else if (use_gt && mes["type"] == "slam_pose") {
 
 			if (gt_counter % T_GT == 0) {
-				if (imu_counter == imu_count_at_last_imu_factor) {
+				if (imu_since_last_nonimu == 0) {
 					// Pass this measurement and buffer it until the next IMU becomes available
-					gt_pose_buffer.push_back(mes);
+					nonimu_buffer.push_back(mes);
 					continue;
 				}
+
 				processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model, T_imu_body);
 				gt_applied++;
 			}
 
-
-			imu_count_at_last_correction = imu_counter;
-			imu_count_at_last_imu_factor = imu_counter;
+			imu_since_last_nonimu=0;
 
 			gt_counter++;
 			
 		}
-		else if (use_uwb && mes["type"] == "uwb" && start_graph) {
+		else if (use_uwb && mes["type"] == "uwb") {
 
-			if (imu_counter == imu_count_at_last_correction) { continue; }
-			if (imu_counter == imu_count_at_last_imu_factor) {
+			if (imu_since_last_nonimu == 0) {
 				// Pass this measurement and buffer it until the next IMU becomes available
-				range_buffer.push_back(mes);
+				nonimu_buffer.push_back(mes);
 				continue;
 			}
 			else {
 				processUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
 					UWB_noise_model, GT_noise_model,
 					imu_counter, imu_count_at_last_correction, dt, uwb_counter);
-				uwb_counter++;
 			}
+			uwb_counter++;
 
-			imu_count_at_last_imu_factor = imu_counter;
+			imu_since_last_nonimu=0;
 		}
-		else if (simulating && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
+		else if (use_uwb && mes["type"] == "synthetic_uwb") {
 
-
-			if (imu_counter == imu_count_at_last_correction) { continue; }
-			if (imu_counter == imu_count_at_last_imu_factor) {
+			if (imu_since_last_nonimu == 0) {
 				// Pass this measurement and buffer it until the next IMU becomes available
-				range_buffer.push_back(mes);
+				nonimu_buffer.push_back(mes);
 				continue;
 			}
 			else {
@@ -709,11 +694,10 @@ int main(int argc, char* argv[]) {
 					UWB_noise_model, GT_noise_model, VIO_pose_noise_model,
 					imu_counter, imu_count_at_last_correction, dt, uwb_counter, T_imu_body);
 			}
+			uwb_counter++;
 
-			imu_count_at_last_imu_factor = imu_counter;
+			imu_since_last_nonimu=0;
 		}
-
-		mes_index++;
 		
 	}
 
