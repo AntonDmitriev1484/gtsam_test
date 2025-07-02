@@ -464,31 +464,31 @@ int main(int argc, char* argv[]) {
 
 	imuBias::ConstantBias prior_imu_bias;
 
-	// Matrix33 transform;
-	// transform << 1, 0, 0,
-	// 	0, 0, 1,
-	// 	0, -1, 0;
-	// Pose3 sensor_to_body_transform(Rot3(transform), Vector3(0, 0, 0));
+	Matrix33 transform;
+	transform << 1, 0, 0,
+		0, 0, 1,
+		0, -1, 0;
+	Pose3 T_imu_body(Rot3(transform), Vector3(0, 0, 0));
 	// body_P_sensor : "pose of sensor frame w.r.t body frame"
 
-	auto trans = json::parse(transform_fs);
-	Matrix44 pose_matrix;
-	int i = 0;
-	int j = 0;
-	for (const auto& row : trans["T_slam_world"]) {
-		if (row.is_array()) {
-			for (const double& element : row) {
-				//HTM_L_G(i, j) = static_cast<double>(element.get<float>());
-				pose_matrix(i, j) = element;
-				j++;
-			}
-		}
-		j = 0;
-		i++;
-	}
-	Pose3 T_imu_world(pose_matrix);
+	// auto trans = json::parse(transform_fs);
+	// Matrix44 pose_matrix;
+	// int i = 0;
+	// int j = 0;
+	// for (const auto& row : trans["T_slam_world"]) {
+	// 	if (row.is_array()) {
+	// 		for (const double& element : row) {
+	// 			//HTM_L_G(i, j) = static_cast<double>(element.get<float>());
+	// 			pose_matrix(i, j) = element;
+	// 			j++;
+	// 		}
+	// 	}
+	// 	j = 0;
+	// 	i++;
+	// }
+	// Pose3 T_imu_world(pose_matrix);
+	// Pose3 T_imu_body(T_imu_world.rotation(), Vector3(0, 0, 0));
 
-	Pose3 T_imu_body(T_imu_world.rotation(), Vector3(0, 0, 0));
 	imu_preintegration_params->body_P_sensor = T_imu_body;
 
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
