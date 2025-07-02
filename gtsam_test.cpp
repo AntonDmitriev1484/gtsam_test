@@ -104,7 +104,7 @@ string trial_name = "/stereoi_circle2_post";
 string out_directory = "./out_trajectory";
 string debug_dump_directory = "./debug";
 
-ifstream raw_fs(directory + trial_name + "/" + "all_synthetic.json");
+ifstream raw_fs(directory + trial_name + "/synthetic/" + "all_synthetic_20_60.json");
 ifstream beacon_fs(directory + trial_name + "/anchors.json");
 ifstream transform_fs(directory + trial_name + "/transforms.json");
 
@@ -116,7 +116,8 @@ void processGT(
 	ISAM2* isam,
 	PreintegrationType* imu_preintegrated,
 	NavState& prev_state,
-	const SharedNoiseModel& GT_noise_model)
+	const SharedNoiseModel& GT_noise_model,
+	Pose3 T_imu_body)
 {
 	cout << "Used GT" << endl;
 	user.Ix++;
@@ -127,7 +128,7 @@ void processGT(
 	Matrix44 gt_pose_slam;
 	string usrname;
 	get_pose_matrix(mes, usrname, gt_pose_slam);
-	Pose3 gt_pose(gt_pose_slam);
+	Pose3 gt_pose = Pose3(gt_pose_slam) * T_imu_body.inverse(); // Transform pose to the body frame.
 	user.gt_poses.push_back(gt_pose);
 
 	// Add IMU factor
@@ -167,6 +168,7 @@ void processGT(
 	}
 	catch (const std::exception& e) {
 		cerr << "Optimizer update failed: " << e.what() << endl;
+		cerr << "Data timestamp is " << mes["t"] << endl;
 		graph->saveGraph(debug_dump_directory+"/graph.dot", result);
 		graph->print("");
 		cerr << "Graph dumped to factor_graph.dot" << endl;
@@ -416,8 +418,8 @@ int main(int argc, char* argv[]) {
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
 	// GT noise model - (use to define pose prior)
-	double gt_pos_stdev = 1e-3;
-	double gt_ori_stdev = 1e-3;
+	double gt_pos_stdev = 1e-2;
+	double gt_ori_stdev = 1e-2;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
 	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 0.01);
 	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 0.01);
@@ -446,7 +448,8 @@ int main(int argc, char* argv[]) {
 	Matrix33 integration_cov = I_3x3 * 1e-5 * SCALE;
 
 
-	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedD();
+	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
+	// std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = std::make_shared<PreintegratedCombinedMeasurements::Params>(Vector3(0, 9.81, 0));
 	imu_preintegration_params->accelerometerCovariance = continuous_time_accel_noise_cov;
 	imu_preintegration_params->gyroscopeCovariance = continuous_time_gyro_noise_cov;
 
@@ -461,11 +464,11 @@ int main(int argc, char* argv[]) {
 
 	imuBias::ConstantBias prior_imu_bias;
 
-	Matrix33 transform;
-	transform << 1, 0, 0,
-		0, 0, 1,
-		0, -1, 0;
-	Pose3 sensor_to_body_transform(Rot3(transform), Vector3(0, 0, 0));
+	// Matrix33 transform;
+	// transform << 1, 0, 0,
+	// 	0, 0, 1,
+	// 	0, -1, 0;
+	// Pose3 sensor_to_body_transform(Rot3(transform), Vector3(0, 0, 0));
 	// body_P_sensor : "pose of sensor frame w.r.t body frame"
 
 	auto trans = json::parse(transform_fs);
@@ -519,12 +522,12 @@ int main(int argc, char* argv[]) {
 			Pose3 find_first_gt_pose;
 			for (json mes : sensor_stream) {
 				if (mes["type"] == "slam_pose") {
-					Matrix44 gt_pose_slam;
+					Matrix44 gt_pose_world;
 					string usrname;
-					get_pose_matrix(mes, usrname, gt_pose_slam);
+					get_pose_matrix(mes, usrname, gt_pose_world);
 
 					//Pose3 gt_pose = slam_to_world * gt_pose_slam;
-					Pose3 gt_pose(gt_pose_slam);
+					Pose3 gt_pose(gt_pose_world);
 
 					find_first_gt_pose = gt_pose;
 					break;
@@ -585,6 +588,7 @@ int main(int argc, char* argv[]) {
 	double gt_correction_hz = 20;
 	int T_GT = (int) (gt_correction_hz_max / gt_correction_hz); // Every X SLAM measurements, generate 1 GT correction
 	int gt_counter = 0;
+	int gt_applied = 0;
 
 
 	int imu_count_at_last_correction = 0;
@@ -615,7 +619,13 @@ int main(int argc, char* argv[]) {
 			user.est_poses.push_back(proposed.pose());
 
 			for (json mes : gt_pose_buffer) {
-				processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model);
+				if (gt_counter % 5 == 0) {
+					processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model, T_imu_body);
+					gt_applied ++;
+				}
+				imu_count_at_last_correction = imu_counter;
+				imu_count_at_last_imu_factor = imu_counter;
+				gt_counter++;
 			}
 			gt_pose_buffer.clear();
 
@@ -625,6 +635,8 @@ int main(int argc, char* argv[]) {
 					processSyntheticUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
 					UWB_noise_model, GT_noise_model, VIO_pose_noise_model,
 					imu_counter, imu_count_at_last_correction, dt, uwb_counter);
+
+					uwb_counter++;
 				}
 				else {
 					processUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state, 
@@ -637,12 +649,15 @@ int main(int argc, char* argv[]) {
 		}
 		else if (use_gt && mes["type"] == "slam_pose" && start_graph) {
 
-			if (imu_counter == imu_count_at_last_imu_factor) {
-				// Pass this measurement and buffer it until the next IMU becomes available
-				gt_pose_buffer.push_back(mes);
-				continue;
+			if (gt_counter % 5 == 0) {
+				if (imu_counter == imu_count_at_last_imu_factor) {
+					// Pass this measurement and buffer it until the next IMU becomes available
+					gt_pose_buffer.push_back(mes);
+					continue;
+				}
+				processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model, T_imu_body);
+				gt_applied++;
 			}
-			processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model);
 
 
 			imu_count_at_last_correction = imu_counter;
@@ -663,6 +678,7 @@ int main(int argc, char* argv[]) {
 				processUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
 					UWB_noise_model, GT_noise_model,
 					imu_counter, imu_count_at_last_correction, dt, uwb_counter);
+				uwb_counter++;
 			}
 
 			imu_count_at_last_imu_factor = imu_counter;
@@ -694,6 +710,14 @@ int main(int argc, char* argv[]) {
 	ofstream slam_trajectory_fs("./out_trajectory/slam.txt");
 	write_trajectory_TUM_format( user.gt_poses, slam_trajectory_fs);
 	slam_trajectory_fs.close();
+
+	cout << " Applied " << uwb_counter << " uwb measurements for 45 seconds of data " << endl;
+	double fuwb = uwb_counter /45.0;
+	cout << " UWB frequency in the graph is " << fuwb << endl;
+
+		cout << " Applied " << gt_applied << " slam measurements for 45 seconds of data " << endl;
+	double fgt = gt_applied /45.0;
+	cout << " GT frequency in the graph is " << fgt << endl;
 
 	return 0;
 }
