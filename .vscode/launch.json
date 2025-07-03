@@ -6,7 +6,7 @@
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/out/build/linux-debug/gtsam_test",
-      "args": [],
+      "args": ["stereoi_circle2", "synthetic_1_5", "uwb", "true"],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
       "environment": [],

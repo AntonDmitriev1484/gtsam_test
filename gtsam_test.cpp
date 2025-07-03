@@ -93,20 +93,6 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 	 } \
 }
 
-// WSL paths 
-// string directory = "/home/admitriev/Datasets/UWBSLAM_pilot/";
-// string trial_name = "stereoi_circle2_post";
-// string out_directory = "/home/admitriev/Research/pilot_results/" + trial_name;
-
-// Thinkpad paths
-string directory = "/home/antond2/ws/post/out"; // Need to post process on NUC, then SFTP to here.
-string trial_name = "/stereoi_circle2_post";
-string out_directory = "./out_trajectory";
-string debug_dump_directory = "./debug";
-
-ifstream raw_fs(directory + trial_name + "/synthetic/" + "all_synthetic_10_20.json");
-ifstream beacon_fs(directory + trial_name + "/anchors.json");
-ifstream transform_fs(directory + trial_name + "/transforms.json");
 
 void processGT(
 	json mes,
@@ -117,7 +103,8 @@ void processGT(
 	PreintegrationType* imu_preintegrated,
 	NavState& prev_state,
 	const SharedNoiseModel& GT_noise_model,
-	Pose3 T_imu_body)
+	Pose3 T_imu_body,
+	string debug_dump_directory)
 {
 	cout << "Used GT" << endl;
 	user.Ix++;
@@ -213,7 +200,8 @@ void processUWB(
 	int& imu_counter,
 	int& imu_count_at_last_correction,
 	double dt,
-	int& uwb_counter)
+	int& uwb_counter,
+	string debug_dump_directory)
 {
 	uwb_counter++;
 
@@ -312,7 +300,8 @@ void processSyntheticUWB(
 	int& imu_count_at_last_correction,
 	double dt,
 	int& uwb_counter,
-	Pose3& T_imu_body)
+	Pose3& T_imu_body,
+	string debug_dump_directory)
 {
 	cout << "Processing synthetic range for : " << gt_mes["t"] << endl;
 	uwb_counter++;
@@ -413,14 +402,62 @@ void processSyntheticUWB(
 
 int main(int argc, char* argv[]) {
 
-	// Redirect stdout output to a text file.
-	// 
-	bool DBG_REDIRECT = false;
 
-	if (DBG_REDIRECT) {
-		std::ofstream out(debug_dump_directory+"/print_dump.txt");
-		std::cout.rdbuf(out.rdbuf()); // redirect cout to file
+	if (argc != 5) {
+		// ex. stereoi_circle2 synthetic_20_60 uwb true
+        std::cerr << "Usage: " << argv[0] << " <trial_name> <synthetic_trial_name or 'none'> <'uwb' or 'no_uwb'> <dump (true|false)>" << std::endl;
+        return 1;
+    }
+	std::string trial_name = argv[1];
+    std::string synthetic_trial_name = argv[2];
+    std::string dump_str = argv[4];
+	std::string uwb_str = argv[3];
+
+    bool log_dump = (dump_str == "true");
+	bool use_uwb = (uwb_str == "uwb");
+	bool use_gt = true;
+	bool synthetic = synthetic_trial_name != "none";
+
+
+	string data_dir = "/home/antond2/ws/post/out/"+trial_name+"_post";
+	string out_dir = "/home/antond2/Desktop/Research/gtsam_test/out_results/"+trial_name;
+	if (synthetic) {
+		data_dir += "/synthetic";
+		out_dir += "/"+synthetic_trial_name;
+		if (use_uwb) { out_dir += "_uwb";}
 	}
+	string debug_dir = out_dir+"/debug";
+
+	ifstream raw_fs;
+	if (synthetic) {
+		raw_fs = ifstream(data_dir + "/all_" + synthetic_trial_name +".json");
+	}
+	else {
+		raw_fs = ifstream(data_dir + "/all.json");
+	}
+	ifstream beacon_fs("/home/antond2/ws/post/out/"+trial_name+"_post" + "/anchors.json");
+	ifstream transform_fs("/home/antond2/ws/post/out/"+trial_name+"_post" + "/transforms.json");
+
+	ofstream estimated_trajectory_fs(out_dir + "/est.txt");
+	ofstream slam_trajectory_fs(out_dir+"/slam.txt");
+	ofstream log_dump_fs(out_dir + "/log_dump.txt");
+
+	vector<string> paths = {out_dir, debug_dir};
+	for (string path: paths) {
+		if (!std::filesystem::exists(path)) {
+				std::filesystem::create_directories(path);
+				std::cout << "Directory created: " << path << std::endl;
+		}
+	}
+
+	// If log_dump. Redirect stdout output to a text file.
+	if (log_dump) {
+		std::cout.rdbuf(log_dump_fs.rdbuf()); // redirect cout to file
+	}
+
+	cout << "In path " << data_dir << endl;
+	cout << "Out path " << out_dir << endl;
+
 
 
 	json sensor_stream = json::parse(raw_fs);
@@ -442,8 +479,8 @@ int main(int argc, char* argv[]) {
 
 	// UWB noise model
 
-	// double uwb_stdev = 0.01;
-	double uwb_stdev = 0.5;
+	double uwb_stdev = 0.1;
+	// double uwb_stdev = 0.5;
 	// They set this to 100 or 1000 in this example: https://github.com/borglab/gtsam/blob/develop/examples/RangeISAMExample_plaza2.cpp
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
@@ -612,10 +649,6 @@ int main(int argc, char* argv[]) {
 	bool initialization_complete = true;
 	bool start_graph = false;
 
-	bool use_gt = true;
-	bool use_uwb = true;
-	bool simulating = true;
-
 	int T_UWB = 10; // Every X IMU measurements, generate 1 synthetic UWB measurement.
 	int uwb_counter = 0;
 	
@@ -623,12 +656,12 @@ int main(int argc, char* argv[]) {
 	double gt_correction_hz = 20;
 	int T_GT = (int) (gt_correction_hz_max / gt_correction_hz); // Every X SLAM measurements, generate 1 GT correction
 	int gt_counter = 0;
-	int gt_applied = 0;
 
 
 	int imu_count_at_last_correction = 0;
 	int imu_count_at_last_imu_factor = 0;
 	int factor_counter = 0;
+	int gt_skipped = 0;
 
 	vector<json> gt_pose_buffer;
 	vector<json> range_buffer;
@@ -654,10 +687,8 @@ int main(int argc, char* argv[]) {
 			user.est_poses.push_back(proposed.pose());
 
 			for (json mes : gt_pose_buffer) {
-				if (gt_counter % 5 == 0) {
-					processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model, T_imu_body);
-					gt_applied ++;
-				}
+				processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model, T_imu_body, debug_dir);
+
 				imu_count_at_last_correction = imu_counter;
 				imu_count_at_last_imu_factor = imu_counter;
 				gt_counter++;
@@ -666,17 +697,17 @@ int main(int argc, char* argv[]) {
 
 			for (json mes : range_buffer) {
 
-				if (simulating) {
+				if (synthetic) {
 					processSyntheticUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
 					UWB_noise_model, GT_noise_model, GT_noise_model,
-					imu_counter, imu_count_at_last_correction, dt, uwb_counter, T_imu_body);
+					imu_counter, imu_count_at_last_correction, dt, uwb_counter, T_imu_body, debug_dir);
 
 					uwb_counter++;
 				}
 				else {
 					processUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state, 
 						UWB_noise_model, GT_noise_model,
-						imu_counter, imu_count_at_last_correction, dt, uwb_counter);
+						imu_counter, imu_count_at_last_correction, dt, uwb_counter, debug_dir);
 				}
 
 			}
@@ -684,16 +715,14 @@ int main(int argc, char* argv[]) {
 		}
 		else if (use_gt && mes["type"] == "slam_pose" && start_graph) {
 
-			if (gt_counter % 5 == 0) {
-				if (imu_counter == imu_count_at_last_imu_factor) {
-					// Pass this measurement and buffer it until the next IMU becomes available
-					gt_pose_buffer.push_back(mes);
-					continue;
-				}
-				processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model, T_imu_body);
-				gt_applied++;
+			if (imu_counter == imu_count_at_last_imu_factor) {
+				// Pass this measurement and buffer it until the next IMU becomes available
+				cout << " Skipped SLAM pose " << endl;
+				gt_skipped ++; 
+				gt_pose_buffer.push_back(mes);
+				continue;
 			}
-
+			processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model, T_imu_body, debug_dir);
 
 			imu_count_at_last_correction = imu_counter;
 			imu_count_at_last_imu_factor = imu_counter;
@@ -712,13 +741,13 @@ int main(int argc, char* argv[]) {
 			else {
 				processUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
 					UWB_noise_model, GT_noise_model,
-					imu_counter, imu_count_at_last_correction, dt, uwb_counter);
+					imu_counter, imu_count_at_last_correction, dt, uwb_counter, debug_dir);
 				uwb_counter++;
 			}
 
 			imu_count_at_last_imu_factor = imu_counter;
 		}
-		else if (simulating && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
+		else if (synthetic && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
 
 
 			if (imu_counter == imu_count_at_last_correction) { continue; }
@@ -730,7 +759,7 @@ int main(int argc, char* argv[]) {
 			else {
 				processSyntheticUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
 					UWB_noise_model, GT_noise_model, GT_noise_model,
-					imu_counter, imu_count_at_last_correction, dt, uwb_counter, T_imu_body);
+					imu_counter, imu_count_at_last_correction, dt, uwb_counter, T_imu_body, debug_dir);
 			}
 
 			imu_count_at_last_imu_factor = imu_counter;
@@ -738,11 +767,9 @@ int main(int argc, char* argv[]) {
 		
 	}
 
-	ofstream estimated_trajectory_fs("./out_trajectory/estimated.txt");
 	write_trajectory_TUM_format( user.est_poses, estimated_trajectory_fs);
 	estimated_trajectory_fs.close();
 
-	ofstream slam_trajectory_fs("./out_trajectory/slam.txt");
 	write_trajectory_TUM_format( user.gt_poses, slam_trajectory_fs);
 	slam_trajectory_fs.close();
 
@@ -750,9 +777,10 @@ int main(int argc, char* argv[]) {
 	double fuwb = uwb_counter /45.0;
 	cout << " UWB frequency in the graph is " << fuwb << endl;
 
-		cout << " Applied " << gt_applied << " slam measurements for 45 seconds of data " << endl;
-	double fgt = gt_applied /45.0;
+	cout << " Applied " << gt_counter << " slam measurements for 45 seconds of data " << endl;
+	double fgt = gt_counter /45.0;
 	cout << " GT frequency in the graph is " << fgt << endl;
+	cout << " GT skipped " << gt_skipped << endl;
 
 	return 0;
 }
