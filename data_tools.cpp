@@ -129,18 +129,20 @@ void write_trajectory_KITTI_format(vector<Pose3> trajectory, ofstream& fs) {
 	}
 }
 
-void write_trajectory_TUM_format(vector<Pose3> trajectory, ofstream& fs) {
+void write_trajectory_TUM_format(vector<Pose3> trajectory, vector<double> timestamps, ofstream& fs) {
 
     // Write CSV header
     fs << "index,x,y,z,roll,pitch,yaw\n";
 
+	fs << std::fixed << std::setprecision(8);  // Set once before the loop
+	
     for (size_t i = 0; i < trajectory.size(); i++) {
         const Pose3& pose = trajectory[i];
         Point3 t = pose.translation();
         Rot3 R = pose.rotation();
         Quaternion q = pose.rotation().toQuaternion();
 
-        fs << i << ","; // TODO: replace with timestamp
+        fs << timestamps[i] << ",";
         fs << t.x() << "," << t.y() << "," << t.z() << ",";
         fs << q.x() << ", " << q.y() << ", " << q.z() << ", " << q.w() << "\n";
     }

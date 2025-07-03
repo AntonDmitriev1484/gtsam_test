@@ -100,13 +100,13 @@ def main():
     # Plot 1
     fig1 = plt.figure()
     ax1 = fig1.add_subplot(111, projection='3d')
-    ax1.set_title("Plot 1: Estimated vs Ground Truth")
+    ax1.set_title("Plot 1: Estimated (GT + IMU) vs Ground Truth")
     plot_trajectory(ax1, est1, "Est 1", gt1, "GT 1", "blue", "green", quat1, quat_gt1, args.stride)
 
     # Plot 2
     fig2 = plt.figure()
     ax2 = fig2.add_subplot(111, projection='3d')
-    ax2.set_title("Plot 2: Estimated vs Ground Truth (UWB)")
+    ax2.set_title("Plot 2: Estimated (UWB + GT + IMU) vs Ground Truth")
     plot_trajectory(ax2, est2, "Est 2", gt2, "GT 2", "blue", "green", quat2, quat_gt2, args.stride)
 
     plt.show()

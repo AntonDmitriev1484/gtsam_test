@@ -25,9 +25,12 @@ struct tracking {
 	// Used to store trajectory at runtime
 	vector<Pose3> vio_poses;
 	vector<Pose3> gt_poses;
+	vector<double> gt_timestamps; // Parallel array to poses.
 
-	vector<Pose3> est_poses; // Estimated poses
-	vector<Vector3> est_velocitys; // Estimated velocity from IMU factor
+	vector<Pose3> est_poses; // Estimated pose
+	vector<double> est_timestamps; // Parallel array to poses.
+
+	vector<Vector3> est_velocities; // Estimated velocity from IMU factor
 	vector<Vector3> est_poses_error; // Estimated poses error
 	imuBias::ConstantBias constant_bias; // Constant bias
 
@@ -49,4 +52,4 @@ void get_gt_info(map<string, tracking>& info, json gt_data);
 void get_beacon_info(map<string, tracking>& info, json beacon_data);
 
 void write_trajectory_KITTI_format(vector<Pose3> trajectory, ofstream& fs);
-void write_trajectory_TUM_format(vector<Pose3> trajectory, ofstream& fs);
+void write_trajectory_TUM_format(vector<Pose3> trajectory, vector<double> timestamps, ofstream& fs);

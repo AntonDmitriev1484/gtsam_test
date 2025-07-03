@@ -117,6 +117,7 @@ void processGT(
 	get_pose_matrix(mes, usrname, gt_pose_slam);
 	Pose3 gt_pose = Pose3(gt_pose_slam) * T_imu_body.inverse(); // Transform pose to the body frame.
 	user.gt_poses.push_back(gt_pose);
+	user.gt_timestamps.push_back(mes["t"]);
 
 	// Add IMU factor
 	auto* current_imu_preintegration =
@@ -164,7 +165,9 @@ void processGT(
 		result = isam->calculateEstimate();
 
 		user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
-		user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv)));
+		user.est_timestamps.push_back((double)mes["t"]);
+
+		user.est_velocities.push_back(result.at<Vector3>(V(user.Iv)));
 		prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
 
 		cout << "Successful estimate on GT factor" << endl;
@@ -228,7 +231,7 @@ void processUWB(
 
 	// Add fake GT-style prior to help stabilize
 	Pose3 last_correction = user.gt_poses.back();
-	Vector3 last_velocity = user.est_velocitys.back();
+	Vector3 last_velocity = user.est_velocities.back();
 
 	Vector3 reckoned_translation = last_velocity.x() *
 		(imu_counter - imu_count_at_last_correction) * dt *
@@ -264,7 +267,8 @@ void processUWB(
 		result = isam->calculateEstimate();
 
 		user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
-		user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv)));
+		user.est_timestamps.push_back((double)mes["t"]);
+		user.est_velocities.push_back(result.at<Vector3>(V(user.Iv)));
 
 		cout << "Successful estimate on UWB factor" << endl;
 	}
@@ -285,7 +289,7 @@ void processUWB(
 }
 
 void processSyntheticUWB(
-	json gt_mes,
+	json mes,
 	string src_user,
 	map<string, tracking > & info,
 	NonlinearFactorGraph* graph,
@@ -303,7 +307,7 @@ void processSyntheticUWB(
 	Pose3& T_imu_body,
 	string debug_dump_directory)
 {
-	cout << "Processing synthetic range for : " << gt_mes["t"] << endl;
+	cout << "Processing synthetic range for : " << mes["t"] << endl;
 	uwb_counter++;
 
 	vector<string> users = {"2", "3", "5"};
@@ -315,9 +319,10 @@ void processSyntheticUWB(
 		// Extract GT pose
 	Matrix44 gt_pose_slam;
 	string usrname;
-	get_pose_matrix(gt_mes, usrname, gt_pose_slam);
+	get_pose_matrix(mes, usrname, gt_pose_slam);
 	Pose3 gt_pose = Pose3(gt_pose_slam) * T_imu_body.inverse(); // Transform pose to the body frame.
 	user.gt_poses.push_back(gt_pose);
+	user.gt_timestamps.push_back(mes["t"]);
 
 
 	user.Ix++;
@@ -378,13 +383,15 @@ void processSyntheticUWB(
 		result = isam->calculateEstimate();
 
 		user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
-		user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv)));
+		user.est_timestamps.push_back((double)mes["t"]);
+
+		user.est_velocities.push_back(result.at<Vector3>(V(user.Iv)));
 
 		cout << "Successful estimate on UWB factor" << endl;
 	}
 	catch (const std::exception& e) {
 		cerr << "Optimizer update failed: " << e.what() << endl;
-		cerr << "Data timestamp is " << gt_mes["t"] << endl;
+		cerr << "Data timestamp is " << mes["t"] << endl;
 		graph->saveGraph(debug_dump_directory+"/graph.dot", result);
 		graph->print("");
 		cerr << "Graph dumped to factor_graph.dot" << endl;
@@ -488,7 +495,7 @@ int main(int argc, char* argv[]) {
 	double gt_pos_stdev = 1e-2;
 	double gt_ori_stdev = 1e-2;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
-	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 0.01);
+	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 1);
 	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 0.01);
 
 
@@ -572,6 +579,7 @@ int main(int argc, char* argv[]) {
 	// Initialize the first GT pose.
 
 	int pose_num = 0;
+	int mes_start = 0;
 	for (auto& [u, track] : info) {
 		track.Ix = 0;
 		track.Iv = 0;
@@ -587,22 +595,30 @@ int main(int argc, char* argv[]) {
 		else { // Since we only have one user, user 2.
 			
 			Pose3 find_first_gt_pose;
+			int mes_idx = 0;
+			double start_timestamp = 0;
+
 			for (json mes : sensor_stream) {
 				if (mes["type"] == "slam_pose") {
+					start_timestamp = (double) mes["t"];
+					mes_start = mes_idx;
 					Matrix44 gt_pose_world;
 					string usrname;
 					get_pose_matrix(mes, usrname, gt_pose_world);
 
 					//Pose3 gt_pose = slam_to_world * gt_pose_slam;
-					Pose3 gt_pose(gt_pose_world);
+					Pose3 asdf(gt_pose_world);
+					Pose3 gt_pose = asdf * T_imu_body.inverse();
 
 					find_first_gt_pose = gt_pose;
 					break;
 				}
+				mes_idx ++;
 			}
 
+			// <<< Problem behind start spaghetti is here >>>
 			Pose3 start_pose = find_first_gt_pose;
-			Vector3 prior_velocity(0, 0, 0);
+			Vector3 prior_velocity(-0.3, -0.8, 0); // I'm assuming this should be in the world frame?
 
 			vals.insert(X(track.Ix), start_pose);
 			vals.insert(V(track.Iv), prior_velocity);
@@ -613,7 +629,8 @@ int main(int argc, char* argv[]) {
 			graph->addPrior(B(track.Ib), prior_imu_bias, prior_bias_noise_model);
 
 			track.est_poses.push_back(start_pose); // We'll take the estimate out of values and put it here.
-			track.est_velocitys.push_back(prior_velocity);
+			track.est_timestamps.push_back(start_timestamp);
+			track.est_velocities.push_back(prior_velocity);
 			track.constant_bias = prior_imu_bias;
 
 		}
@@ -641,7 +658,7 @@ int main(int argc, char* argv[]) {
 	vals.clear();
 
 	tracking& user = info.at("1");
-	NavState prev_state(user.est_poses.back(), user.est_velocitys.back());
+	NavState prev_state(user.est_poses.back(), user.est_velocities.back());
 
 
 	int imu_counter = 0;
@@ -666,25 +683,34 @@ int main(int argc, char* argv[]) {
 	vector<json> gt_pose_buffer;
 	vector<json> range_buffer;
 
+	int mes_idx = 0;
 
 	for (json mes : sensor_stream) {
+
+		if (mes_start < mes_idx) cout << "START T " << mes["t"] << endl;
+
+		//21784 synthuwb vs 23177 gt
+		// So cropping by GT probably caused problems because it cut off a nonimu measurement.
 
 		if (mes["type"] == "imu") {
 
 			// Add IMU measurement
-			start_graph = true;
 			Vector3 accel;
 			Vector3 gyro;
 			get_IMU(mes, accel, gyro);
 			imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 			imu_counter++;
+			start_graph = true;
 
 			cout << "Preintegration on at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
 
-			// Just for plotting
-			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-			auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
-			user.est_poses.push_back(proposed.pose());
+			// Just for plotting at IMU frequency
+			if (mes_idx > mes_start) {
+				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
+				user.est_poses.push_back(proposed.pose());
+				user.est_timestamps.push_back((double)mes["t"]);
+			}
 
 			for (json mes : gt_pose_buffer) {
 				processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model, T_imu_body, debug_dir);
@@ -764,13 +790,13 @@ int main(int argc, char* argv[]) {
 
 			imu_count_at_last_imu_factor = imu_counter;
 		}
-		
+		mes_idx ++;
 	}
 
-	write_trajectory_TUM_format( user.est_poses, estimated_trajectory_fs);
+	write_trajectory_TUM_format( user.est_poses, user.est_timestamps, estimated_trajectory_fs);
 	estimated_trajectory_fs.close();
 
-	write_trajectory_TUM_format( user.gt_poses, slam_trajectory_fs);
+	write_trajectory_TUM_format( user.gt_poses, user.gt_timestamps, slam_trajectory_fs);
 	slam_trajectory_fs.close();
 
 	cout << " Applied " << uwb_counter << " uwb measurements for 45 seconds of data " << endl;
