@@ -104,7 +104,7 @@ string trial_name = "/stereoi_circle2_post";
 string out_directory = "./out_trajectory";
 string debug_dump_directory = "./debug";
 
-ifstream raw_fs(directory + trial_name + "/synthetic/" + "all_synthetic_10_20.json");
+ifstream raw_fs(directory + trial_name + "/synthetic/" + "all_synthetic_20_60.json");
 ifstream beacon_fs(directory + trial_name + "/anchors.json");
 ifstream transform_fs(directory + trial_name + "/transforms.json");
 
@@ -164,6 +164,7 @@ void processGT(
 
 		user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
 		user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv)));
+		prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
 
 		cout << "Successful estimate on GT factor" << endl;
 	}
@@ -176,15 +177,13 @@ void processGT(
 		throw; // rethrow
 	}
 
+	// Clear for next iteration
+	vals.clear();
+	graph->resize(0);
 
-	prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
 
 	// Reset preintegration
 	imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias);
-
-	// Clear for next iteration
-	graph->resize(0);
-	vals.clear();
 }
 
 void processUWB(
@@ -265,6 +264,7 @@ void processUWB(
 
 		user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
 		user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv)));
+		prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
 
 		cout << "Successful estimate on UWB factor" << endl;
 	}
@@ -276,11 +276,9 @@ void processUWB(
 		throw; // rethrow
 	}
 
-	prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
-
 	// Prepare for next iteration
-	graph->resize(0);
 	vals.clear();
+	graph->resize(0);
 	imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias);
 }
 
@@ -359,11 +357,30 @@ void processSyntheticUWB(
 	// Run optimization
 	Values result;
 	try {
+		cout << " Before running iSam update --------- " << endl;
+		cout << "Keys in vals: ";
+		for (const auto& key : vals.keys()) {
+			cout << DefaultKeyFormatter(key) << " ";
+		}
+		cout << endl;
+
+		cout << "Keys in graph: ";
+		for (const auto& f : *graph) {
+			auto keys = f->keys();
+			for (Key k : keys) {
+				cout << DefaultKeyFormatter(k) << " ";
+			}
+		}
+		cout << endl;
+
+
 		isam->update(*graph, vals);
 		result = isam->calculateEstimate();
 
 		user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
 		user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv)));
+
+		prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
 
 		cout << "Successful estimate on UWB factor" << endl;
 	}
@@ -372,15 +389,30 @@ void processSyntheticUWB(
 		cerr << "Data timestamp is " << gt_mes["t"] << endl;
 		graph->saveGraph(debug_dump_directory+"/graph.dot", result);
 		graph->print("");
+
+		cout << " --------- " << endl;
+		cout << "Keys in vals: ";
+		for (const auto& key : vals.keys()) {
+			cout << DefaultKeyFormatter(key) << " ";
+		}
+		cout << endl;
+
+		cout << "Keys in graph: ";
+		for (const auto& f : *graph) {
+			auto keys = f->keys();
+			for (Key k : keys) {
+				cout << DefaultKeyFormatter(k) << " ";
+			}
+		}
+		cout << endl;
+
 		cerr << "Graph dumped to graph.dot" << endl;
 		throw; // rethrow
 	}
 
-	prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
-
 	// Prepare for next iteration
-	graph->resize(0);
 	vals.clear();
+	graph->resize(0);
 	imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias);
 }
 
@@ -586,7 +618,7 @@ int main(int argc, char* argv[]) {
 	bool start_graph = false;
 
 	bool use_gt = true;
-	bool use_uwb = true;
+	bool use_uwb = false;
 	bool simulating = true;
 
 	int T_UWB = 10; // Every X IMU measurements, generate 1 synthetic UWB measurement.
@@ -608,6 +640,7 @@ int main(int argc, char* argv[]) {
 	vector<json> range_buffer;
 	vector<json> nonimu_buffer;
 
+	bool buffering = false;
 
 	int mes_index = 0;
 	cout << "first gt mes idx " << first_gt_mes_index << endl;
@@ -619,14 +652,6 @@ int main(int argc, char* argv[]) {
 
 		cout << "Timestamp " << mes["t"] << endl;
 
-		for (json mes: nonimu_buffer) {
-			// Simple policy, discard the measurement that isn't SLAM
-			if (mes["type"] == "slam_pose") {
-				processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model, T_imu_body);
-				gt_applied ++;
-			}
-		}
-		nonimu_buffer.clear();
 
 		if (mes["type"] == "imu") {
 
@@ -645,13 +670,29 @@ int main(int argc, char* argv[]) {
 				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
 				user.est_poses.push_back(proposed.pose());
 
+				for (json mes: nonimu_buffer) {
+					cout << "Processing Buffer" << endl;
+					
+					if (mes["type"] == "slam_pose") {
+						processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model, T_imu_body);
+						gt_applied ++;
+					}
+					else if (mes["type"] == "synthetic_uwb"){
+							processSyntheticUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
+					UWB_noise_model, GT_noise_model, VIO_pose_noise_model,
+					imu_counter, imu_count_at_last_correction, dt, uwb_counter, T_imu_body);
+						uwb_counter ++;
+					}
+				}
+				nonimu_buffer.clear();
+
 				imu_since_last_nonimu++;
 
 		}
 		else if (use_gt && mes["type"] == "slam_pose") {
 
 			if (gt_counter % T_GT == 0) {
-				if (imu_since_last_nonimu == 0) {
+				if (buffering && imu_since_last_nonimu == 0) {
 					// Pass this measurement and buffer it until the next IMU becomes available
 					nonimu_buffer.push_back(mes);
 					continue;
@@ -668,7 +709,7 @@ int main(int argc, char* argv[]) {
 		}
 		else if (use_uwb && mes["type"] == "uwb") {
 
-			if (imu_since_last_nonimu == 0) {
+			if (buffering && imu_since_last_nonimu == 0) {
 				// Pass this measurement and buffer it until the next IMU becomes available
 				nonimu_buffer.push_back(mes);
 				continue;
@@ -684,7 +725,7 @@ int main(int argc, char* argv[]) {
 		}
 		else if (use_uwb && mes["type"] == "synthetic_uwb") {
 
-			if (imu_since_last_nonimu == 0) {
+			if (buffering && imu_since_last_nonimu == 0) {
 				// Pass this measurement and buffer it until the next IMU becomes available
 				nonimu_buffer.push_back(mes);
 				continue;
