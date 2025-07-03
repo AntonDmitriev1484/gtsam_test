@@ -104,7 +104,7 @@ string trial_name = "/stereoi_circle2_post";
 string out_directory = "./out_trajectory";
 string debug_dump_directory = "./debug";
 
-ifstream raw_fs(directory + trial_name + "/synthetic/" + "all_synthetic_20_60.json");
+ifstream raw_fs(directory + trial_name + "/synthetic/" + "all_synthetic_10_20.json");
 ifstream beacon_fs(directory + trial_name + "/anchors.json");
 ifstream transform_fs(directory + trial_name + "/transforms.json");
 
@@ -158,11 +158,27 @@ void processGT(
 
 	Values result;
 	try {
+		cout << "Keys in vals: ";
+		for (const auto& key : vals.keys()) {
+			cout << DefaultKeyFormatter(key) << " ";
+		}
+		cout << endl;
+
+		cout << "Keys in graph: ";
+		for (const auto& f : *graph) {
+			auto keys = f->keys();
+			for (Key k : keys) {
+				cout << DefaultKeyFormatter(k) << " ";
+			}
+		}
+		cout << endl;
+
 		isam->update(*graph, vals);
 		result = isam->calculateEstimate();
 
 		user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
 		user.est_velocitys.push_back(result.at<Vector3>(V(user.Iv)));
+		prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
 
 		cout << "Successful estimate on GT factor" << endl;
 	}
@@ -174,9 +190,6 @@ void processGT(
 		cerr << "Graph dumped to factor_graph.dot" << endl;
 		throw; // rethrow
 	}
-
-
-	prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
 
 	// Reset preintegration
 	imu_preintegrated->resetIntegrationAndSetBias(user.constant_bias);
@@ -298,22 +311,25 @@ void processSyntheticUWB(
 	int& imu_counter,
 	int& imu_count_at_last_correction,
 	double dt,
-	int& uwb_counter)
+	int& uwb_counter,
+	Pose3& T_imu_body)
 {
 	cout << "Processing synthetic range for : " << gt_mes["t"] << endl;
 	uwb_counter++;
-
-		// Extract GT pose
-	Matrix44 gt_pose_slam;
-	string usrname;
-	get_pose_matrix(gt_mes, usrname, gt_pose_slam);
-	Pose3 gt_pose(gt_pose_slam);
 
 	vector<string> users = {"2", "3", "5"};
 	string dst_user = users[uwb_counter % 3];
 
 	tracking& user = info[src_user];
 	tracking& dst = info[dst_user];
+
+		// Extract GT pose
+	Matrix44 gt_pose_slam;
+	string usrname;
+	get_pose_matrix(gt_mes, usrname, gt_pose_slam);
+	Pose3 gt_pose = Pose3(gt_pose_slam) * T_imu_body.inverse(); // Transform pose to the body frame.
+	user.gt_poses.push_back(gt_pose);
+
 
 	user.Ix++;
 	user.Iv++;
@@ -355,6 +371,20 @@ void processSyntheticUWB(
 	// Run optimization
 	Values result;
 	try {
+		cout << "Keys in vals: ";
+		for (const auto& key : vals.keys()) {
+			cout << DefaultKeyFormatter(key) << " ";
+		}
+		cout << endl;
+
+		cout << "Keys in graph: ";
+		for (const auto& f : *graph) {
+			auto keys = f->keys();
+			for (Key k : keys) {
+				cout << DefaultKeyFormatter(k) << " ";
+			}
+		}
+		cout << endl;
 		isam->update(*graph, vals);
 		result = isam->calculateEstimate();
 
@@ -412,8 +442,8 @@ int main(int argc, char* argv[]) {
 
 	// UWB noise model
 
-	double uwb_stdev = 0.01;
-	//double uwb_stdev = 0.5;
+	// double uwb_stdev = 0.01;
+	double uwb_stdev = 0.5;
 	// They set this to 100 or 1000 in this example: https://github.com/borglab/gtsam/blob/develop/examples/RangeISAMExample_plaza2.cpp
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
@@ -547,7 +577,7 @@ int main(int argc, char* argv[]) {
 
 			track.est_poses.push_back(start_pose); // We'll take the estimate out of values and put it here.
 			track.est_velocitys.push_back(prior_velocity);
-			//track.constant_bias = prior_imu_bias;
+			track.constant_bias = prior_imu_bias;
 
 		}
 
@@ -564,9 +594,14 @@ int main(int argc, char* argv[]) {
 	isam_params.factorization = ISAM2Params::QR;
 	isam_params.relinearizeThreshold = 0.01;
 	isam_params.relinearizeSkip = 1; // More informed optimization at the cost of more computing.
+	isam_params.enableDetailedResults = true;
 	ISAM2DoglegParams dogleg;
 	isam_params.optimizationParams = dogleg;
 	ISAM2* isam = new ISAM2(isam_params);
+	isam->update(*graph, vals);
+
+	graph->resize(0);
+	vals.clear();
 
 	tracking& user = info.at("1");
 	NavState prev_state(user.est_poses.back(), user.est_velocitys.back());
@@ -578,7 +613,7 @@ int main(int argc, char* argv[]) {
 	bool start_graph = false;
 
 	bool use_gt = true;
-	bool use_uwb = false;
+	bool use_uwb = true;
 	bool simulating = true;
 
 	int T_UWB = 10; // Every X IMU measurements, generate 1 synthetic UWB measurement.
@@ -633,8 +668,8 @@ int main(int argc, char* argv[]) {
 
 				if (simulating) {
 					processSyntheticUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
-					UWB_noise_model, GT_noise_model, VIO_pose_noise_model,
-					imu_counter, imu_count_at_last_correction, dt, uwb_counter);
+					UWB_noise_model, GT_noise_model, GT_noise_model,
+					imu_counter, imu_count_at_last_correction, dt, uwb_counter, T_imu_body);
 
 					uwb_counter++;
 				}
@@ -694,8 +729,8 @@ int main(int argc, char* argv[]) {
 			}
 			else {
 				processSyntheticUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
-					UWB_noise_model, GT_noise_model, VIO_pose_noise_model,
-					imu_counter, imu_count_at_last_correction, dt, uwb_counter);
+					UWB_noise_model, GT_noise_model, GT_noise_model,
+					imu_counter, imu_count_at_last_correction, dt, uwb_counter, T_imu_body);
 			}
 
 			imu_count_at_last_imu_factor = imu_counter;
