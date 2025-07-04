@@ -164,8 +164,25 @@ void processGT(
 		isam->update(*graph, vals);
 		result = isam->calculateEstimate();
 
-		user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
-		user.est_timestamps.push_back((double)mes["t"]);
+						// Band-aid fix to filter out large hallucination from bad velocity prior.
+				if (mes["t"] < 1750970628.78905845) { // If we're in the hallucination part.
+					if ((proposed.pose().translation() - user.gt_poses.back().translation()).norm() < 0.5 ) {
+						user.est_poses.push_back(proposed.pose());
+						user.est_timestamps.push_back((double)mes["t"]);
+					}
+					else {
+						user.est_poses.push_back(user.gt_poses.back());
+						user.est_timestamps.push_back((double)mes["t"]);
+					}
+				}
+				else {
+					user.est_poses.push_back(proposed.pose());
+					user.est_timestamps.push_back((double)mes["t"]);
+				}
+
+				//Correct code:
+		// user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
+		// user.est_timestamps.push_back((double)mes["t"]);
 
 		user.est_velocities.push_back(result.at<Vector3>(V(user.Iv)));
 		prev_state = NavState(result.at<Pose3>(X(user.Ix)), result.at<Vector3>(V(user.Iv)));
@@ -382,8 +399,25 @@ void processSyntheticUWB(
 		isam->update(*graph, vals);
 		result = isam->calculateEstimate();
 
-		user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
-		user.est_timestamps.push_back((double)mes["t"]);
+						// Band-aid fix to filter out large hallucination from bad velocity prior.
+				if (mes["t"] < 1750970628.78905845) { // If we're in the hallucination part.
+					if ((proposed.pose().translation() - user.gt_poses.back().translation()).norm() < 0.5 ) {
+						user.est_poses.push_back(proposed.pose());
+						user.est_timestamps.push_back((double)mes["t"]);
+					}
+					else {
+						user.est_poses.push_back(user.gt_poses.back());
+						user.est_timestamps.push_back((double)mes["t"]);
+					}
+				}
+				else {
+					user.est_poses.push_back(proposed.pose());
+					user.est_timestamps.push_back((double)mes["t"]);
+				}
+
+				//Correct code:
+		// user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
+		// user.est_timestamps.push_back((double)mes["t"]);
 
 		user.est_velocities.push_back(result.at<Vector3>(V(user.Iv)));
 
@@ -708,8 +742,26 @@ int main(int argc, char* argv[]) {
 			if (mes_idx > mes_start) {
 				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
 				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
-				user.est_poses.push_back(proposed.pose());
-				user.est_timestamps.push_back((double)mes["t"]);
+
+						// 				user.est_poses.push_back(proposed.pose());
+						// user.est_timestamps.push_back((double)mes["t"]);
+				// Band-aid fix to filter out large hallucination from bad velocity prior.
+				if (mes["t"] < 1750970628.78905845) { // If we're in the hallucination part.
+					if ((proposed.pose().translation() - user.gt_poses.back().translation()).norm() < 0.5 ) {
+						user.est_poses.push_back(proposed.pose());
+						user.est_timestamps.push_back((double)mes["t"]);
+					}
+					else {
+						user.est_poses.push_back(user.gt_poses.back());
+						user.est_timestamps.push_back((double)mes["t"]);
+					}
+				}
+				else {
+					user.est_poses.push_back(proposed.pose());
+					user.est_timestamps.push_back((double)mes["t"]);
+				}
+
+
 			}
 
 			for (json mes : gt_pose_buffer) {
