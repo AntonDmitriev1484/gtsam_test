@@ -41,17 +41,17 @@ endif()
 
 # <trial_name> <synthetic_trial_name or 'none'> <'uwb' or 'no_uwb'> <dump (true|false)>"
 enable_testing()
-add_test(NAME synthetic_20_60_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_20_60 no_uwb true)
-add_test(NAME synthetic_20_60_uwb COMMAND gtsam_test stereoi_circle2 synthetic_20_60 uwb true)
+add_test(NAME synthetic_20_60_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_20_60 no_uwb 0.2 true)
+add_test(NAME synthetic_20_60_uwb COMMAND gtsam_test stereoi_circle2 synthetic_20_60 uwb 0.2 true)
 
-add_test(NAME synthetic_1_5_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_1_5 no_uwb true)
-add_test(NAME synthetic_1_5_uwb COMMAND gtsam_test stereoi_circle2 synthetic_1_5 uwb true)
+add_test(NAME synthetic_1_5_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_1_5 no_uwb 0.2 true)
+add_test(NAME synthetic_1_5_uwb COMMAND gtsam_test stereoi_circle2 synthetic_1_5 uwb 0.2 true)
 
-add_test(NAME synthetic_1_10_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_1_10 no_uwb true WORKING_DIRECTORY /home/antond2/Desktop/Research/gtsam_test)
-add_test(NAME synthetic_1_10_uwb COMMAND gtsam_test stereoi_circle2 synthetic_1_10 uwb true WORKING_DIRECTORY /home/antond2/Desktop/Research/gtsam_test)
+add_test(NAME synthetic_1_10_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_1_10 no_uwb 0.2 true)
+add_test(NAME synthetic_1_10_uwb COMMAND gtsam_test stereoi_circle2 synthetic_1_10 uwb 0.2 true)
 
-add_test(NAME synthetic_2_5_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_2_5 no_uwb true WORKING_DIRECTORY /home/antond2/Desktop/Research/gtsam_test)
-add_test(NAME synthetic_2_5_uwb COMMAND gtsam_test stereoi_circle2 synthetic_2_5 uwb true WORKING_DIRECTORY /home/antond2/Desktop/Research/gtsam_test)
+add_test(NAME synthetic_2_5_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_2_5 no_uwb 0.2 true)
+add_test(NAME synthetic_2_5_uwb COMMAND gtsam_test stereoi_circle2 synthetic_2_5 uwb 0.2 true)
 
-add_test(NAME synthetic_2_10_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_2_10 no_uwb true WORKING_DIRECTORY /home/antond2/Desktop/Research/gtsam_test)
-add_test(NAME synthetic_2_10_uwb COMMAND gtsam_test stereoi_circle2 synthetic_2_10 uwb true WORKING_DIRECTORY /home/antond2/Desktop/Research/gtsam_test)
+add_test(NAME synthetic_2_10_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_2_10 no_uwb 0.2 true)
+add_test(NAME synthetic_2_10_uwb COMMAND gtsam_test stereoi_circle2 synthetic_2_10 uwb 0.2 true)

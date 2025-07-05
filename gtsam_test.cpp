@@ -322,7 +322,8 @@ void processSyntheticUWB(
 	double dt,
 	int& uwb_counter,
 	Pose3& T_imu_body,
-	string debug_dump_directory)
+	string debug_dump_directory,
+	double uwb_stdev)
 {
 	cout << "Processing synthetic range for : " << mes["t"] << endl;
 	uwb_counter++;
@@ -351,10 +352,16 @@ void processSyntheticUWB(
 		gt_pose.translation(),
 		info[dst_user].gt_poses.back().translation());
 
+	std::random_device rd;                          // Seed
+	std::mt19937 gen(rd());                         // Mersenne Twister engine
+	std::normal_distribution<double> dist(true_range, uwb_stdev);  // N(mean, stddev)
+	double noised_range = dist(gen);
+
 	// Add UWB (range) factor — use ground truth here for stability
 	graph->add(RangeFactor<Pose3, Pose3, double>(
-		X(user.Ix), dst.pose_key, true_range, UWB_noise_model));
+		X(user.Ix), dst.pose_key, noised_range, UWB_noise_model));
 	cout << "Added Range factor " << graph->size() - 1 << endl;
+	cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
 
 	// Add fake GT-style prior to help stabilize
 	graph->add(PriorFactor<Pose3>(X(user.Ix), gt_pose, FakePrior_noise_model));
@@ -444,20 +451,22 @@ void processSyntheticUWB(
 int main(int argc, char* argv[]) {
 
 
-	if (argc != 5) {
+	if (argc != 6) {
 		// ex. stereoi_circle2 synthetic_20_60 uwb true
-        std::cerr << "Usage: " << argv[0] << " <trial_name> <synthetic_trial_name or 'none'> <'uwb' or 'no_uwb'> <dump (true|false)>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <trial_name> <synthetic_trial_name or 'none'> <'uwb' or 'no_uwb'> <uwb_noise> <dump (true|false)>" << std::endl;
         return 1;
     }
 	std::string trial_name = argv[1];
     std::string synthetic_trial_name = argv[2];
-    std::string dump_str = argv[4];
 	std::string uwb_str = argv[3];
+	std::string uwb_noise_str = argv[4];
+	std::string dump_str = argv[5];
 
     bool log_dump = (dump_str == "true");
 	bool use_uwb = (uwb_str == "uwb");
 	bool use_gt = true;
 	bool synthetic = synthetic_trial_name != "none";
+	double uwb_synth_stdev = stod(uwb_noise_str);
 
 
 	string data_dir = "/home/antond2/ws/post/out/"+trial_name+"_post";
@@ -521,8 +530,8 @@ int main(int argc, char* argv[]) {
 
 	// UWB noise model
 
-	double uwb_stdev = 0.1;
-	// double uwb_stdev = 0.5;
+	// double uwb_stdev = 0.1;
+	double uwb_stdev = 0.2;
 	// They set this to 100 or 1000 in this example: https://github.com/borglab/gtsam/blob/develop/examples/RangeISAMExample_plaza2.cpp
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
@@ -722,11 +731,6 @@ int main(int argc, char* argv[]) {
 
 	for (json mes : sensor_stream) {
 
-		if (mes_start < mes_idx) cout << "START T " << mes["t"] << endl;
-
-		//21784 synthuwb vs 23177 gt
-		// So cropping by GT probably caused problems because it cut off a nonimu measurement.
-
 		if (mes["type"] == "imu") {
 
 			// Add IMU measurement
@@ -779,7 +783,7 @@ int main(int argc, char* argv[]) {
 				if (synthetic) {
 					processSyntheticUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
 					UWB_noise_model, GT_noise_model, GT_noise_model,
-					imu_counter, imu_count_at_last_correction, dt, uwb_counter, T_imu_body, debug_dir);
+					imu_counter, imu_count_at_last_correction, dt, uwb_counter, T_imu_body, debug_dir, uwb_synth_stdev);
 
 					uwb_counter++;
 				}
@@ -838,7 +842,7 @@ int main(int argc, char* argv[]) {
 			else {
 				processSyntheticUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
 					UWB_noise_model, GT_noise_model, GT_noise_model,
-					imu_counter, imu_count_at_last_correction, dt, uwb_counter, T_imu_body, debug_dir);
+					imu_counter, imu_count_at_last_correction, dt, uwb_counter, T_imu_body, debug_dir, uwb_synth_stdev);
 			}
 
 			imu_count_at_last_imu_factor = imu_counter;
