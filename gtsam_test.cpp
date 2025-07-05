@@ -481,6 +481,7 @@ int main(int argc, char* argv[]) {
 
 	ofstream estimated_trajectory_fs(out_dir + "/est.txt");
 	ofstream slam_trajectory_fs(out_dir+"/slam.txt");
+	ofstream estimtated_timestamp_fs(out_dir+"/est_timestamps.txt");
 	ofstream log_dump_fs(out_dir + "/log_dump.txt");
 
 	vector<string> paths = {out_dir, debug_dir};
@@ -845,11 +846,14 @@ int main(int argc, char* argv[]) {
 		mes_idx ++;
 	}
 
-	write_trajectory_TUM_format( user.est_poses, user.est_timestamps, estimated_trajectory_fs);
+	write_trajectory_TUM_format( user.est_poses, user.est_timestamps, estimated_trajectory_fs, T_imu_body);
 	estimated_trajectory_fs.close();
 
-	write_trajectory_TUM_format( user.gt_poses, user.gt_timestamps, slam_trajectory_fs);
+	write_trajectory_TUM_format( user.gt_poses, user.gt_timestamps, slam_trajectory_fs, T_imu_body);
 	slam_trajectory_fs.close();
+
+	write_timestamps( user.est_poses, user.est_timestamps, estimtated_timestamp_fs);
+	estimtated_timestamp_fs.close();
 
 	cout << " Applied " << uwb_counter << " uwb measurements for 45 seconds of data " << endl;
 	double fuwb = uwb_counter /45.0;
