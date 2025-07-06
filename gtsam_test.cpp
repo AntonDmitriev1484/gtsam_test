@@ -12,6 +12,30 @@ using symbol_shorthand::B;  // Bias  (ax,ay,az,gx,gy,gz)
 using symbol_shorthand::V;  // Vel   (xdot,ydot,zdot)
 using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 
+#define TIMING true
+#define START_TIMER(msg, start_timer) \
+    do { \
+        if (TIMING) { \
+			start_timer = clock(); \
+			double start_t = double(start_timer) / CLOCKS_PER_SEC; \
+			cout << "TIMER " << msg << ": "<<start_t << endl; \
+        } \
+    } while (false)
+
+#define END_TIMER(msg, start_timer) \
+    do { \
+        if (TIMING) { \
+			clock_t end_timer = clock(); \
+			double start_t = double(start_timer) / CLOCKS_PER_SEC; \
+			double end_t = double(end_timer)/ CLOCKS_PER_SEC; \
+			double elapsed = end_t - start_t; \
+			cout << "TIMER " << msg << ": "<< end_t << endl; \
+			cout << "Elapsed " << elapsed << endl; \
+			printf("\n"); \
+		} \
+	} while (false)
+
+
 #define PLOT_ANCHORS(INFO) {\
 	for (const auto& [user_name, user_info] : INFO) {                        \
         if (user_info.is_beacon) {                                          \
@@ -160,9 +184,12 @@ void processGT(
 			}
 		}
 		cout << endl;
-
+		
+		clock_t isam_t;
+		START_TIMER("Started iSAM. GT.", isam_t);
 		isam->update(*graph, vals);
 		result = isam->calculateEstimate();
+		END_TIMER("Ended iSAM", isam_t);
 
 						// Band-aid fix to filter out large hallucination from bad velocity prior.
 				if (mes["t"] < 1750970628.78905845) { // If we're in the hallucination part.
@@ -280,8 +307,12 @@ void processUWB(
 	// Run optimization
 	Values result;
 	try {
+
+		clock_t isam_t;
+		START_TIMER("Started iSAM. UWB.", isam_t);
 		isam->update(*graph, vals);
 		result = isam->calculateEstimate();
+		END_TIMER("Ended iSAM", isam_t);
 
 		user.est_poses.push_back(result.at<Pose3>(X(user.Ix)));
 		user.est_timestamps.push_back((double)mes["t"]);
@@ -417,8 +448,12 @@ void processSyntheticUWB(
 			}
 		}
 		cout << endl;
+
+		clock_t isam_t;
+		START_TIMER("Started iSAM. Synthetic UWB.", isam_t);
 		isam->update(*graph, vals);
 		result = isam->calculateEstimate();
+		END_TIMER("Ended iSAM", isam_t);
 
 						// Band-aid fix to filter out large hallucination from bad velocity prior.
 				if (mes["t"] < 1750970628.78905845) { // If we're in the hallucination part.
@@ -603,24 +638,6 @@ int main(int argc, char* argv[]) {
 		0, -1, 0;
 	Pose3 T_imu_body(Rot3(transform), Vector3(0, 0, 0));
 	// body_P_sensor : "pose of sensor frame w.r.t body frame"
-
-	// auto trans = json::parse(transform_fs);
-	// Matrix44 pose_matrix;
-	// int i = 0;
-	// int j = 0;
-	// for (const auto& row : trans["T_slam_world"]) {
-	// 	if (row.is_array()) {
-	// 		for (const double& element : row) {
-	// 			//HTM_L_G(i, j) = static_cast<double>(element.get<float>());
-	// 			pose_matrix(i, j) = element;
-	// 			j++;
-	// 		}
-	// 	}
-	// 	j = 0;
-	// 	i++;
-	// }
-	// Pose3 T_imu_world(pose_matrix);
-	// Pose3 T_imu_body(T_imu_world.rotation(), Vector3(0, 0, 0));
 
 	imu_preintegration_params->body_P_sensor = T_imu_body;
 
