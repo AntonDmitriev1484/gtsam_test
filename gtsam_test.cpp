@@ -363,8 +363,22 @@ void processSyntheticUWB(
 	cout << "Added Range factor " << graph->size() - 1 << endl;
 	cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
 
-	// Add fake GT-style prior to help stabilize
-	graph->add(PriorFactor<Pose3>(X(user.Ix), gt_pose, FakePrior_noise_model));
+	// A noise model that basically only constrains yaw on the pose.
+	// double gt_pos_stdev = 1e-1;
+	// double gt_pitch_stdev = 1e-1;
+	// double gt_roll_stdev = 1e-1;
+	// double gt_yaw_stdev = 1e-2;
+	// noiseModel::Diagonal::shared_ptr yaw_constraint_pose_noise_model = noiseModel::Diagonal::Sigmas(
+	// 	Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_roll_stdev, gt_pitch_stdev, gt_yaw_stdev));
+
+	double gt_pos_stdev = 1e-1;
+	double gt_pitch_stdev = 1e-1;
+	double gt_roll_stdev = 1e-1;
+	double gt_yaw_stdev = 1e-2;
+	noiseModel::Constrained::shared_ptr yaw_constraint_pose_noise_model = noiseModel::Constrained::MixedSigmas(
+		Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_roll_stdev, gt_pitch_stdev, gt_yaw_stdev));
+
+	graph->add(PriorFactor<Pose3>(X(user.Ix), gt_pose, yaw_constraint_pose_noise_model));
 	cout << "Added (fake) Prior factor " << graph->size() - 1 << endl;
 
 	// Add IMU factor
@@ -530,8 +544,9 @@ int main(int argc, char* argv[]) {
 
 	// UWB noise model
 
-	// double uwb_stdev = 0.1;
-	double uwb_stdev = 0.2;
+	// double uwb_stdev = 1e-3;
+	double uwb_stdev = 0.1;
+	// double uwb_stdev = 0.2;
 	// They set this to 100 or 1000 in this example: https://github.com/borglab/gtsam/blob/develop/examples/RangeISAMExample_plaza2.cpp
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 

@@ -41,6 +41,7 @@ endif()
 
 # <trial_name> <synthetic_trial_name or 'none'> <'uwb' or 'no_uwb'> <dump (true|false)>"
 enable_testing()
+
 add_test(NAME synthetic_20_60_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_20_60 no_uwb 0.2 true)
 add_test(NAME synthetic_20_60_uwb COMMAND gtsam_test stereoi_circle2 synthetic_20_60 uwb 0.2 true)
 
@@ -55,3 +56,10 @@ add_test(NAME synthetic_2_5_uwb COMMAND gtsam_test stereoi_circle2 synthetic_2_5
 
 add_test(NAME synthetic_2_10_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_2_10 no_uwb 0.2 true)
 add_test(NAME synthetic_2_10_uwb COMMAND gtsam_test stereoi_circle2 synthetic_2_10 uwb 0.2 true)
+
+
+add_test(NAME synthetic_1_20_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_1_20 no_uwb 0.2 true)
+add_test(NAME synthetic_1_20_uwb COMMAND gtsam_test stereoi_circle2 synthetic_1_20 uwb 0.2 true)
+
+add_test(NAME synthetic_2_20_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_2_20 no_uwb 0.2 true)
+add_test(NAME synthetic_2_20_uwb COMMAND gtsam_test stereoi_circle2 synthetic_2_20 uwb 0.2 true)
