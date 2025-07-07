@@ -62,31 +62,31 @@ public:
     string id;
     tracking track;
 
+    std::map<string, tracking> anchors;
 
-Tracker(const string& id,
-            const Pose3& T_imu_body,
-            const SharedNoiseModel& GT_noise_model,
-            const SharedNoiseModel& UWB_noise_model,
-            const SharedNoiseModel& FakePrior_noise_model,
-            const SharedNoiseModel& Velocity_noise_model,
-            const SharedNoiseModel& Bias_noise_model,
-            const imuBias::ConstantBias prior_imu_bias,
-            const double delta_t,
-            const string& debug_dir);
+
+
+    Tracker(const string& id,
+                const Pose3& T_imu_body,
+                const SharedNoiseModel& GT_noise_model,
+                const SharedNoiseModel& UWB_noise_model,
+                const SharedNoiseModel& FakePrior_noise_model,
+                const SharedNoiseModel& Velocity_noise_model,
+                const SharedNoiseModel& Bias_noise_model,
+                const imuBias::ConstantBias prior_imu_bias,
+                const double delta_t,
+                const string& debug_dir);
 
     void init(json sensor_stream);
-    void init_anchor();
+    void init_anchor(string id);
 
-    void processGT(const json& mes, tracking& user, NavState& prev_state);
-    void processSyntheticUWB(const json& mes,
-                             const string& src_user,
-                             std::map<string, tracking>& info,
-                             NavState& prev_state,
-                             int& imu_counter,
-                             int& imu_count_at_last_correction,
-                             double dt,
-                             int& uwb_counter,
-                             double uwb_stdev);
+
+    void exec_iSAM(NavState& proposed, Values& result, double mes_timestamp, 
+        string msg="", bool print=false);
+
+    void processSLAM(const json& mes);
+    void processSUWB(const json& mes, int& uwb_counter, double uwb_stdev);
+
 };
 
 

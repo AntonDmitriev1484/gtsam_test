@@ -3,6 +3,7 @@
 #include "data_tools.h"
 #include "utils.h"
 #include "cmath"
+#include "tracker.h"
 #include <regex>
 
 using PreintegrationType = gtsam::PreintegrationBase;
@@ -156,7 +157,6 @@ int main(int argc, char* argv[]) {
 
 	cout << "In path " << data_dir << endl;
 	cout << "Out path " << out_dir << endl;
-
 
 
 	json sensor_stream = json::parse(raw_fs);

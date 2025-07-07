@@ -16,29 +16,29 @@ using namespace gtsam;
 
 using json = nlohmann::json;
 
-// Cappella parsing code
-struct tracking {
+// // Cappella parsing code
+// struct tracking {
 
-	// Computed in get_info
-	bool is_beacon;
+// 	// Computed in get_info
+// 	bool is_beacon;
 
-	// Used to store trajectory at runtime
-	vector<Pose3> vio_poses;
-	vector<Pose3> gt_poses;
-	vector<double> gt_timestamps; // Parallel array to poses.
+// 	// Used to store trajectory at runtime
+// 	vector<Pose3> vio_poses;
+// 	vector<Pose3> gt_poses;
+// 	vector<double> gt_timestamps; // Parallel array to poses.
 
-	vector<Pose3> est_poses; // Estimated pose
-	vector<double> est_timestamps; // Parallel array to poses.
+// 	vector<Pose3> est_poses; // Estimated pose
+// 	vector<double> est_timestamps; // Parallel array to poses.
 
-	vector<Vector3> est_velocities; // Estimated velocity from IMU factor
-	vector<Vector3> est_poses_error; // Estimated poses error
-	imuBias::ConstantBias constant_bias; // Constant bias
+// 	vector<Vector3> est_velocities; // Estimated velocity from IMU factor
+// 	vector<Vector3> est_poses_error; // Estimated poses error
+// 	imuBias::ConstantBias constant_bias; // Constant bias
 
-	Key pose_key;
-	int Ix;
-	int Iv;
-	int Ib;
-};
+// 	Key pose_key;
+// 	int Ix;
+// 	int Iv;
+// 	int Ib;
+// };
 
 void get_pose_matrix(json d, string& user, Matrix44& pose_matrix);
 //void get_GT(json d, vector<string>& users, vector<Matrix44>& pose_matrices);

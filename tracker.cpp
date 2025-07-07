@@ -1,5 +1,28 @@
 #include "tracker.h"
 
+#define TIMING true
+#define START_TIMER(msg, start_timer) \
+    do { \
+        if (TIMING) { \
+			start_timer = clock(); \
+			double start_t = double(start_timer) / CLOCKS_PER_SEC; \
+			cout << "TIMER " << msg << ": "<<start_t << endl; \
+        } \
+    } while (false)
+
+#define END_TIMER(msg, start_timer) \
+    do { \
+        if (TIMING) { \
+			clock_t end_timer = clock(); \
+			double start_t = double(start_timer) / CLOCKS_PER_SEC; \
+			double end_t = double(end_timer)/ CLOCKS_PER_SEC; \
+			double elapsed = end_t - start_t; \
+			cout << "TIMER " << msg << ": "<< end_t << endl; \
+			cout << "Elapsed " << elapsed << endl; \
+			printf("\n"); \
+		} \
+	} while (false)
+
 Tracker::Tracker(const string& id,
             const Pose3& T_imu_body,
             const SharedNoiseModel& GT_noise_model,
@@ -40,13 +63,24 @@ Tracker::Tracker(const string& id,
 
 }
 
-void Tracker::init_anchor(){
+Key MK_Anchor(string name, int I) {return symbol('s', stoi(name));}
 
+
+// Assuming we have already called
+// get_beacon_info(tracker.anchors, json::parse(beacon_fs));
+void Tracker::init_anchor(string id){
+    track.pose_key = MK_Anchor(id, 0); // Make a key for the anchor, in our graph
+    Pose3 prior_beacon_pose(anchors[id].gt_poses[0]);
+    vals.insert(track.pose_key, prior_beacon_pose);
+    graph->add(NonlinearEquality<Pose3>(track.pose_key, prior_beacon_pose));
 }
 
 void Tracker::init(json sensor_stream) {
 
     // Find first SLAM pose, and use it to set GT prior.
+    track.Ix = 0;
+    track.Iv = 0;
+    track.Ib = 0;
 
 	int pose_num = 0;
 	int mes_start = 0;
@@ -94,4 +128,206 @@ void Tracker::init(json sensor_stream) {
     isam->update(*graph, vals);
 	graph->resize(0);
 	vals.clear();
+
+    // Initialize our NavState
+    prev_state = NavState(track.est_poses.back(), track.est_velocities.back());
+
 }
+
+void Tracker::exec_iSAM(NavState& proposed, Values& result, double mes_timestamp, 
+    string msg, bool print){
+
+	try {
+        if (print) {
+            cout << "Keys in vals: ";
+            for (const auto& key : vals.keys()) {
+                cout << DefaultKeyFormatter(key) << " ";
+            }
+            cout << endl;
+
+            cout << "Keys in graph: ";
+            for (const auto& f : *graph) {
+                auto keys = f->keys();
+                for (Key k : keys) {
+                    cout << DefaultKeyFormatter(k) << " ";
+                }
+            }
+            cout << endl;
+        }
+		
+		clock_t isam_t;
+		START_TIMER("Started iSAM. "+msg, isam_t);
+		isam->update(*graph, vals);
+		result = isam->calculateEstimate();
+		END_TIMER("Ended iSAM "+msg, isam_t);
+
+        // Band-aid fix to filter out large hallucination from bad velocity prior.
+        if (mes_timestamp < 1750970628.78905845) { // If we're in the hallucination part.
+            if ((proposed.pose().translation() - track.gt_poses.back().translation()).norm() < 0.5 ) {
+                track.est_poses.push_back(proposed.pose());
+                track.est_timestamps.push_back(mes_timestamp);
+            }
+            else {
+                track.est_poses.push_back(track.gt_poses.back());
+                track.est_timestamps.push_back(mes_timestamp);
+            }
+        }
+        else {
+            track.est_poses.push_back(proposed.pose());
+            track.est_timestamps.push_back(mes_timestamp);
+        }
+
+				//Correct code:
+		// track.est_poses.push_back(result.at<Pose3>(X(track.Ix)));
+		// track.est_timestamps.push_back((double)mes["t"]);
+
+		track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
+		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
+
+		cout << "Successful estimate on "<<msg<<" factor" << endl;
+	}
+	catch (const std::exception& e) {
+		cerr << "Optimizer update failed: " << e.what() << endl;
+		cerr << "Data timestamp is " << mes_timestamp << endl;
+		graph->saveGraph(debug_dir+"/graph.dot", result);
+		graph->print("");
+		cerr << "Graph dumped to factor_graph.dot" << endl;
+		throw; // rethrow
+	}
+}
+
+void Tracker::processSLAM(const json& mes)
+{
+	cout << "Used GT" << endl;
+	track.Ix++;
+	track.Iv++;
+	track.Ib++;
+
+	// Extract GT pose
+	Matrix44 gt_pose_slam;
+	string usrname;
+	get_pose_matrix(mes, usrname, gt_pose_slam);
+	Pose3 gt_pose = Pose3(gt_pose_slam) * T_imu_body.inverse(); // Transform pose to the body frame.
+	track.gt_poses.push_back(gt_pose);
+	track.gt_timestamps.push_back(mes["t"]);
+
+	// Add IMU factor
+	auto* current_imu_preintegration =
+		dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+
+	CombinedImuFactor imu_factor(
+		X(track.Ix - 1), V(track.Iv - 1),
+		X(track.Ix), V(track.Iv),
+		B(track.Ib - 1), B(track.Ib),
+		*current_imu_preintegration);
+
+	graph->add(imu_factor);
+	cout << "Added IMU factor " << graph->size() - 1 << endl;
+
+	// Add GT prior factor
+	graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, GT_noise_model));
+	cout << "Added Prior factor " << graph->size() - 1 << endl;
+
+	// Predict current state
+	NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
+
+	// Insert initial values
+	vals.insert(X(track.Ix), proposed.pose());
+	vals.insert(V(track.Iv), proposed.v());
+	vals.insert(B(track.Ib), track.constant_bias);
+
+    // Run iSAM
+    Values result;
+	exec_iSAM(proposed, result, (double)mes["t"], "GT", true);
+
+	// Reset preintegration
+	imu_preintegrated->resetIntegrationAndSetBias(track.constant_bias);
+	// Clear for next iteration
+	graph->resize(0);
+	vals.clear();
+}
+
+void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
+{
+	cout << "Processing synthetic range for : " << mes["t"] << endl;
+
+	vector<string> users = {"2", "3", "5"};
+	string dst_user = users[uwb_counter % 3];
+    tracking& dst = anchors[dst_user];
+
+	// Extract GT pose
+	Matrix44 gt_pose_slam;
+	string usrname;
+	get_pose_matrix(mes, usrname, gt_pose_slam);
+	Pose3 gt_pose = Pose3(gt_pose_slam) * T_imu_body.inverse(); // Transform pose to the body frame.
+	track.gt_poses.push_back(gt_pose);
+	track.gt_timestamps.push_back(mes["t"]);
+
+	track.Ix++;
+	track.Iv++;
+	track.Ib++;
+
+	// Ground truth range from GT poses
+	double true_range = distance3(
+		gt_pose.translation(),
+		dst.gt_poses.back().translation()); 
+
+	std::random_device rd;                          // Seed TODO set this up in constructor
+	std::mt19937 gen(rd());                         // Mersenne Twister engine
+	std::normal_distribution<double> dist(true_range, uwb_stdev);  // N(mean, stddev)
+	double noised_range = dist(gen);
+
+	// Add UWB (range) factor — use ground truth here for stability
+	graph->add(RangeFactor<Pose3, Pose3, double>(
+		X(track.Ix), dst.pose_key, noised_range, UWB_noise_model));
+	cout << "Added Range factor " << graph->size() - 1 << endl;
+	cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
+
+	// A noise model that basically only constrains yaw on the pose.
+	// double gt_pos_stdev = 1e-1;
+	// double gt_pitch_stdev = 1e-1;
+	// double gt_roll_stdev = 1e-1;
+	// double gt_yaw_stdev = 1e-2;
+	// noiseModel::Diagonal::shared_ptr yaw_constraint_pose_noise_model = noiseModel::Diagonal::Sigmas(
+	// 	Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_roll_stdev, gt_pitch_stdev, gt_yaw_stdev));
+
+    // It seems to be THIS very specific noise model that doesn't throw VVdot
+	double gt_pos_stdev = 1e-1;
+	double gt_pitch_stdev = 1e-1;
+	double gt_roll_stdev = 1e-1;
+	double gt_yaw_stdev = 1e-2;
+	noiseModel::Constrained::shared_ptr yaw_constraint_pose_noise_model = noiseModel::Constrained::MixedSigmas(
+		Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_roll_stdev, gt_pitch_stdev, gt_yaw_stdev));
+
+	graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, yaw_constraint_pose_noise_model));
+	cout << "Added (fake) Prior factor " << graph->size() - 1 << endl;
+
+	// Add IMU factor
+	auto* current_imu_preintegration =
+		dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+
+	CombinedImuFactor imu_factor(
+		X(track.Ix - 1), V(track.Iv - 1),
+		X(track.Ix), V(track.Iv),
+		B(track.Ib - 1), B(track.Ib),
+		*current_imu_preintegration);
+
+	graph->add(imu_factor);
+	cout << "Added IMU factor " << graph->size() - 1 << endl;
+
+	// Predict state and insert
+	NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
+	vals.insert(X(track.Ix), proposed.pose());
+	vals.insert(V(track.Iv), proposed.v());
+	vals.insert(B(track.Ib), track.constant_bias);
+
+	// Run optimization
+	Values result;
+	exec_iSAM(proposed, result, (double)mes["t"], "SynthUWB", true);
+
+	// Prepare for next iteration
+	graph->resize(0);
+	vals.clear();
+	imu_preintegrated->resetIntegrationAndSetBias(track.constant_bias);
+}
+
