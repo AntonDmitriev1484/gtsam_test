@@ -224,45 +224,45 @@ void unpack_results(Values results, const function<Key(string, int)>& MK, map<st
 	}
 }
 
-void unpack_results_and_plot(Values results, const function<Key(string, int)>& MK, map<string, tracking> info, vector<string> show_list){
+// void unpack_results_and_plot(Values results, const function<Key(string, int)>& MK, map<string, tracking> info, vector<string> show_list){
 
-	// Plotting code
+// 	// Plotting code
 
-	for (auto& [user, user_info] : info) {
-		for (int i = 0; i < user_info.Ix; i++) {
-			if (!user_info.is_beacon) {
-				Key k = MK(user, i);
-				Pose3 estimated_pose = results.at<Pose3>(k);
-				user_info.est_poses.push_back(estimated_pose);
-			}
-		}
-	}
+// 	for (auto& [user, user_info] : info) {
+// 		for (int i = 0; i < user_info.Ix; i++) {
+// 			if (!user_info.is_beacon) {
+// 				Key k = MK(user, i);
+// 				Pose3 estimated_pose = results.at<Pose3>(k);
+// 				user_info.est_poses.push_back(estimated_pose);
+// 			}
+// 		}
+// 	}
 
-	for (const auto& [user_name, user_info] : info) {
-		if (!user_info.is_beacon) {
-			if (find(show_list.begin(), show_list.end(), user_name) != show_list.end()) {
-				auto fig = figure();
-				fig->name(user_name + " trajectory");
-				title(user_name);
+// 	for (const auto& [user_name, user_info] : info) {
+// 		if (!user_info.is_beacon) {
+// 			if (find(show_list.begin(), show_list.end(), user_name) != show_list.end()) {
+// 				auto fig = figure();
+// 				fig->name(user_name + " trajectory");
+// 				title(user_name);
 
-				hold(on);
-				draw_trajectory(user_info.vio_poses, "red");
-				hold(on);
-				draw_points(user_info.gt_poses, "green");
-				hold(on);
-				draw_trajectory(user_info.est_poses, "blue");
+// 				hold(on);
+// 				draw_trajectory(user_info.vio_poses, "red");
+// 				hold(on);
+// 				draw_points(user_info.gt_poses, "green");
+// 				hold(on);
+// 				draw_trajectory(user_info.est_poses, "blue");
 
-				cout << "vio size " << user_info.vio_poses.size() << " estimated size " << user_info.est_poses.size() << endl;
+// 				cout << "vio size " << user_info.vio_poses.size() << " estimated size " << user_info.est_poses.size() << endl;
 
-				xlabel("X (m)");
-				ylabel("Z (m)");  // Switch the label to match the upward axis
-				zlabel("Y (m)");
+// 				xlabel("X (m)");
+// 				ylabel("Z (m)");  // Switch the label to match the upward axis
+// 				zlabel("Y (m)");
 
-				show();
-			}
-		}
-	}
-}
+// 				show();
+// 			}
+// 		}
+// 	}
+// }
 
 void clear_results(map<string, tracking>& info) {
 	for (auto& [user, user_info] : info) {

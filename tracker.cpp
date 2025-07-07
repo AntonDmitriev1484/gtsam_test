@@ -23,15 +23,60 @@
 		} \
 	} while (false)
 
+
+void get_gt_info(map<string, tracking>& info, json gt_data) {
+	for (json mes : gt_data) {
+		if (mes["type"] == "gt_reconstruct") {
+			Matrix44 M_L_U;
+			string user;
+			get_pose_matrix(mes, user, M_L_U);
+
+			//If user hasn't been added yet
+			if (info.find(user) == info.end()) {
+				tracking t;
+				t.is_beacon = false;
+				info.insert(make_pair(user, t));
+			}
+			info.at(user).gt_poses.push_back(Pose3(M_L_U)); //Load all GT poses into tracking.
+		}
+	}
+}
+
+void get_beacon_info(map<string, tracking>& info, json beacon_data) {
+	// Beacon position will 
+	for (json beacon : beacon_data) {
+		Rot3 rot();
+		Vector3 v;
+		auto raw_position = beacon["position"];
+		int i = 0;
+		for (const auto& row : raw_position) {
+			v(i) = row;
+			i++;
+		}
+
+		string user = to_string(beacon["ID"]);
+		Pose3 beacon_pos(Rot3::Identity(), v);
+
+			//If beacon hasn't been added yet
+			if (info.find(user) == info.end()) {
+				tracking t;
+				t.gt_poses.push_back(beacon_pos); // Only need to push back once
+				t.is_beacon = true;
+				info.insert(make_pair(user, t));
+			}
+	}
+}
+
 Tracker::Tracker(const string& id,
             const Pose3& T_imu_body,
+            const double delta_t,
             const SharedNoiseModel& GT_noise_model,
             const SharedNoiseModel& UWB_noise_model,
             const SharedNoiseModel& FakePrior_noise_model,
             const SharedNoiseModel& Velocity_noise_model,
             const SharedNoiseModel& Bias_noise_model,
+			std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params,
             const imuBias::ConstantBias prior_imu_bias,
-            const double delta_t,
             const string& debug_dir) {
 
     // TODO: this->prior_velocity <= make this initializable to non-zero after post_process
@@ -43,6 +88,9 @@ Tracker::Tracker(const string& id,
     this->FakePrior_noise_model = FakePrior_noise_model;
     this->Velocity_noise_model = Velocity_noise_model;
     this->Bias_noise_model = Bias_noise_model;
+
+	// Instantiate IMU preintegration
+	this->imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
 
     // Instantiate graph
     this->graph = new NonlinearFactorGraph();
@@ -75,6 +123,13 @@ void Tracker::init_anchor(string id){
     graph->add(NonlinearEquality<Pose3>(track.pose_key, prior_beacon_pose));
 }
 
+void Tracker::init_anchors(json anchor_json) {
+	get_beacon_info(anchors, anchor_json); // Reads raw pose data into map
+	for (auto& [id, anchor_track]: anchors){
+		init_anchor(id); // Uses anchor pose to set pose prior, and inserts into values.
+	}
+}
+
 void Tracker::init(json sensor_stream) {
 
     // Find first SLAM pose, and use it to set GT prior.
@@ -83,7 +138,7 @@ void Tracker::init(json sensor_stream) {
     track.Ib = 0;
 
 	int pose_num = 0;
-	int mes_start = 0;
+	this->mes_start = 0;
     Pose3 find_first_gt_pose;
     int mes_idx = 0;
     double start_timestamp = 0;

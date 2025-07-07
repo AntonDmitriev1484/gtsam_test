@@ -64,22 +64,23 @@ public:
 
     std::map<string, tracking> anchors;
 
-
+    double mes_start;
 
     Tracker(const string& id,
-                const Pose3& T_imu_body,
-                const SharedNoiseModel& GT_noise_model,
-                const SharedNoiseModel& UWB_noise_model,
-                const SharedNoiseModel& FakePrior_noise_model,
-                const SharedNoiseModel& Velocity_noise_model,
-                const SharedNoiseModel& Bias_noise_model,
-                const imuBias::ConstantBias prior_imu_bias,
-                const double delta_t,
-                const string& debug_dir);
+            const Pose3& T_imu_body,
+            const double delta_t,
+            const SharedNoiseModel& GT_noise_model,
+            const SharedNoiseModel& UWB_noise_model,
+            const SharedNoiseModel& FakePrior_noise_model,
+            const SharedNoiseModel& Velocity_noise_model,
+            const SharedNoiseModel& Bias_noise_model,
+			std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params,
+            const imuBias::ConstantBias prior_imu_bias,
+            const string& debug_dir);
 
     void init(json sensor_stream);
+    void init_anchors(json anchor_json);
     void init_anchor(string id);
-
 
     void exec_iSAM(NavState& proposed, Values& result, double mes_timestamp, 
         string msg="", bool print=false);
@@ -89,4 +90,6 @@ public:
 
 };
 
-
+// Moved in here because circular includes confuse me
+void get_gt_info(map<string, tracking>& info, json gt_data);
+void get_beacon_info(map<string, tracking>& info, json beacon_data);

@@ -1,5 +1,4 @@
 ﻿#include "gtsam_test.h"
-#include "measurements.h"
 #include "data_tools.h"
 #include "utils.h"
 #include "cmath"
@@ -162,11 +161,7 @@ int main(int argc, char* argv[]) {
 	json sensor_stream = json::parse(raw_fs);
 	map<string, tracking> info; // Map of username to tracking information
 
-	get_beacon_info(info, json::parse(beacon_fs)); // Init beacons from files
-	info.insert(pair<string, tracking>("1", tracking())); // Init user to have empty tracking.
-
 	double dt = 1.0 / 200.0; // IMU gyro and accelerometer operate at 200Hz
-
 
 	// --- Noise Models ---
 
@@ -240,100 +235,16 @@ int main(int argc, char* argv[]) {
 
 	imu_preintegration_params->body_P_sensor = T_imu_body;
 
-	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
+	const string id = "1";
+	Tracker t(
+		id, T_imu_body, dt,
+		GT_noise_model, UWB_noise_model, VIO_pose_noise_model, 
+		prior_velocity_noise_model, prior_bias_noise_model,
+		imu_preintegration_params, prior_imu_bias,
+		debug_dir);
 
-	// Beacon info is a string, 
-	// Make Key
-	const function<Key(string, int)> MK_Anchor = [](string name, int I) {
-		return symbol('s', stoi(name));
-	};
-
-	// Establish and attach priors to keys
-
-	Values vals;
-	// Initialize the first GT pose.
-
-	int pose_num = 0;
-	int mes_start = 0;
-	for (auto& [u, track] : info) {
-		track.Ix = 0;
-		track.Iv = 0;
-		track.Ib = 0;
-
-		if (track.is_beacon) { // Set nonlinearequality on anchors
-			track.pose_key = MK_Anchor(u, 0);
-			Pose3 prior_beacon_pose(track.gt_poses[0]); // Position of beacon in U frame extracted from GT
-			vals.insert(track.pose_key, prior_beacon_pose);
-			graph->add(NonlinearEquality<Pose3>(track.pose_key, prior_beacon_pose));
-			//graph->add(PriorFactor<Pose3>(track.pose_key, prior_beacon_pose, GT_noise_model));
-		}
-		else { // Since we only have one user, user 2.
-			
-			Pose3 find_first_gt_pose;
-			int mes_idx = 0;
-			double start_timestamp = 0;
-
-			for (json mes : sensor_stream) {
-				if (mes["type"] == "slam_pose") {
-					start_timestamp = (double) mes["t"];
-					mes_start = mes_idx;
-					Matrix44 gt_pose_world;
-					string usrname;
-					get_pose_matrix(mes, usrname, gt_pose_world);
-
-					//Pose3 gt_pose = slam_to_world * gt_pose_slam;
-					Pose3 asdf(gt_pose_world);
-					Pose3 gt_pose = asdf * T_imu_body.inverse();
-
-					find_first_gt_pose = gt_pose;
-					break;
-				}
-				mes_idx ++;
-			}
-
-			// <<< Problem behind start spaghetti is here >>>
-			Pose3 start_pose = find_first_gt_pose;
-			Vector3 prior_velocity(-0.3, -0.8, 0); // I'm assuming this should be in the world frame?
-
-			vals.insert(X(track.Ix), start_pose);
-			vals.insert(V(track.Iv), prior_velocity);
-			vals.insert(B(track.Ib), prior_imu_bias);
-
-			graph->addPrior(X(track.Ix), start_pose, GT_noise_model);
-			graph->addPrior(V(track.Iv), prior_velocity, prior_velocity_noise_model);
-			graph->addPrior(B(track.Ib), prior_imu_bias, prior_bias_noise_model);
-
-			track.est_poses.push_back(start_pose); // We'll take the estimate out of values and put it here.
-			track.est_timestamps.push_back(start_timestamp);
-			track.est_velocities.push_back(prior_velocity);
-			track.constant_bias = prior_imu_bias;
-
-		}
-
-	}
-
-	vector<string> show_list = { "1" };
-	vector<string> anchors = { "2", "3", "5" };
-
-	// Use Preintegrator params, and bias prior, to create a new preintegrator object that we can use for an IMU factor.
-	PreintegrationType* imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
-
-	ISAM2Params isam_params;
-	// Must be some way to set up a verbose option.
-	isam_params.factorization = ISAM2Params::QR;
-	isam_params.relinearizeThreshold = 0.01;
-	isam_params.relinearizeSkip = 1; // More informed optimization at the cost of more computing.
-	isam_params.enableDetailedResults = true;
-	ISAM2DoglegParams dogleg;
-	isam_params.optimizationParams = dogleg;
-	ISAM2* isam = new ISAM2(isam_params);
-	isam->update(*graph, vals);
-
-	graph->resize(0);
-	vals.clear();
-
-	tracking& user = info.at("1");
-	NavState prev_state(user.est_poses.back(), user.est_velocities.back());
+	t.init_anchors(json::parse(beacon_fs));
+	t.init(sensor_stream);
 
 
 	int imu_counter = 0;
@@ -348,7 +259,6 @@ int main(int argc, char* argv[]) {
 	double gt_correction_hz = 20;
 	int T_GT = (int) (gt_correction_hz_max / gt_correction_hz); // Every X SLAM measurements, generate 1 GT correction
 	int gt_counter = 0;
-
 
 	int imu_count_at_last_correction = 0;
 	int imu_count_at_last_imu_factor = 0;
@@ -368,41 +278,35 @@ int main(int argc, char* argv[]) {
 			Vector3 accel;
 			Vector3 gyro;
 			get_IMU(mes, accel, gyro);
-			imu_preintegrated->integrateMeasurement(accel, gyro, dt);
+			t.imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 			imu_counter++;
 			start_graph = true;
 
 			cout << "Preintegration on at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
 
 			// Just for plotting at IMU frequency
-			if (mes_idx > mes_start) {
-				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-				auto proposed = current_imu_preintegration->predict(prev_state, user.constant_bias);
-
-						// 				user.est_poses.push_back(proposed.pose());
-						// user.est_timestamps.push_back((double)mes["t"]);
+			if (mes_idx > t.mes_start) {
+				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(t.imu_preintegrated);
+				auto proposed = current_imu_preintegration->predict(t.prev_state, t.track.constant_bias);
 				// Band-aid fix to filter out large hallucination from bad velocity prior.
 				if (mes["t"] < 1750970628.78905845) { // If we're in the hallucination part.
-					if ((proposed.pose().translation() - user.gt_poses.back().translation()).norm() < 0.5 ) {
-						user.est_poses.push_back(proposed.pose());
-						user.est_timestamps.push_back((double)mes["t"]);
+					if ((proposed.pose().translation() - t.track.gt_poses.back().translation()).norm() < 0.5 ) {
+						t.track.est_poses.push_back(proposed.pose());
+						t.track.est_timestamps.push_back((double)mes["t"]);
 					}
 					else {
-						user.est_poses.push_back(user.gt_poses.back());
-						user.est_timestamps.push_back((double)mes["t"]);
+						t.track.est_poses.push_back(t.track.gt_poses.back());
+						t.track.est_timestamps.push_back((double)mes["t"]);
 					}
 				}
 				else {
-					user.est_poses.push_back(proposed.pose());
-					user.est_timestamps.push_back((double)mes["t"]);
+					t.track.est_poses.push_back(proposed.pose());
+					t.track.est_timestamps.push_back((double)mes["t"]);
 				}
-
-
 			}
 
 			for (json mes : gt_pose_buffer) {
-				processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model, T_imu_body, debug_dir);
-
+				t.processSLAM(mes);
 				imu_count_at_last_correction = imu_counter;
 				imu_count_at_last_imu_factor = imu_counter;
 				gt_counter++;
@@ -410,18 +314,12 @@ int main(int argc, char* argv[]) {
 			gt_pose_buffer.clear();
 
 			for (json mes : range_buffer) {
-
 				if (synthetic) {
-					processSyntheticUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
-					UWB_noise_model, GT_noise_model, GT_noise_model,
-					imu_counter, imu_count_at_last_correction, dt, uwb_counter, T_imu_body, debug_dir, uwb_synth_stdev);
-
-					uwb_counter++;
+					t.processSUWB(mes, uwb_counter, uwb_stdev);
+					uwb_counter++; // TODO check to make sure I'm not double counting.
 				}
 				else {
-					processUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state, 
-						UWB_noise_model, GT_noise_model,
-						imu_counter, imu_count_at_last_correction, dt, uwb_counter, debug_dir);
+					//t.processUWB
 				}
 
 			}
@@ -436,58 +334,32 @@ int main(int argc, char* argv[]) {
 				gt_pose_buffer.push_back(mes);
 				continue;
 			}
-			processGT(mes, user, graph, vals, isam, imu_preintegrated, prev_state, GT_noise_model, T_imu_body, debug_dir);
-
+			t.processSLAM(mes);
 			imu_count_at_last_correction = imu_counter;
 			imu_count_at_last_imu_factor = imu_counter;
-
 			gt_counter++;
 			
 		}
 		else if (use_uwb && mes["type"] == "uwb" && start_graph) {
 
-			if (imu_counter == imu_count_at_last_correction) { continue; }
-			if (imu_counter == imu_count_at_last_imu_factor) {
-				// Pass this measurement and buffer it until the next IMU becomes available
-				range_buffer.push_back(mes);
-				continue;
-			}
-			else {
-				processUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
-					UWB_noise_model, GT_noise_model,
-					imu_counter, imu_count_at_last_correction, dt, uwb_counter, debug_dir);
-				uwb_counter++;
-			}
-
-			imu_count_at_last_imu_factor = imu_counter;
 		}
 		else if (synthetic && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
-
-
 			if (imu_counter == imu_count_at_last_correction) { continue; }
-			if (imu_counter == imu_count_at_last_imu_factor) {
-				// Pass this measurement and buffer it until the next IMU becomes available
-				range_buffer.push_back(mes);
-				continue;
-			}
 			else {
-				processSyntheticUWB(mes, "1", info, graph, vals, isam, imu_preintegrated, prev_state,
-					UWB_noise_model, GT_noise_model, GT_noise_model,
-					imu_counter, imu_count_at_last_correction, dt, uwb_counter, T_imu_body, debug_dir, uwb_synth_stdev);
+				t.processSUWB(mes, uwb_counter, uwb_stdev);
 			}
-
 			imu_count_at_last_imu_factor = imu_counter;
 		}
 		mes_idx ++;
 	}
 
-	write_trajectory_TUM_format( user.est_poses, user.est_timestamps, estimated_trajectory_fs, T_imu_body);
+	write_trajectory_TUM_format( t.track.est_poses, t.track.est_timestamps, estimated_trajectory_fs, T_imu_body);
 	estimated_trajectory_fs.close();
 
-	write_trajectory_TUM_format( user.gt_poses, user.gt_timestamps, slam_trajectory_fs, T_imu_body);
+	write_trajectory_TUM_format( t.track.gt_poses, t.track.gt_timestamps, slam_trajectory_fs, T_imu_body);
 	slam_trajectory_fs.close();
 
-	write_timestamps( user.est_poses, user.est_timestamps, estimtated_timestamp_fs);
+	write_timestamps( t.track.est_poses, t.track.est_timestamps, estimtated_timestamp_fs);
 	estimtated_timestamp_fs.close();
 
 	cout << " Applied " << uwb_counter << " uwb measurements for 45 seconds of data " << endl;

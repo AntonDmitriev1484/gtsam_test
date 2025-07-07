@@ -1,9 +1,5 @@
 #pragma once
-
-// Probably would be better to rename this dataset_utils or something
-
 #include "gtsam_test.h"
-//#include "<nlohmann/json.hpp>"
 #include "nlohmann/json.hpp"
 
 #include <cstring>
@@ -16,29 +12,10 @@ using namespace gtsam;
 
 using json = nlohmann::json;
 
-// // Cappella parsing code
-// struct tracking {
+#include "tracker.h"
+// struct tracking;
 
-// 	// Computed in get_info
-// 	bool is_beacon;
 
-// 	// Used to store trajectory at runtime
-// 	vector<Pose3> vio_poses;
-// 	vector<Pose3> gt_poses;
-// 	vector<double> gt_timestamps; // Parallel array to poses.
-
-// 	vector<Pose3> est_poses; // Estimated pose
-// 	vector<double> est_timestamps; // Parallel array to poses.
-
-// 	vector<Vector3> est_velocities; // Estimated velocity from IMU factor
-// 	vector<Vector3> est_poses_error; // Estimated poses error
-// 	imuBias::ConstantBias constant_bias; // Constant bias
-
-// 	Key pose_key;
-// 	int Ix;
-// 	int Iv;
-// 	int Ib;
-// };
 
 void get_pose_matrix(json d, string& user, Matrix44& pose_matrix);
 //void get_GT(json d, vector<string>& users, vector<Matrix44>& pose_matrices);
@@ -48,8 +25,8 @@ void get_IMU(json d, Vector3& accel, Vector3& gyro);
 
 chrono::system_clock::time_point iso_string_to_time(string timeString);
 
-void get_gt_info(map<string, tracking>& info, json gt_data);
-void get_beacon_info(map<string, tracking>& info, json beacon_data);
+// void get_gt_info(map<string, tracking>& info, json gt_data);
+// void get_beacon_info(map<string, tracking>& info, json beacon_data);
 
 void write_trajectory_KITTI_format(vector<Pose3> trajectory, ofstream& fs);
 void write_trajectory_TUM_format(vector<Pose3> trajectory, vector<double> timestamps, ofstream& fs, Pose3 transform = Pose3::Identity());

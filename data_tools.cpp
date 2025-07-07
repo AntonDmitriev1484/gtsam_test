@@ -1,3 +1,6 @@
+#pragma once
+
+#include "tracker.h"
 #include "data_tools.h"
 
 
@@ -37,49 +40,48 @@ void get_IMU(json d, Vector3& accel, Vector3& gyro) {
 	gyro = Vector3(d["gx"], d["gy"], d["gz"]);
 }
 
+// void get_gt_info(map<string, tracking>& info, json gt_data) {
+// 	for (json mes : gt_data) {
+// 		if (mes["type"] == "gt_reconstruct") {
+// 			Matrix44 M_L_U;
+// 			string user;
+// 			get_pose_matrix(mes, user, M_L_U);
 
-void get_gt_info(map<string, tracking>& info, json gt_data) {
-	for (json mes : gt_data) {
-		if (mes["type"] == "gt_reconstruct") {
-			Matrix44 M_L_U;
-			string user;
-			get_pose_matrix(mes, user, M_L_U);
+// 			//If user hasn't been added yet
+// 			if (info.find(user) == info.end()) {
+// 				tracking t;
+// 				t.is_beacon = false;
+// 				info.insert(make_pair(user, t));
+// 			}
+// 			info.at(user).gt_poses.push_back(Pose3(M_L_U)); //Load all GT poses into tracking.
+// 		}
+// 	}
+// }
 
-			//If user hasn't been added yet
-			if (info.find(user) == info.end()) {
-				tracking t;
-				t.is_beacon = false;
-				info.insert(make_pair(user, t));
-			}
-			info.at(user).gt_poses.push_back(Pose3(M_L_U)); //Load all GT poses into tracking.
-		}
-	}
-}
+// void get_beacon_info(map<string, tracking>& info, json beacon_data) {
+// 	// Beacon position will 
+// 	for (json beacon : beacon_data) {
+// 		Rot3 rot();
+// 		Vector3 v;
+// 		auto raw_position = beacon["position"];
+// 		int i = 0;
+// 		for (const auto& row : raw_position) {
+// 			v(i) = row;
+// 			i++;
+// 		}
 
-void get_beacon_info(map<string, tracking>& info, json beacon_data) {
-	// Beacon position will 
-	for (json beacon : beacon_data) {
-		Rot3 rot();
-		Vector3 v;
-		auto raw_position = beacon["position"];
-		int i = 0;
-		for (const auto& row : raw_position) {
-			v(i) = row;
-			i++;
-		}
+// 		string user = to_string(beacon["ID"]);
+// 		Pose3 beacon_pos(Rot3::Identity(), v);
 
-		string user = to_string(beacon["ID"]);
-		Pose3 beacon_pos(Rot3::Identity(), v);
-
-			//If beacon hasn't been added yet
-			if (info.find(user) == info.end()) {
-				tracking t;
-				t.gt_poses.push_back(beacon_pos); // Only need to push back once
-				t.is_beacon = true;
-				info.insert(make_pair(user, t));
-			}
-	}
-}
+// 			//If beacon hasn't been added yet
+// 			if (info.find(user) == info.end()) {
+// 				tracking t;
+// 				t.gt_poses.push_back(beacon_pos); // Only need to push back once
+// 				t.is_beacon = true;
+// 				info.insert(make_pair(user, t));
+// 			}
+// 	}
+// }
 
 chrono::system_clock::time_point iso_string_to_time(string timeString) {
 

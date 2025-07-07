@@ -19,6 +19,6 @@ void draw_trajectory_with_error(vector<Pose3> trajectory, vector<Vector3> pose_e
 void draw_points(vector<Pose3> points, string color);
 void draw_error_ellipsoid(Vector3 center, Vector3 position_error, string color);
 
-void unpack_results_and_plot(Values results, const function<Key(string, int)>& MK, map<string, tracking> info, vector<string> show_list);
-void unpack_results(Values results, const function<Key(string, int)>& MK, map<string, tracking>& info);
-void clear_results(map<string, tracking>& info);
+// void unpack_results_and_plot(Values results, const function<Key(string, int)>& MK, map<string, tracking> info, vector<string> show_list);
+// void unpack_results(Values results, const function<Key(string, int)>& MK, map<string, tracking>& info);
+// void clear_results(map<string, tracking>& info);
