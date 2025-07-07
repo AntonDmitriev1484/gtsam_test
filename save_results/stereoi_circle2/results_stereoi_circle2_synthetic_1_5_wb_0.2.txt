@@ -1,0 +1,4 @@
+[ERROR] csv file /home/antond2/Desktop/Research/gtsam_test/out_results/stereoi_circle2/synthetic_1_5_wb/slam_interp.txt does not exist
+[ERROR] csv file /home/antond2/Desktop/Research/gtsam_test/out_results/stereoi_circle2/synthetic_1_5_wb/slam_interp.txt does not exist
+[ERROR] csv file /home/antond2/Desktop/Research/gtsam_test/out_results/stereoi_circle2/synthetic_1_5_wb/slam_interp.txt does not exist
+[ERROR] csv file /home/antond2/Desktop/Research/gtsam_test/out_results/stereoi_circle2/synthetic_1_5_wb/slam_interp.txt does not exist
