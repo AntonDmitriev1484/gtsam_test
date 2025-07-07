@@ -162,8 +162,8 @@ int main(int argc, char* argv[]) {
 	json sensor_stream = json::parse(raw_fs);
 	map<string, tracking> info; // Map of username to tracking information
 
-	get_beacon_info(info, json::parse(beacon_fs));
-	info.insert(pair<string, tracking>("1", tracking()));
+	get_beacon_info(info, json::parse(beacon_fs)); // Init beacons from files
+	info.insert(pair<string, tracking>("1", tracking())); // Init user to have empty tracking.
 
 	double dt = 1.0 / 200.0; // IMU gyro and accelerometer operate at 200Hz
 
