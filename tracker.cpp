@@ -79,6 +79,9 @@ Tracker::Tracker(const string& id,
             const imuBias::ConstantBias prior_imu_bias,
             const string& debug_dir) {
 
+	this->delta_t = delta_t;
+	this->T_imu_body = T_imu_body;
+
     // TODO: this->prior_velocity <= make this initializable to non-zero after post_process
     this->prior_imu_bias = prior_imu_bias;
 
@@ -111,15 +114,15 @@ Tracker::Tracker(const string& id,
 
 }
 
-Key MK_Anchor(string name, int I) {return symbol('s', stoi(name));}
+Key AnchorKey(string name) {return symbol('s', stoi(name));}
 
 
 // Assuming we have already called
 // get_beacon_info(tracker.anchors, json::parse(beacon_fs));
 void Tracker::init_anchor(string id){
     Pose3 prior_beacon_pose(anchors[id].gt_poses[0]);
-    vals.insert(MK_Anchor(id, 0), prior_beacon_pose);
-    graph->add(NonlinearEquality<Pose3>(MK_Anchor(id, 0), prior_beacon_pose));
+    vals.insert(AnchorKey(id), prior_beacon_pose);
+    graph->add(NonlinearEquality<Pose3>(AnchorKey(id), prior_beacon_pose));
 }
 
 void Tracker::init_anchors(json anchor_json) {
@@ -188,8 +191,10 @@ void Tracker::init(json sensor_stream) {
 
 }
 
-void Tracker::exec_iSAM(NavState& proposed, Values& result, double mes_timestamp, 
+void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp, 
     string msg, bool print){
+
+	Values result;
 
 	try {
         if (print) {
@@ -291,14 +296,12 @@ void Tracker::processSLAM(const json& mes)
 	vals.insert(B(track.Ib), track.constant_bias);
 
     // Run iSAM
-    Values result;
-	exec_iSAM(proposed, result, (double)mes["t"], "GT", true);
+	exec_iSAM(proposed, (double)mes["t"], "GT", true);
 
-	// Reset preintegration
-	imu_preintegrated->resetIntegrationAndSetBias(track.constant_bias);
 	// Clear for next iteration
 	graph->resize(0);
 	vals.clear();
+	imu_preintegrated->resetIntegrationAndSetBias(track.constant_bias);
 }
 
 void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
@@ -315,7 +318,7 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 	get_pose_matrix(mes, usrname, gt_pose_slam);
 	Pose3 gt_pose = Pose3(gt_pose_slam) * T_imu_body.inverse(); // Transform pose to the body frame.
 	track.gt_poses.push_back(gt_pose);
-	track.gt_timestamps.push_back(mes["t"]);
+	track.gt_timestamps.push_back((double)mes["t"]);
 
 	track.Ix++;
 	track.Iv++;
@@ -333,25 +336,18 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 
 	// Add UWB (range) factor — use ground truth here for stability
 	graph->add(RangeFactor<Pose3, Pose3, double>(
-		X(track.Ix), MK_Anchor(dst_user, 0), noised_range, UWB_noise_model));
+		X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model));
 	cout << "Added Range factor " << graph->size() - 1 << endl;
 	cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
 
 	// A noise model that basically only constrains yaw on the pose.
+    // It seems to be THIS very specific noise model that doesn't throw VVdot
 	double gt_pos_stdev = 1e-1;
 	double gt_pitch_stdev = 1e-1;
 	double gt_roll_stdev = 1e-1;
 	double gt_yaw_stdev = 1e-2;
-	noiseModel::Diagonal::shared_ptr yaw_constraint_pose_noise_model = noiseModel::Diagonal::Sigmas(
+	noiseModel::Constrained::shared_ptr yaw_constraint_pose_noise_model = noiseModel::Constrained::MixedSigmas(
 		Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_roll_stdev, gt_pitch_stdev, gt_yaw_stdev));
-
-    // It seems to be THIS very specific noise model that doesn't throw VVdot
-	// double gt_pos_stdev = 1e-1;
-	// double gt_pitch_stdev = 1e-1;
-	// double gt_roll_stdev = 1e-1;
-	// double gt_yaw_stdev = 1e-2;
-	// noiseModel::Constrained::shared_ptr yaw_constraint_pose_noise_model = noiseModel::Constrained::MixedSigmas(
-	// 	Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_roll_stdev, gt_pitch_stdev, gt_yaw_stdev));
 
 	graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, yaw_constraint_pose_noise_model));
 	cout << "Added (fake) Prior factor " << graph->size() - 1 << endl;
@@ -376,8 +372,7 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 	vals.insert(B(track.Ib), track.constant_bias);
 
 	// Run optimization
-	Values result;
-	exec_iSAM(proposed, result, (double)mes["t"], "SynthUWB", true);
+	exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true);
 
 	// Prepare for next iteration
 	graph->resize(0);

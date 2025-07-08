@@ -174,9 +174,8 @@ int main(int argc, char* argv[]) {
 	// UWB noise model
 
 	// double uwb_stdev = 1e-3;
-	double uwb_stdev = 0.1;
-	// double uwb_stdev = 0.2;
-	// They set this to 100 or 1000 in this example: https://github.com/borglab/gtsam/blob/develop/examples/RangeISAMExample_plaza2.cpp
+	// double uwb_stdev = 0.1;
+	double uwb_stdev = 0.2;
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
 	// GT noise model - (use to define pose prior)
@@ -249,15 +248,10 @@ int main(int argc, char* argv[]) {
 
 	int imu_counter = 0;
 	int last_imu_counter = 0;
-	bool initialization_complete = true;
+
 	bool start_graph = false;
 
-	int T_UWB = 10; // Every X IMU measurements, generate 1 synthetic UWB measurement.
 	int uwb_counter = 0;
-	
-	int gt_correction_hz_max = 200; // This will be the frequency that you interpolated to, 20 by default
-	double gt_correction_hz = 20;
-	int T_GT = (int) (gt_correction_hz_max / gt_correction_hz); // Every X SLAM measurements, generate 1 GT correction
 	int gt_counter = 0;
 
 	int imu_count_at_last_correction = 0;
@@ -340,16 +334,18 @@ int main(int argc, char* argv[]) {
 			gt_counter++;
 			
 		}
-		else if (use_uwb && mes["type"] == "uwb" && start_graph) {
-
-		}
 		else if (synthetic && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
 			if (imu_counter == imu_count_at_last_correction) { continue; }
 			else {
 				t.processSUWB(mes, uwb_counter, uwb_stdev);
+				uwb_counter++;
 			}
 			imu_count_at_last_imu_factor = imu_counter;
+			imu_count_at_last_imu_factor = imu_counter;
 		}
+		// else if (use_uwb && mes["type"] == "uwb" && start_graph) {
+
+		// }
 		mes_idx ++;
 	}
 

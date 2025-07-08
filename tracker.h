@@ -82,7 +82,7 @@ public:
     void init_anchors(json anchor_json);
     void init_anchor(string id);
 
-    void exec_iSAM(NavState& proposed, Values& result, double mes_timestamp, 
+    void exec_iSAM(NavState& proposed, double mes_timestamp, 
         string msg="", bool print=false);
 
     void processSLAM(const json& mes);
