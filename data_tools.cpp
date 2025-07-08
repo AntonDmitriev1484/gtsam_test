@@ -24,9 +24,23 @@ void get_pose_matrix(json d, string& user, Matrix44& pose_matrix) {
 
 }
 
+void get_GT_HTM(json d, Pose3& gt_pose) {
+	Matrix44 pose_mat;
+	string usr;
+	get_pose_matrix(d, usr, pose_mat);
+	gt_pose = Pose3(pose_mat);
+}
+
 void get_GT(json d, Pose3& gt_pose) {
 	// Create rotation from quaternion format
 	gt_pose = Pose3(Rot3(d["qx"], d["qy"], d["qz"], d["qw"]), Point3(d["x"], d["y"], d["z"]));
+}
+
+void get_V(json d, Vector3& velocity) {
+	velocity = Vector3(
+		d["v_world"]["vx"], 
+		d["v_world"]["vy"], 
+		d["v_world"]["vz"]);
 }
 
 void get_UWB(json d, string& src_user, string& dst_user, double& range) {

@@ -182,7 +182,7 @@ int main(int argc, char* argv[]) {
 	double gt_pos_stdev = 1e-2;
 	double gt_ori_stdev = 1e-2;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
-	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 1);
+	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 0.1);
 	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 0.01);
 
 
@@ -243,7 +243,7 @@ int main(int argc, char* argv[]) {
 		debug_dir);
 
 	t.init_anchors(json::parse(beacon_fs));
-	t.init(sensor_stream);
+	// t.init(sensor_stream);
 
 
 	int imu_counter = 0;
@@ -266,7 +266,7 @@ int main(int argc, char* argv[]) {
 
 	for (json mes : sensor_stream) {
 
-		if (mes["type"] == "imu") {
+		if (start_graph && mes["type"] == "imu") {
 
 			// Add IMU measurement
 			Vector3 accel;
@@ -274,30 +274,30 @@ int main(int argc, char* argv[]) {
 			get_IMU(mes, accel, gyro);
 			t.imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 			imu_counter++;
-			start_graph = true;
 
 			cout << "Preintegration on at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
 
 			// Just for plotting at IMU frequency
-			if (mes_idx > t.mes_start) {
-				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(t.imu_preintegrated);
-				auto proposed = current_imu_preintegration->predict(t.prev_state, t.track.constant_bias);
-				// Band-aid fix to filter out large hallucination from bad velocity prior.
-				if (mes["t"] < 1750970628.78905845) { // If we're in the hallucination part.
-					if ((proposed.pose().translation() - t.track.gt_poses.back().translation()).norm() < 0.5 ) {
-						t.track.est_poses.push_back(proposed.pose());
-						t.track.est_timestamps.push_back((double)mes["t"]);
-					}
-					else {
-						t.track.est_poses.push_back(t.track.gt_poses.back());
-						t.track.est_timestamps.push_back((double)mes["t"]);
-					}
-				}
-				else {
-					t.track.est_poses.push_back(proposed.pose());
-					t.track.est_timestamps.push_back((double)mes["t"]);
-				}
-			}
+			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(t.imu_preintegrated);
+			auto proposed = current_imu_preintegration->predict(t.prev_state, t.track.constant_bias);
+			t.track.est_poses.push_back(proposed.pose());
+			t.track.est_timestamps.push_back((double)mes["t"]);
+
+			// Band-aid fix to filter out large hallucination from bad velocity prior.
+			// if (mes["t"] < 1750970628.78905845) { // If we're in the hallucination part.
+			// 	if ((proposed.pose().translation() - t.track.gt_poses.back().translation()).norm() < 0.5 ) {
+			// 		t.track.est_poses.push_back(proposed.pose());
+			// 		t.track.est_timestamps.push_back((double)mes["t"]);
+			// 	}
+			// 	else {
+			// 		t.track.est_poses.push_back(t.track.gt_poses.back());
+			// 		t.track.est_timestamps.push_back((double)mes["t"]);
+			// 	}
+			// }
+			// else {
+			// 	t.track.est_poses.push_back(proposed.pose());
+			// 	t.track.est_timestamps.push_back((double)mes["t"]);
+			// }
 
 			for (json mes : gt_pose_buffer) {
 				t.processSLAM(mes);
@@ -318,6 +318,13 @@ int main(int argc, char* argv[]) {
 
 			}
 			range_buffer.clear();
+		}
+		else if (use_gt && mes["type"] == "slam_pose" && !start_graph) {
+			// Skip all measurements until we find a slam pose and velocity that we can use
+			// to set up priors
+			t.init_state(mes);
+			start_graph = true;
+			
 		}
 		else if (use_gt && mes["type"] == "slam_pose" && start_graph) {
 

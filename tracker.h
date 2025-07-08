@@ -81,6 +81,7 @@ public:
     void init(json sensor_stream);
     void init_anchors(json anchor_json);
     void init_anchor(string id);
+    void init_state(json mes);
 
     void exec_iSAM(NavState& proposed, double mes_timestamp, 
         string msg="", bool print=false);

@@ -191,6 +191,52 @@ void Tracker::init(json sensor_stream) {
 
 }
 
+void Tracker::init_state(json mes) {
+	 // Find first SLAM pose, and use it to set GT prior.
+    track.Ix = 0;
+    track.Iv = 0;
+    track.Ib = 0;
+
+	Pose3 start_slam_pose; 
+	Vector3 start_slam_velocity;
+	double timestamp;
+
+	get_GT_HTM(mes, start_slam_pose);
+	get_V(mes, start_slam_velocity);
+
+	Pose3 prior_pose = start_slam_pose * T_imu_body.inverse();
+
+	// TODO: I have no idea which one of these is right but they all seem to work?
+
+	// Rot3 r = T_imu_body.inverse().rotation();
+	// Vector3 prior_velocity = r.matrix().inverse() * (start_slam_velocity);
+
+	Rot3 r = T_imu_body.inverse().rotation();
+	Vector3 prior_velocity = r.matrix() * (start_slam_velocity);
+
+    vals.insert(X(track.Ix), prior_pose);
+    vals.insert(V(track.Iv), prior_velocity);
+    vals.insert(B(track.Ib), prior_imu_bias);
+
+    graph->addPrior(X(track.Ix), prior_pose, GT_noise_model);
+    graph->addPrior(V(track.Iv), prior_velocity, Velocity_noise_model);
+    graph->addPrior(B(track.Ib), prior_imu_bias, Bias_noise_model);
+
+    track.est_poses.push_back(prior_pose); // We'll take the estimate out of values and put it here.
+    track.est_timestamps.push_back(timestamp);
+    track.est_velocities.push_back(prior_velocity);
+    track.constant_bias = prior_imu_bias;
+
+    // Once priors have been inserted into graph and vals,
+    // initialize isam with these estimates.
+    isam->update(*graph, vals);
+	graph->resize(0);
+	vals.clear();
+
+    // Initialize our NavState
+    prev_state = NavState(track.est_poses.back(), track.est_velocities.back());
+}
+
 void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp, 
     string msg, bool print){
 
