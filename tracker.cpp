@@ -117,10 +117,9 @@ Key MK_Anchor(string name, int I) {return symbol('s', stoi(name));}
 // Assuming we have already called
 // get_beacon_info(tracker.anchors, json::parse(beacon_fs));
 void Tracker::init_anchor(string id){
-    track.pose_key = MK_Anchor(id, 0); // Make a key for the anchor, in our graph
     Pose3 prior_beacon_pose(anchors[id].gt_poses[0]);
-    vals.insert(track.pose_key, prior_beacon_pose);
-    graph->add(NonlinearEquality<Pose3>(track.pose_key, prior_beacon_pose));
+    vals.insert(MK_Anchor(id, 0), prior_beacon_pose);
+    graph->add(NonlinearEquality<Pose3>(MK_Anchor(id, 0), prior_beacon_pose));
 }
 
 void Tracker::init_anchors(json anchor_json) {
@@ -334,25 +333,25 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 
 	// Add UWB (range) factor — use ground truth here for stability
 	graph->add(RangeFactor<Pose3, Pose3, double>(
-		X(track.Ix), dst.pose_key, noised_range, UWB_noise_model));
+		X(track.Ix), MK_Anchor(dst_user, 0), noised_range, UWB_noise_model));
 	cout << "Added Range factor " << graph->size() - 1 << endl;
 	cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
 
 	// A noise model that basically only constrains yaw on the pose.
-	// double gt_pos_stdev = 1e-1;
-	// double gt_pitch_stdev = 1e-1;
-	// double gt_roll_stdev = 1e-1;
-	// double gt_yaw_stdev = 1e-2;
-	// noiseModel::Diagonal::shared_ptr yaw_constraint_pose_noise_model = noiseModel::Diagonal::Sigmas(
-	// 	Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_roll_stdev, gt_pitch_stdev, gt_yaw_stdev));
-
-    // It seems to be THIS very specific noise model that doesn't throw VVdot
 	double gt_pos_stdev = 1e-1;
 	double gt_pitch_stdev = 1e-1;
 	double gt_roll_stdev = 1e-1;
 	double gt_yaw_stdev = 1e-2;
-	noiseModel::Constrained::shared_ptr yaw_constraint_pose_noise_model = noiseModel::Constrained::MixedSigmas(
+	noiseModel::Diagonal::shared_ptr yaw_constraint_pose_noise_model = noiseModel::Diagonal::Sigmas(
 		Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_roll_stdev, gt_pitch_stdev, gt_yaw_stdev));
+
+    // It seems to be THIS very specific noise model that doesn't throw VVdot
+	// double gt_pos_stdev = 1e-1;
+	// double gt_pitch_stdev = 1e-1;
+	// double gt_roll_stdev = 1e-1;
+	// double gt_yaw_stdev = 1e-2;
+	// noiseModel::Constrained::shared_ptr yaw_constraint_pose_noise_model = noiseModel::Constrained::MixedSigmas(
+	// 	Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_roll_stdev, gt_pitch_stdev, gt_yaw_stdev));
 
 	graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, yaw_constraint_pose_noise_model));
 	cout << "Added (fake) Prior factor " << graph->size() - 1 << endl;
