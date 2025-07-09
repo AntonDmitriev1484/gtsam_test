@@ -375,29 +375,24 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 		cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
 	// }
 
-	// A noise model that basically only constrains yaw on the pose.
-    // It seems to be THIS very specific noise model that doesn't throw VVdot
-	// double gt_pos_stdev = 1e-1;
-	// double gt_pitch_stdev = 1e-1;
-	// double gt_roll_stdev = 1e-1;
-	// double gt_yaw_stdev = 1e-2;
-	// noiseModel::Constrained::shared_ptr yaw_constraint_pose_noise_model = noiseModel::Constrained::MixedSigmas(
-	// 	Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_roll_stdev, gt_pitch_stdev, gt_yaw_stdev));
-
+	
 	// graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, yaw_constraint_pose_noise_model));
 	// cout << "Added (fake) Prior factor " << graph->size() - 1 << endl;
 
 	// Magnetometer Factor
 	// N_body_frame = T_world_to_body * N_world_frame
-	Vector3 N_body_frame = gt_pose.rotation().matrix() * Vector3(0,1,0);
+	Vector3 N_world_frame(0,1,0);
+	Vector3 N_body_frame = gt_pose.rotation().matrix() * N_world_frame;
 
-	double scale = 1; // nT???
+	double scale = 1; // Magnitude is 55k nT, or 55 muT - I think this is just in case your raw measurement is not already normalized?
 	Point3 measured = N_body_frame * scale;
-	Point3 direction = N_body_frame;
 	Point3 bias(1e-3, 1e-3, 1e-3);
 	noiseModel::Diagonal::shared_ptr MAG_noise_model = noiseModel::Isotropic::Sigma(3, 0.1);
 
-	graph->add(MagPoseFactor<Pose3>(X(track.Ix), measured, scale, direction, bias, MAG_noise_model));
+	graph->add(MagPoseFactor<Pose3>(X(track.Ix), measured, scale, N_world_frame, bias, MAG_noise_model));
+
+	suwb_base_poses.push_back(gt_pose);
+	mag_vectors.push_back(Pose3(Rot3::Identity(), gt_pose.rotation().inverse().matrix() * N_body_frame));
 	
 	
 	// Add IMU factor

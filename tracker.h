@@ -64,6 +64,10 @@ public:
 
     std::map<string, tracking> anchors;
 
+    //Debug
+    vector<Pose3> suwb_base_poses;
+    vector<Pose3> mag_vectors; // identity rotation, just translation
+
     double mes_start;
 
     Tracker(const string& id,

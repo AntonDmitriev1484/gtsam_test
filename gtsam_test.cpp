@@ -349,6 +349,19 @@ int main(int argc, char* argv[]) {
 	write_timestamps( t.track.est_poses, t.track.est_timestamps, estimtated_timestamp_fs);
 	estimtated_timestamp_fs.close();
 
+
+	cout << "Dumping magnetometer vectors for visual debug" << endl;
+	ofstream suwb_base_poses_fs(out_dir + "/suwb_base_poses.txt");
+	write_trajectory_KITTI_format( t.suwb_base_poses, suwb_base_poses_fs);
+	suwb_base_poses_fs.close();
+
+	ofstream mag_vectors_fs(out_dir + "/mag_vectors_fs.txt");
+	write_trajectory_KITTI_format( t.mag_vectors, mag_vectors_fs);
+	mag_vectors_fs.close();
+
+
+
+
 	cout << " Applied " << uwb_counter << " uwb measurements for 45 seconds of data " << endl;
 	double fuwb = uwb_counter /45.0;
 	cout << " UWB frequency in the graph is " << fuwb << endl;
@@ -357,6 +370,7 @@ int main(int argc, char* argv[]) {
 	double fgt = gt_counter /45.0;
 	cout << " GT frequency in the graph is " << fgt << endl;
 	cout << " GT skipped " << gt_skipped << endl;
+
 
 	return 0;
 }
