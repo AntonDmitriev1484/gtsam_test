@@ -265,7 +265,7 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		isam->update(*graph, vals);
 		result = isam->calculateEstimate();
 		END_TIMER("Ended iSAM "+msg, isam_t);
-		
+
 				//Correct code:
 		track.est_poses.push_back(result.at<Pose3>(X(track.Ix)));
 		track.est_timestamps.push_back(mes_timestamp);
@@ -338,50 +338,68 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 {
 	cout << "Processing synthetic range for : " << mes["t"] << endl;
 
-	vector<string> users = {"2", "3", "5"};
-	string dst_user = users[uwb_counter % 3];
-    tracking& dst = anchors[dst_user];
+		// Extract GT pose
+		Matrix44 gt_pose_slam;
+		string usrname;
+		get_pose_matrix(mes, usrname, gt_pose_slam);
+		Pose3 gt_pose = Pose3(gt_pose_slam) * T_imu_body.inverse(); // Transform pose to the body frame.
+		track.gt_poses.push_back(gt_pose);
+		track.gt_timestamps.push_back((double)mes["t"]);
 
-	// Extract GT pose
-	Matrix44 gt_pose_slam;
-	string usrname;
-	get_pose_matrix(mes, usrname, gt_pose_slam);
-	Pose3 gt_pose = Pose3(gt_pose_slam) * T_imu_body.inverse(); // Transform pose to the body frame.
-	track.gt_poses.push_back(gt_pose);
-	track.gt_timestamps.push_back((double)mes["t"]);
+	
 
-	track.Ix++;
-	track.Iv++;
-	track.Ib++;
+		track.Ix++;
+		track.Iv++;
+		track.Ib++;
 
-	// Ground truth range from GT poses
-	double true_range = distance3(
-		gt_pose.translation(),
-		dst.gt_poses.back().translation()); 
+	vector<string> ids = {"2", "3", "5"};
+	// for (string dst_user: ids){ 
 
-	std::random_device rd;                          // Seed TODO set this up in constructor
-	std::mt19937 gen(rd());                         // Mersenne Twister engine
-	std::normal_distribution<double> dist(true_range, uwb_stdev);  // N(mean, stddev)
-	double noised_range = dist(gen);
+		string dst_user = ids[uwb_counter % 3];
+		tracking& dst = anchors[dst_user];
 
-	// Add UWB (range) factor — use ground truth here for stability
-	graph->add(RangeFactor<Pose3, Pose3, double>(
-		X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model));
-	cout << "Added Range factor " << graph->size() - 1 << endl;
-	cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
+		// Ground truth range from GT poses
+		double true_range = distance3(
+			gt_pose.translation(),
+			dst.gt_poses.back().translation()); 
+
+		std::random_device rd;                          // Seed TODO set this up in constructor
+		std::mt19937 gen(rd());                         // Mersenne Twister engine
+		std::normal_distribution<double> dist(true_range, uwb_stdev);  // N(mean, stddev)
+		double noised_range = dist(gen);
+
+		// Add UWB (range) factor — use ground truth here for stability
+		graph->add(RangeFactor<Pose3, Pose3, double>(
+			X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model));
+		cout << "Added Range factor " << graph->size() - 1 << endl;
+		cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
+	// }
 
 	// A noise model that basically only constrains yaw on the pose.
     // It seems to be THIS very specific noise model that doesn't throw VVdot
-	double gt_pos_stdev = 1e-1;
-	double gt_pitch_stdev = 1e-1;
-	double gt_roll_stdev = 1e-1;
-	double gt_yaw_stdev = 1e-2;
-	noiseModel::Constrained::shared_ptr yaw_constraint_pose_noise_model = noiseModel::Constrained::MixedSigmas(
-		Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_roll_stdev, gt_pitch_stdev, gt_yaw_stdev));
+	// double gt_pos_stdev = 1e-1;
+	// double gt_pitch_stdev = 1e-1;
+	// double gt_roll_stdev = 1e-1;
+	// double gt_yaw_stdev = 1e-2;
+	// noiseModel::Constrained::shared_ptr yaw_constraint_pose_noise_model = noiseModel::Constrained::MixedSigmas(
+	// 	Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_roll_stdev, gt_pitch_stdev, gt_yaw_stdev));
 
-	graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, yaw_constraint_pose_noise_model));
-	cout << "Added (fake) Prior factor " << graph->size() - 1 << endl;
+	// graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, yaw_constraint_pose_noise_model));
+	// cout << "Added (fake) Prior factor " << graph->size() - 1 << endl;
 
+	// Magnetometer Factor
+	// N_body_frame = T_world_to_body * N_world_frame
+	Vector3 N_body_frame = gt_pose.rotation().matrix() * Vector3(0,1,0);
+
+	double scale = 1; // nT???
+	Point3 measured = N_body_frame * scale;
+	Point3 direction = N_body_frame;
+	Point3 bias(1e-3, 1e-3, 1e-3);
+	noiseModel::Diagonal::shared_ptr MAG_noise_model = noiseModel::Isotropic::Sigma(3, 0.1);
+
+	graph->add(MagPoseFactor<Pose3>(X(track.Ix), measured, scale, direction, bias, MAG_noise_model));
+	
+	
 	// Add IMU factor
 	auto* current_imu_preintegration =
 		dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
