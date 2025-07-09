@@ -132,65 +132,6 @@ void Tracker::init_anchors(json anchor_json) {
 	}
 }
 
-void Tracker::init(json sensor_stream) {
-
-    // Find first SLAM pose, and use it to set GT prior.
-    track.Ix = 0;
-    track.Iv = 0;
-    track.Ib = 0;
-
-	int pose_num = 0;
-	this->mes_start = 0;
-    Pose3 find_first_gt_pose;
-    int mes_idx = 0;
-    double start_timestamp = 0;
-
-    for (json mes : sensor_stream) {
-        if (mes["type"] == "slam_pose") {
-            start_timestamp = (double) mes["t"];
-            mes_start = mes_idx;
-            Matrix44 gt_pose_world;
-            string usrname;
-            get_pose_matrix(mes, usrname, gt_pose_world);
-
-            //Pose3 gt_pose = slam_to_world * gt_pose_slam;
-            Pose3 asdf(gt_pose_world);
-            Pose3 gt_pose = asdf * T_imu_body.inverse();
-
-            find_first_gt_pose = gt_pose;
-            break;
-        }
-        mes_idx ++;
-    }
-
-    // <<< Problem behind start spaghetti is here >>>
-    Pose3 start_pose = find_first_gt_pose;
-    Vector3 prior_velocity(-0.3, -0.8, 0); // I'm assuming this should be in the world frame?
-
-    vals.insert(X(track.Ix), start_pose);
-    vals.insert(V(track.Iv), prior_velocity);
-    vals.insert(B(track.Ib), prior_imu_bias);
-
-    graph->addPrior(X(track.Ix), start_pose, GT_noise_model);
-    graph->addPrior(V(track.Iv), prior_velocity, Velocity_noise_model);
-    graph->addPrior(B(track.Ib), prior_imu_bias, Bias_noise_model);
-
-    track.est_poses.push_back(start_pose); // We'll take the estimate out of values and put it here.
-    track.est_timestamps.push_back(start_timestamp);
-    track.est_velocities.push_back(prior_velocity);
-    track.constant_bias = prior_imu_bias;
-
-    // Once priors have been inserted into graph and vals,
-    // initialize isam with these estimates.
-    isam->update(*graph, vals);
-	graph->resize(0);
-	vals.clear();
-
-    // Initialize our NavState
-    prev_state = NavState(track.est_poses.back(), track.est_velocities.back());
-
-}
-
 void Tracker::init_state(json mes) {
 	 // Find first SLAM pose, and use it to set GT prior.
     track.Ix = 0;
@@ -208,11 +149,15 @@ void Tracker::init_state(json mes) {
 
 	// TODO: I have no idea which one of these is right but they all seem to work?
 
+	// Velocity is computed using SLAM poses in the world frame.
+	// Therefore all we should need to do, is rotate the velocity vector into the body frame.
+	
+	Vector3 prior_velocity = T_imu_body.rotation() * start_slam_velocity;
 	// Rot3 r = T_imu_body.inverse().rotation();
 	// Vector3 prior_velocity = r.matrix().inverse() * (start_slam_velocity);
 
-	Rot3 r = T_imu_body.inverse().rotation();
-	Vector3 prior_velocity = r.matrix() * (start_slam_velocity);
+	// Rot3 r = T_imu_body.inverse().rotation();
+	// Vector3 prior_velocity = r.matrix() * (start_slam_velocity);
 
     vals.insert(X(track.Ix), prior_pose);
     vals.insert(V(track.Iv), prior_velocity);
