@@ -283,22 +283,6 @@ int main(int argc, char* argv[]) {
 			t.track.est_poses.push_back(proposed.pose());
 			t.track.est_timestamps.push_back((double)mes["t"]);
 
-			// Band-aid fix to filter out large hallucination from bad velocity prior.
-			// if (mes["t"] < 1750970628.78905845) { // If we're in the hallucination part.
-			// 	if ((proposed.pose().translation() - t.track.gt_poses.back().translation()).norm() < 0.5 ) {
-			// 		t.track.est_poses.push_back(proposed.pose());
-			// 		t.track.est_timestamps.push_back((double)mes["t"]);
-			// 	}
-			// 	else {
-			// 		t.track.est_poses.push_back(t.track.gt_poses.back());
-			// 		t.track.est_timestamps.push_back((double)mes["t"]);
-			// 	}
-			// }
-			// else {
-			// 	t.track.est_poses.push_back(proposed.pose());
-			// 	t.track.est_timestamps.push_back((double)mes["t"]);
-			// }
-
 			for (json mes : gt_pose_buffer) {
 				t.processSLAM(mes);
 				imu_count_at_last_correction = imu_counter;

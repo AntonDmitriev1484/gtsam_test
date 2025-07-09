@@ -6,7 +6,7 @@
         if (TIMING) { \
 			start_timer = clock(); \
 			double start_t = double(start_timer) / CLOCKS_PER_SEC; \
-			cout << "TIMER " << msg << ": "<<start_t << endl; \
+			cout << "TIMER | " << msg << " | "<<start_t << endl; \
         } \
     } while (false)
 
@@ -17,8 +17,8 @@
 			double start_t = double(start_timer) / CLOCKS_PER_SEC; \
 			double end_t = double(end_timer)/ CLOCKS_PER_SEC; \
 			double elapsed = end_t - start_t; \
-			cout << "TIMER " << msg << ": "<< end_t << endl; \
-			cout << "Elapsed " << elapsed << endl; \
+			cout << "TIMER | " << msg << " | "<< end_t << endl; \
+			cout << "TIMER Elapsed " << elapsed << endl; \
 			printf("\n"); \
 		} \
 	} while (false)
@@ -261,30 +261,14 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
         }
 		
 		clock_t isam_t;
-		START_TIMER("Started iSAM. "+msg, isam_t);
+		START_TIMER("Start iSAM, "+msg+", ts="+to_string(mes_timestamp), isam_t);
 		isam->update(*graph, vals);
 		result = isam->calculateEstimate();
 		END_TIMER("Ended iSAM "+msg, isam_t);
-
-        // Band-aid fix to filter out large hallucination from bad velocity prior.
-        if (mes_timestamp < 1750970628.78905845) { // If we're in the hallucination part.
-            if ((proposed.pose().translation() - track.gt_poses.back().translation()).norm() < 0.5 ) {
-                track.est_poses.push_back(proposed.pose());
-                track.est_timestamps.push_back(mes_timestamp);
-            }
-            else {
-                track.est_poses.push_back(track.gt_poses.back());
-                track.est_timestamps.push_back(mes_timestamp);
-            }
-        }
-        else {
-            track.est_poses.push_back(proposed.pose());
-            track.est_timestamps.push_back(mes_timestamp);
-        }
-
+		
 				//Correct code:
-		// track.est_poses.push_back(result.at<Pose3>(X(track.Ix)));
-		// track.est_timestamps.push_back((double)mes["t"]);
+		track.est_poses.push_back(result.at<Pose3>(X(track.Ix)));
+		track.est_timestamps.push_back(mes_timestamp);
 
 		track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
 		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
