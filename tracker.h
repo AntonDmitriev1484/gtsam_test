@@ -64,6 +64,8 @@ public:
 
     std::map<string, tracking> anchors;
 
+	std::mt19937 uwb_rng;   // Random Number Generator for synthetic UWB measurements
+
     //Debug
     vector<Pose3> suwb_base_poses;
     vector<Pose3> mag_vectors; // identity rotation, just translation

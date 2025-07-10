@@ -189,24 +189,25 @@ int main(int argc, char* argv[]) {
 	//// IMU noise model
 
 
-	double SCALE = 1;
+	double ASCALE = 1;
+	double GSCALE = 10;
 
 	double GYRO_NOISE_DENSITY = 0.0002049600985797649; 
 	double ACCEL_NOISE_DENSITY = 0.002064189891192468;
 
-	Matrix33 continuous_time_accel_noise_cov = I_3x3 * pow(ACCEL_NOISE_DENSITY, 2) * SCALE;
-	Matrix33 continuous_time_gyro_noise_cov = I_3x3 * pow(GYRO_NOISE_DENSITY, 2) * SCALE;
+	Matrix33 continuous_time_accel_noise_cov = I_3x3 * pow(ACCEL_NOISE_DENSITY, 2) * ASCALE;
+	Matrix33 continuous_time_gyro_noise_cov = I_3x3 * pow(GYRO_NOISE_DENSITY, 2) * GSCALE;
 
 
 	double GYRO_BIAS_RW = 3.1998555455947417e-06;
 	double ACCEL_BIAS_RW = 0.00022919238444020807;
 
-	Matrix33 continuous_time_accel_bias_rw = I_3x3 * pow(ACCEL_BIAS_RW, 2) * SCALE;
-	Matrix33 continuous_time_gyro_bias_rw = I_3x3 * pow(GYRO_BIAS_RW, 2) * SCALE;
+	Matrix33 continuous_time_accel_bias_rw = I_3x3 * pow(ACCEL_BIAS_RW, 2) * ASCALE;
+	Matrix33 continuous_time_gyro_bias_rw = I_3x3 * pow(GYRO_BIAS_RW, 2) * GSCALE;
 
-	Matrix66 initial_bias_cov = I_6x6 * 1e-5 * SCALE;
+	Matrix66 initial_bias_cov = I_6x6 * 1e-5 * ASCALE;
 
-	Matrix33 integration_cov = I_3x3 * 1e-5 * SCALE;
+	Matrix33 integration_cov = I_3x3 * 1e-5 * ASCALE;
 
 
 	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
@@ -222,8 +223,10 @@ int main(int argc, char* argv[]) {
 
 	imu_preintegration_params->use2ndOrderCoriolis = false;
 
-
 	imuBias::ConstantBias prior_imu_bias;
+	// double GBIAS = 1e-3;
+	// double ABIAS = 1e-3;
+	// imuBias::ConstantBias prior_imu_bias(Vector3(ABIAS, ABIAS, 1e-1), Vector3(1e-1, 1e-1, GBIAS));
 
 	Matrix33 transform;
 	transform << 1, 0, 0,
@@ -294,7 +297,7 @@ int main(int argc, char* argv[]) {
 			for (json mes : range_buffer) {
 				if (synthetic) {
 					t.processSUWB(mes, uwb_counter, uwb_stdev);
-					uwb_counter++; // TODO check to make sure I'm not double counting.
+					// uwb_counter++; // TODO check to make sure I'm not double counting.
 				}
 				else {
 					//t.processUWB
@@ -329,7 +332,7 @@ int main(int argc, char* argv[]) {
 			if (imu_counter == imu_count_at_last_correction) { continue; }
 			else {
 				t.processSUWB(mes, uwb_counter, uwb_stdev);
-				uwb_counter++;
+				// uwb_counter++;
 			}
 			imu_count_at_last_imu_factor = imu_counter;
 			imu_count_at_last_imu_factor = imu_counter;

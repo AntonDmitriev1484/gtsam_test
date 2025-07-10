@@ -82,9 +82,14 @@ Tracker::Tracker(const string& id,
 	this->delta_t = delta_t;
 	this->T_imu_body = T_imu_body;
 
-    // TODO: this->prior_velocity <= make this initializable to non-zero after post_process
     this->prior_imu_bias = prior_imu_bias;
 
+	// Initialize UWB RNG
+	std::random_device rd; 
+	std::mt19937 gen(rd());    
+	this->uwb_rng = gen; 
+
+	
     // Initialize noise models
     this->GT_noise_model = GT_noise_model;
     this->UWB_noise_model = UWB_noise_model;
@@ -291,16 +296,14 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 		track.gt_poses.push_back(gt_pose);
 		track.gt_timestamps.push_back((double)mes["t"]);
 
-	
-
 		track.Ix++;
 		track.Iv++;
 		track.Ib++;
 
 	vector<string> ids = {"2", "3", "5"};
-	// for (string dst_user: ids){ 
-
-		string dst_user = ids[uwb_counter % 3];
+	for (string dst_user: ids){ 
+		uwb_counter++;
+		// string dst_user = ids[uwb_counter % 3];
 		tracking& dst = anchors[dst_user];
 
 		// Ground truth range from GT poses
@@ -308,17 +311,15 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 			gt_pose.translation(),
 			dst.gt_poses.back().translation()); 
 
-		std::random_device rd;                          // Seed TODO set this up in constructor
-		std::mt19937 gen(rd());                         // Mersenne Twister engine
-		std::normal_distribution<double> dist(true_range, uwb_stdev);  // N(mean, stddev)
-		double noised_range = dist(gen);
+		std::normal_distribution<double> uwb_distribution(true_range, uwb_stdev);  // N(mean, stddev)
+		double noised_range = uwb_distribution(uwb_rng);
 
 		// Add UWB (range) factor — use ground truth here for stability
 		graph->add(RangeFactor<Pose3, Pose3, double>(
 			X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model));
 		cout << "Added Range factor " << graph->size() - 1 << endl;
 		cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
-	// }
+	}
 
 	
 	// graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, yaw_constraint_pose_noise_model));
