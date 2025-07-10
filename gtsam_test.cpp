@@ -238,8 +238,9 @@ int main(int argc, char* argv[]) {
 	imu_preintegration_params->body_P_sensor = T_imu_body;
 
 	const string id = "1";
+	const int smoother_lag = 0.5;
 	Tracker t(
-		id, T_imu_body, dt,
+		id, T_imu_body, dt, smoother_lag,
 		GT_noise_model, UWB_noise_model, VIO_pose_noise_model, 
 		prior_velocity_noise_model, prior_bias_noise_model,
 		imu_preintegration_params, prior_imu_bias,

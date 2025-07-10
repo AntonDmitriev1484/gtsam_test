@@ -28,7 +28,7 @@
 #include <gtsam/nonlinear/GaussNewtonOptimizer.h>
 #include <gtsam/nonlinear/NonlinearConjugateGradientOptimizer.h>
 #include <gtsam/nonlinear/NonlinearEquality.h>
-
+#include <gtsam/nonlinear/IncrementalFixedLagSmoother.h>
 
 #include <cctype>
 #include <filesystem>

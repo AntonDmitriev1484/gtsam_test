@@ -41,6 +41,9 @@ class Tracker {
 public:
 
     ISAM2* isam;
+    IncrementalFixedLagSmoother* smoother; // I didn't even know 'er
+    FixedLagSmoother::KeyTimestampMap key_timestamps;
+
     NonlinearFactorGraph* graph;
     Values vals;
 
@@ -75,6 +78,7 @@ public:
     Tracker(const string& id,
             const Pose3& T_imu_body,
             const double delta_t,
+            const double smoother_lag,
             const SharedNoiseModel& GT_noise_model,
             const SharedNoiseModel& UWB_noise_model,
             const SharedNoiseModel& FakePrior_noise_model,
@@ -90,6 +94,9 @@ public:
     void init_state(json mes);
 
     void exec_iSAM(NavState& proposed, double mes_timestamp, 
+        string msg="", bool print=false);
+
+    void exec_smoother(NavState& proposed, double mes_timestamp, 
         string msg="", bool print=false);
 
     void processSLAM(const json& mes);
