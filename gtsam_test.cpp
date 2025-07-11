@@ -174,9 +174,9 @@ int main(int argc, char* argv[]) {
 	// UWB noise model
 
 	// double uwb_stdev = 1e-3;
-	double uwb_stdev = 0.1;
+	// double uwb_stdev = 0.1;
 	// double uwb_stdev = 0.2;
-	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
+	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_synth_stdev);
 
 	// GT noise model - (use to define pose prior)
 	double gt_pos_stdev = 1e-2;
@@ -240,7 +240,7 @@ int main(int argc, char* argv[]) {
 	const string id = "1";
 	const int smoother_lag = 0.5;
 	Tracker t(
-		id, T_imu_body, dt, smoother_lag,
+		id, T_imu_body, dt, smoother_lag, uwb_synth_stdev,
 		GT_noise_model, UWB_noise_model, VIO_pose_noise_model, 
 		prior_velocity_noise_model, prior_bias_noise_model,
 		imu_preintegration_params, prior_imu_bias,
@@ -297,7 +297,7 @@ int main(int argc, char* argv[]) {
 
 			for (json mes : range_buffer) {
 				if (synthetic) {
-					t.processSUWB(mes, uwb_counter, uwb_stdev);
+					t.processSUWB(mes, uwb_counter, uwb_synth_stdev);
 					// uwb_counter++; // TODO check to make sure I'm not double counting.
 				}
 				else {
@@ -332,7 +332,7 @@ int main(int argc, char* argv[]) {
 		else if (synthetic && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
 			if (imu_counter == imu_count_at_last_correction) { continue; }
 			else {
-				t.processSUWB(mes, uwb_counter, uwb_stdev);
+				t.processSUWB(mes, uwb_counter, uwb_synth_stdev);
 				// uwb_counter++;
 			}
 			imu_count_at_last_imu_factor = imu_counter;

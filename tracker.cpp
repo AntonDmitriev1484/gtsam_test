@@ -71,6 +71,7 @@ Tracker::Tracker(const string& id,
             const Pose3& T_imu_body,
             const double delta_t,
 			const double smoother_lag,
+			const double uwb_stdev,
             const SharedNoiseModel& GT_noise_model,
             const SharedNoiseModel& UWB_noise_model,
             const SharedNoiseModel& FakePrior_noise_model,
@@ -89,6 +90,7 @@ Tracker::Tracker(const string& id,
 	std::random_device rd; 
 	std::mt19937 gen(rd());    
 	this->uwb_rng = gen; 
+	this->uwb_stdev = uwb_stdev;
 
 	
     // Initialize noise models
@@ -202,7 +204,9 @@ void Tracker::init_state(json mes) {
 	// graph->resize(0);
 	// vals.clear();
 
-	// smoother->update(*graph, vals, key_timestamps);
+	smoother->update(*graph, vals, key_timestamps);
+	graph->resize(0);
+	vals.clear();
 
 	// TODO: Do I need to smoother update here?
 
@@ -284,27 +288,33 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
                 }
             }
             cout << endl;
+
         }
 		
 		clock_t isam_t;
 		START_TIMER("Start Smoother, "+msg+", ts="+to_string(mes_timestamp), isam_t);
-		smoother->update(*graph, vals, key_timestamps);
+		smoother->update(*graph, vals, key_timestamps); // Crashes on this line specifically
 		result = smoother->calculateEstimate();
 		END_TIMER("Ended Smoother "+msg, isam_t);
 
+		// Problem doesn't seem to be below?
 			//Correct code:
-		track.est_poses.push_back(result.at<Pose3>(X(track.Ix)));
-		track.est_timestamps.push_back(mes_timestamp);
+		if (result.exists(X(track.Ix))) {
+			track.est_poses.push_back(result.at<Pose3>(X(track.Ix)));
+			track.est_timestamps.push_back(mes_timestamp);
 
-		track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
-		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
+			track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
+			prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
 
-		cout << "Successful estimate on "<<msg<<" factor" << endl;
-
+			cout << "Successful estimate on "<<msg<<" factor" << endl;
+		}
+		else {
+			cout << "Why the heck not???" << endl;
+		}
 			// Clear for next iteration
 		graph->resize(0);
 		vals.clear();
-		// key_timestamps.clear();
+		key_timestamps.clear();
 		imu_preintegrated->resetIntegrationAndSetBias(track.constant_bias);
 	}
 	catch (const std::exception& e) {
@@ -337,6 +347,15 @@ void Tracker::processSLAM(const json& mes)
 	auto* current_imu_preintegration =
 		dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
 
+
+	// Add this key -> timestamp mapping to our map
+	key_timestamps[X(track.Ix)] = (double)mes["t"];
+	key_timestamps[V(track.Iv)] = (double)mes["t"];
+	key_timestamps[B(track.Ib)] = (double)mes["t"];
+	for (auto const &[id, tracking_] : anchors) {
+		key_timestamps[AnchorKey(id)] = (double)mes["t"];
+	}
+
 	CombinedImuFactor imu_factor(
 		X(track.Ix - 1), V(track.Iv - 1),
 		X(track.Ix), V(track.Iv),
@@ -357,11 +376,6 @@ void Tracker::processSLAM(const json& mes)
 	vals.insert(X(track.Ix), proposed.pose());
 	vals.insert(V(track.Iv), proposed.v());
 	vals.insert(B(track.Ib), track.constant_bias);
-
-	// Add this key -> timestamp mapping to our map
-	key_timestamps[X(track.Ix)] = (double)mes["t"];
-	key_timestamps[V(track.Iv)] = (double)mes["t"];
-	key_timestamps[B(track.Ib)] = (double)mes["t"];
 
     // Run iSAM
 	// exec_iSAM(proposed, (double)mes["t"], "GT", true);
@@ -384,6 +398,14 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 		track.Iv++;
 		track.Ib++;
 
+				// Add this key -> timestamp mapping to our map
+	key_timestamps[X(track.Ix)] = (double)mes["t"];
+	key_timestamps[V(track.Iv)] = (double)mes["t"];
+	key_timestamps[B(track.Ib)] = (double)mes["t"];
+	for (auto const &[id, tracking_] : anchors) {
+		key_timestamps[AnchorKey(id)] = (double)mes["t"];
+	}
+
 	vector<string> ids = {"2", "3", "5"};
 	// for (string dst_user: ids){ 
 		uwb_counter++;
@@ -404,6 +426,7 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 		cout << "Added Range factor " << graph->size() - 1 << endl;
 		cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
 	// }
+	
 
 	
 	// graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, yaw_constraint_pose_noise_model));
@@ -444,10 +467,6 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 	vals.insert(V(track.Iv), proposed.v());
 	vals.insert(B(track.Ib), track.constant_bias);
 
-		// Add this key -> timestamp mapping to our map
-	key_timestamps[X(track.Ix)] = (double)mes["t"];
-	key_timestamps[V(track.Iv)] = (double)mes["t"];
-	key_timestamps[B(track.Ib)] = (double)mes["t"];
 
 	// Run optimization
 	// exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true);
