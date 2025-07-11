@@ -292,10 +292,10 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
         }
 		
 		clock_t isam_t;
-		START_TIMER("Start Smoother, "+msg+", ts="+to_string(mes_timestamp), isam_t);
+		START_TIMER("Start iSAM, "+msg+", ts="+to_string(mes_timestamp), isam_t);
 		smoother->update(*graph, vals, key_timestamps); // Crashes on this line specifically
 		result = smoother->calculateEstimate();
-		END_TIMER("Ended Smoother "+msg, isam_t);
+		END_TIMER("Ended iSAM "+msg, isam_t);
 
 		// Problem doesn't seem to be below?
 			//Correct code:
@@ -470,6 +470,6 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 
 	// Run optimization
 	// exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true);
-	exec_smoother(proposed, (double)mes["t"], "GT", true);
+	exec_smoother(proposed, (double)mes["t"], "SynthUWB", true);
 }
 
