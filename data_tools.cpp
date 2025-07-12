@@ -145,6 +145,34 @@ void write_trajectory_KITTI_format(vector<Pose3> trajectory, ofstream& fs) {
 	}
 }
 
+// void write_vector_HTM_format(vector<Vector3> trajectory, ofstream& fs) {
+// 	// Take the HMT and squish into a row
+// 	if (!fs.is_open()) {  // Check if the file is open
+// 		std::cerr << "Error: File stream is not open!" << std::endl;
+// 		return;
+// 	}
+
+// 	// Interesting, we get a non - 0 0 0 1 last row
+// 	// They tell you to cut off the last row anyways...
+
+// 	for (Vector3 pose : trajectory) {
+// 		Matrix44 m = pose.matrix();
+// 		for (int r = 0; r < 3; r++) {
+// 			for (int c = 0; c < 4; c++) {
+
+// 				if (r == 2 && c == 3) {
+// 					fs << m(r, c) << endl;
+// 				}
+// 				else {
+// 					fs << m(r, c) << " ";
+// 				}
+
+
+// 			}
+// 		}
+// 	}
+// }
+
 void write_trajectory_TUM_format(vector<Pose3> trajectory, vector<double> timestamps, ofstream& fs, Pose3 transform) {
 
 	fs << std::fixed << std::setprecision(8);  // Set once before the loop

@@ -123,7 +123,7 @@ Tracker::Tracker(const string& id,
 	ISAM2Params isam_params;
 	// Must be some way to set up a verbose option.
 	isam_params.factorization = ISAM2Params::QR;
-	isam_params.relinearizeThreshold = 0.1;
+	isam_params.relinearizeThreshold = 0.01;
 	isam_params.relinearizeSkip = 1; // More informed optimization at the cost of more computing.
 	isam_params.enableDetailedResults = true;
 	// ISAM2DoglegParams dogleg;
@@ -434,18 +434,28 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 
 	// Magnetometer Factor
 	// N_body_frame = T_world_to_body * N_world_frame
-	Vector3 N_world_frame(0,1,0);
-	Vector3 N_body_frame = gt_pose.rotation().matrix() * N_world_frame;
+	Pose3 N_world_frame(Rot3::Identity(), Vector3(0,1,0)); //Correct
+	Pose3 N_world_frame_adjusted( Rot3::Identity(), gt_pose.translation() + Vector3(0,1,0));
 
+	// Body -> Mag = World -> Mag * Inv(World -> Body)
+	// Pose3 N_body_frame =  N_world_frame_adjusted * gt_pose.inverse();
+	Vector3 N_body_frame = gt_pose.rotation().matrix().inverse() * Vector3(1, 0 ,0);
+			// WHY DO I NEED TO INVERT THIS ROTATION?
 	double scale = 1; // Magnitude is 55k nT, or 55 muT - I think this is just in case your raw measurement is not already normalized?
-	Point3 measured = N_body_frame * scale;
+
 	Point3 bias(1e-3, 1e-3, 1e-3);
 	noiseModel::Diagonal::shared_ptr MAG_noise_model = noiseModel::Isotropic::Sigma(3, 0.1);
 
-	graph->add(MagPoseFactor<Pose3>(X(track.Ix), measured, scale, N_world_frame, bias, MAG_noise_model));
-
+	// Should the world frame mag vector be aligned to 0,0,0?
+	graph->add(MagPoseFactor<Pose3>(X(track.Ix), N_body_frame, scale, N_world_frame.translation(), bias, MAG_noise_model));
+	
+	Vector3 measured = N_body_frame; // Normalize to see where the vector points relative to the GT pose.
+	cout << " Synthetic vector " << measured.x() << " " << measured.y() << " " << measured.z() << " magnitude " << N_body_frame.norm() << endl;
 	suwb_base_poses.push_back(gt_pose);
-	mag_vectors.push_back(Pose3(Rot3::Identity(), gt_pose.rotation().inverse().matrix() * N_body_frame));
+	mag_vectors.push_back(Pose3(Rot3::Identity(), N_body_frame));
+
+	// World -> Mag = Body -> Mag * World -> Body
+	// mag_vectors.push_back(N_body_frame * gt_pose);
 	
 	
 	// Add IMU factor
