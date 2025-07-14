@@ -239,8 +239,9 @@ int main(int argc, char* argv[]) {
 
 	const string id = "1";
 	const int smoother_lag = 4;
+	const bool use_smoother = false;
 	Tracker t(
-		id, T_imu_body, dt, smoother_lag, uwb_synth_stdev,
+		id, T_imu_body, dt, smoother_lag, use_smoother, uwb_synth_stdev,
 		GT_noise_model, UWB_noise_model, VIO_pose_noise_model, 
 		prior_velocity_noise_model, prior_bias_noise_model,
 		imu_preintegration_params, prior_imu_bias,

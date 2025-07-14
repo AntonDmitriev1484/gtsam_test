@@ -71,6 +71,7 @@ Tracker::Tracker(const string& id,
             const Pose3& T_imu_body,
             const double delta_t,
 			const double smoother_lag,
+			const bool use_smoother,
 			const double uwb_stdev,
             const SharedNoiseModel& GT_noise_model,
             const SharedNoiseModel& UWB_noise_model,
@@ -109,28 +110,28 @@ Tracker::Tracker(const string& id,
     // Values initialized in class
     // Tracking initialized in class
     
-    // Instantiate iSAM
-	// ISAM2Params isam_params;
-	// // Must be some way to set up a verbose option.
-	// isam_params.factorization = ISAM2Params::QR;
-	// isam_params.relinearizeThreshold = 0.01;
-	// isam_params.relinearizeSkip = 1; // More informed optimization at the cost of more computing.
-	// isam_params.enableDetailedResults = true;
-	// ISAM2DoglegParams dogleg;
-	// isam_params.optimizationParams = dogleg;
-	// // this->isam = new ISAM2(isam_params);
-
-	ISAM2Params isam_params;
-	// Must be some way to set up a verbose option.
-	isam_params.factorization = ISAM2Params::QR;
-	isam_params.relinearizeThreshold = 0.01;
-	isam_params.relinearizeSkip = 1; // More informed optimization at the cost of more computing.
-	isam_params.enableDetailedResults = true;
-	// ISAM2DoglegParams dogleg;
-	// isam_params.optimizationParams = dogleg;
-	// this->isam = new ISAM2(isam_params);
-
-	this->smoother = new IncrementalFixedLagSmoother(smoother_lag, isam_params);
+	this->use_smoother = use_smoother;
+	if (use_smoother) {
+		ISAM2Params isam_params;
+		// Must be some way to set up a verbose option.
+		isam_params.factorization = ISAM2Params::QR;
+		isam_params.relinearizeThreshold = 0.01;
+		isam_params.relinearizeSkip = 1; // More informed optimization at the cost of more computing.
+		isam_params.enableDetailedResults = true;
+		this->smoother = new IncrementalFixedLagSmoother(smoother_lag, isam_params);
+	}
+	else {
+    	// Instantiate iSAM
+		ISAM2Params isam_params;
+		// Must be some way to set up a verbose option.
+		isam_params.factorization = ISAM2Params::QR;
+		isam_params.relinearizeThreshold = 0.01;
+		isam_params.relinearizeSkip = 1; // More informed optimization at the cost of more computing.
+		isam_params.enableDetailedResults = true;
+		ISAM2DoglegParams dogleg;
+		isam_params.optimizationParams = dogleg;
+		this->isam = new ISAM2(isam_params);
+	}
 	// key_to_ts gets initialized in class
 
 }
@@ -173,7 +174,9 @@ void Tracker::init_state(json mes) {
 	// Velocity is computed using SLAM poses in the world frame.
 	// Therefore all we should need to do, is rotate the velocity vector into the body frame.
 	
-	Vector3 prior_velocity = T_imu_body.rotation() * start_slam_velocity;
+		// Vector3 prior_velocity = T_imu_body.rotation() * start_slam_velocity;
+		// TODO: WRONG!
+	Vector3 prior_velocity = T_imu_body.rotation().inverse() * start_slam_velocity;
 	// Rot3 r = T_imu_body.inverse().rotation();
 	// Vector3 prior_velocity = r.matrix().inverse() * (start_slam_velocity);
 
@@ -200,15 +203,17 @@ void Tracker::init_state(json mes) {
 
     // Once priors have been inserted into graph and vals,
     // initialize isam with these estimates.
-    // isam->update(*graph, vals);
-	// graph->resize(0);
-	// vals.clear();
+	if (use_smoother) {
+		smoother->update(*graph, vals, key_timestamps);
+		graph->resize(0);
+		vals.clear();
+	}
+	else {
+		isam->update(*graph, vals);
+		graph->resize(0);
+		vals.clear();
+	}
 
-	smoother->update(*graph, vals, key_timestamps);
-	graph->resize(0);
-	vals.clear();
-
-	// TODO: Do I need to smoother update here?
 
     // Initialize our NavState
     prev_state = NavState(track.est_poses.back(), track.est_velocities.back());
@@ -255,7 +260,14 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 					// Clear for next iteration
 		graph->resize(0);
 		vals.clear();
-		imu_preintegrated->resetIntegrationAndSetBias(track.constant_bias);
+
+		// imu_preintegrated->resetIntegrationAndSetBias(track.constant_bias);
+		track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
+
+		cout << " Bias estimate " << endl;
+		track.changing_bias.print();
+
+		imu_preintegrated->resetIntegrationAndSetBias(track.changing_bias);
 	}
 	catch (const std::exception& e) {
 		cerr << "Optimizer update failed: " << e.what() << endl;
@@ -342,12 +354,17 @@ void Tracker::processSLAM(const json& mes)
 	track.Ib++;
 
 	// Extract GT pose
-	Matrix44 gt_pose_slam;
+	Pose3 gt_pose_slam;
 	string usrname;
-	get_pose_matrix(mes, usrname, gt_pose_slam);
-	Pose3 gt_pose = Pose3(gt_pose_slam) * T_imu_body.inverse(); // Transform pose to the body frame.
+	get_GT_HTM(mes,gt_pose_slam);
+	Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
 	track.gt_poses.push_back(gt_pose);
 	track.gt_timestamps.push_back(mes["t"]);
+	
+
+		Vector3 slam_velocity;
+		double timestamp = mes["t"];
+			get_V(mes, slam_velocity);
 
 	// Add IMU factor
 	auto* current_imu_preintegration =
@@ -375,6 +392,9 @@ void Tracker::processSLAM(const json& mes)
 	graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, GT_noise_model));
 	cout << "Added Prior factor " << graph->size() - 1 << endl;
 
+		Vector3 prior_velocity = T_imu_body.rotation().inverse() * slam_velocity; // TODO: WRONG!!!!
+	graph->add(PriorFactor<Vector3>(V(track.Iv), prior_velocity, Velocity_noise_model));
+
 	// Predict current state
 	// NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
 	NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
@@ -386,8 +406,9 @@ void Tracker::processSLAM(const json& mes)
 	vals.insert(B(track.Ib), track.changing_bias);
 
     // Run iSAM
-	// exec_iSAM(proposed, (double)mes["t"], "GT", true);
-	exec_smoother(proposed, (double)mes["t"], "GT", true);
+	if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "GT", true); }
+	else { exec_iSAM(proposed, (double)mes["t"], "GT", true); }
+	
 }
 
 void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
@@ -395,10 +416,13 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 	cout << "Processing synthetic range for : " << mes["t"] << endl;
 
 		// Extract GT pose
-		Matrix44 gt_pose_slam;
-		string usrname;
-		get_pose_matrix(mes, usrname, gt_pose_slam);
-		Pose3 gt_pose = Pose3(gt_pose_slam) * T_imu_body.inverse(); // Transform pose to the body frame.
+		Pose3 gt_pose_slam;
+		get_GT_HTM(mes, gt_pose_slam);
+
+		Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
+
+
+
 		track.gt_poses.push_back(gt_pose);
 		track.gt_timestamps.push_back((double)mes["t"]);
 
@@ -469,8 +493,8 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 
 	// World -> Mag = Body -> Mag * World -> Body
 	// mag_vectors.push_back(N_body_frame * gt_pose);
-	
-	
+
+
 	// Add IMU factor
 	auto* current_imu_preintegration =
 		dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
@@ -494,7 +518,7 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 
 
 	// Run optimization
-	// exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true);
-	exec_smoother(proposed, (double)mes["t"], "SynthUWB", true);
+	if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "SynthUWB", true); }
+	else { exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true); }
 }
 

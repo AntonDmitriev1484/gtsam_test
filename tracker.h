@@ -41,6 +41,7 @@ struct tracking {
 class Tracker {
 public:
 
+    bool use_smoother;
     ISAM2* isam;
     IncrementalFixedLagSmoother* smoother; // I didn't even know 'er
     FixedLagSmoother::KeyTimestampMap key_timestamps;
@@ -81,6 +82,7 @@ public:
             const Pose3& T_imu_body,
             const double delta_t,
             const double smoother_lag,
+            const bool use_smoother,
             const double uwb_stdev,
             const SharedNoiseModel& GT_noise_model,
             const SharedNoiseModel& UWB_noise_model,
