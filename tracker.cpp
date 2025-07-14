@@ -404,10 +404,10 @@ void Tracker::processSLAM(const json& mes)
 
 		// Vector3 prior_velocity = T_imu_body.rotation().inverse() * slam_velocity; // TODO: WRONG!!!!
 		
-	Pose3 pose_velocity(Rot3::Identity(), slam_velocity);
-	Pose3 prior_velocity = (pose_velocity * T_imu_body.inverse());
-	graph->add(PriorFactor<Vector3>(V(track.Iv), prior_velocity.translation(), Velocity_noise_model));
-	postproc_velocity_vectors.push_back(prior_velocity);
+	// Pose3 pose_velocity(Rot3::Identity(), slam_velocity);
+	// Pose3 prior_velocity = (pose_velocity * T_imu_body.inverse());
+	// graph->add(PriorFactor<Vector3>(V(track.Iv), prior_velocity.translation(), Velocity_noise_model));
+	// postproc_velocity_vectors.push_back(prior_velocity);
 
 	// Predict current state
 	// NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
@@ -453,9 +453,9 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 	}
 
 	vector<string> ids = {"2", "3", "5"};
-	// for (string dst_user: ids){ 
+	for (string dst_user: ids){ 
 		uwb_counter++;
-		string dst_user = ids[uwb_counter % 3];
+		// string dst_user = ids[uwb_counter % 3];
 		tracking& dst = anchors[dst_user];
 
 		// Ground truth range from GT poses
@@ -467,18 +467,16 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 		double noised_range = uwb_distribution(uwb_rng);
 
 		// Add UWB (range) factor
-		graph->add(RangeFactor<Pose3, Pose3, double>(
-			X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model));
+		// graph->add(RangeFactor<Pose3, Pose3, double>(
+		// 	X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model));
 
-		// Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1));
-		// graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-		// 	X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model, T_body_decawave));
+		Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1));
+		graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
+			X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model, T_body_decawave));
+
 		cout << "Added Range factor " << graph->size() - 1 << endl;
 		cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
-	// }
-	
-
-
+	}
 	
 	// graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, yaw_constraint_pose_noise_model));
 	// cout << "Added (fake) Prior factor " << graph->size() - 1 << endl;
@@ -491,7 +489,7 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 	// Body -> Mag = World -> Mag * Inv(World -> Body)
 	// Pose3 N_body_frame =  N_world_frame_adjusted * gt_pose.inverse();
 	Vector3 N_body_frame = gt_pose.rotation().matrix().inverse() * Vector3(1, 0 ,0);
-			// WHY DO I NEED TO INVERT THIS ROTATION?
+			// WHY DO I NEED TO INVERT THIS ROTATION? TODO: Use pose for this.
 	double scale = 1; // Magnitude is 55k nT, or 55 muT - I think this is just in case your raw measurement is not already normalized?
 
 	Point3 bias(1e-3, 1e-3, 1e-3);

@@ -478,33 +478,5 @@ int main(int argc, char* argv[]) {
 	cout << " GT frequency in the graph is " << fgt << endl;
 	cout << " GT skipped " << gt_skipped << endl;
 
-
-	// Takes several minutes to plot????
-	// Maybe Matplot++ is just incompatible with Ubuntu 24.
-
-	// plot_estimated_for_user(t.track);
-
-
-	
-
-	// Gnuplot gp;
-	// gp << "set terminal wxt persist\n";  // or use qt if available: "set terminal qt persist\n"
-    // gp << "set xrange [-2:3]\n";
-    // gp << "set yrange [-2:3]\n";
-    // gp << "set zrange [-1:2]\n";
-    // gp << "set xlabel 'X'\n";
-    // gp << "set ylabel 'Y'\n";
-    // gp << "set zlabel 'Z'\n";
-    // gp << "set ticslevel 0\n";
-    // gp << "set view 60,30\n";
-    // gp << "set grid\n";
-
-	// for (Pose3 est_velocity: t.est_velocity_vectors) {
-	// 	draw_pose_axes(gp, est_velocity, 0.5, "blue");
-	// }
-	// for (Pose3 postproc_velocity: t.postproc_velocity_vectors) {
-	// 	draw_pose_axes(gp, postproc_velocity, 0.5, "green");
-	// }
-
 	return 0;
 }
