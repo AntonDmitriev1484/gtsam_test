@@ -30,6 +30,7 @@ struct tracking {
 	vector<Vector3> est_poses_error; // Estimated poses error
 
 	imuBias::ConstantBias constant_bias; // Constant bias
+    PreintegrationBase::Bias changing_bias; // dynamic bias
 
 	Key pose_key;
 	int Ix;

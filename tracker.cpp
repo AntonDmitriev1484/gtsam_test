@@ -315,7 +315,13 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 		graph->resize(0);
 		vals.clear();
 		key_timestamps.clear();
-		imu_preintegrated->resetIntegrationAndSetBias(track.constant_bias);
+		// imu_preintegrated->resetIntegrationAndSetBias(track.constant_bias);
+		track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
+
+		cout << " Bias estimate " << endl;
+		track.changing_bias.print();
+
+		imu_preintegrated->resetIntegrationAndSetBias(track.changing_bias);
 	}
 	catch (const std::exception& e) {
 		cerr << "Optimizer update failed: " << e.what() << endl;
@@ -370,12 +376,14 @@ void Tracker::processSLAM(const json& mes)
 	cout << "Added Prior factor " << graph->size() - 1 << endl;
 
 	// Predict current state
-	NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
+	// NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
+	NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
 
 	// Insert initial values
 	vals.insert(X(track.Ix), proposed.pose());
 	vals.insert(V(track.Iv), proposed.v());
-	vals.insert(B(track.Ib), track.constant_bias);
+	// vals.insert(B(track.Ib), track.constant_bias);
+	vals.insert(B(track.Ib), track.changing_bias);
 
     // Run iSAM
 	// exec_iSAM(proposed, (double)mes["t"], "GT", true);
@@ -477,10 +485,12 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 	cout << "Added IMU factor " << graph->size() - 1 << endl;
 
 	// Predict state and insert
-	NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
+	// NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
+		NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
 	vals.insert(X(track.Ix), proposed.pose());
 	vals.insert(V(track.Iv), proposed.v());
-	vals.insert(B(track.Ib), track.constant_bias);
+	// vals.insert(B(track.Ib), track.constant_bias);
+	vals.insert(B(track.Ib), track.changing_bias);
 
 
 	// Run optimization
