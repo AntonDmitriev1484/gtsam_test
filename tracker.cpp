@@ -176,7 +176,11 @@ void Tracker::init_state(json mes) {
 	
 		// Vector3 prior_velocity = T_imu_body.rotation() * start_slam_velocity;
 		// TODO: WRONG!
-	Vector3 prior_velocity = T_imu_body.rotation().inverse() * start_slam_velocity;
+	Pose3 pose_velocity(Rot3::Identity(), start_slam_velocity);
+	Vector3 prior_velocity = (pose_velocity * T_imu_body.inverse()).translation();
+
+	// Vector3 prior_velocity = T_imu_body.rotation().inverse() * start_slam_velocity;
+
 	// Rot3 r = T_imu_body.inverse().rotation();
 	// Vector3 prior_velocity = r.matrix().inverse() * (start_slam_velocity);
 
@@ -392,8 +396,11 @@ void Tracker::processSLAM(const json& mes)
 	graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, GT_noise_model));
 	cout << "Added Prior factor " << graph->size() - 1 << endl;
 
-		Vector3 prior_velocity = T_imu_body.rotation().inverse() * slam_velocity; // TODO: WRONG!!!!
-	graph->add(PriorFactor<Vector3>(V(track.Iv), prior_velocity, Velocity_noise_model));
+		// Vector3 prior_velocity = T_imu_body.rotation().inverse() * slam_velocity; // TODO: WRONG!!!!
+		
+	// 		Pose3 pose_velocity(Rot3::Identity(), slam_velocity);
+	// Vector3 prior_velocity = (pose_velocity * T_imu_body.inverse()).translation();
+	// graph->add(PriorFactor<Vector3>(V(track.Iv), prior_velocity, Velocity_noise_model));
 
 	// Predict current state
 	// NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);

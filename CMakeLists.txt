@@ -31,8 +31,10 @@ add_executable (gtsam_test "gtsam_test.cpp" "gtsam_test.h" "data_tools.h" "data_
 
 # Need to manually link with gtsam, apparently find_package doesn't work'
 target_link_libraries(gtsam_test 
-"${GTSAM_LIB_PATH}" "${TBB_LIB_PATH}"
-"${MATPLOTPLUSPLUS_LIB_PATH}" "/usr/lib/x86_64-linux-gnu/libjpeg.so" "/usr/lib/x86_64-linux-gnu/libtiff.so" "/usr/lib/x86_64-linux-gnu/libz.so" "/usr/lib/x86_64-linux-gnu/libpng.so" "/usr/local/lib/Matplot++/libnodesoup.a")
+"${GTSAM_LIB_PATH}" "${TBB_LIB_PATH}" "${MATPLOTPLUSPLUS_LIB_PATH}" 
+"/usr/lib/x86_64-linux-gnu/libjpeg.so" "/usr/lib/x86_64-linux-gnu/libtiff.so" 
+"/usr/lib/x86_64-linux-gnu/libz.so" "/usr/lib/x86_64-linux-gnu/libpng.so" 
+"/usr/local/lib/Matplot++/libnodesoup.a" "/usr/lib/x86_64-linux-gnu/libboost_iostreams.so")
 
 add_compile_options(-w)
 

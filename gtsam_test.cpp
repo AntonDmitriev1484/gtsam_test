@@ -4,6 +4,10 @@
 #include "cmath"
 #include "tracker.h"
 #include <regex>
+#include "/home/antond2/gnuplot-iostream/gnuplot-iostream.h"
+#include <boost/iostreams/stream.hpp>
+#include <boost/iostreams/device/file_descriptor.hpp>
+
 
 using PreintegrationType = gtsam::PreintegrationBase;
 using namespace gtsam;
@@ -23,25 +27,42 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
     }																		\
 }
 
-#define PLOT_ESTIMATED_FOR_USERS(INFO, SHOW_LIST) {                          \
-    for (const auto& [user_name, user_info] : INFO) {                        \
-        if (!user_info.is_beacon) {                                          \
-            if (std::find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
+// #define PLOT_ESTIMATED_FOR_USERS(INFO, SHOW_LIST) {                          \
+//     for (const auto& [user_name, user_info] : INFO) {                        \
+//         if (!user_info.is_beacon) {                                          \
+//             if (std::find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
+//                 hold(on);                                                    \
+//                 draw_trajectory(user_info.est_poses, "blue");                \
+//                 hold(on);                                                  \
+//                 draw_trajectory(user_info.gt_poses, "green");              \
+//                 hold(on);   \
+//                 xlabel("X (m)");                                             \
+//                 ylabel("Y (m)");                                             \
+//                 zlabel("Z (m)");                                             \
+// 				xlim({ -5,5 }); \
+// 				ylim({ -1,9 }); \
+// 				zlim({ 0,5 }); \
+//             }                                                                \
+//         }                                                                    \
+//     }                                                                        \
+// }
+
+#define PLOT_ESTIMATED_FOR_USER(TRACK) {                          \
+        if (!TRACK.is_beacon) {                                          \
                 hold(on);                                                    \
-                draw_trajectory(user_info.est_poses, "blue");                \
+                draw_trajectory(TRACK.est_poses, "blue");                \
                 hold(on);                                                  \
-                draw_trajectory(user_info.gt_poses, "green");              \
+                draw_trajectory(TRACK.gt_poses, "green");              \
                 hold(on);   \
                 xlabel("X (m)");                                             \
                 ylabel("Y (m)");                                             \
                 zlabel("Z (m)");                                             \
 				xlim({ -5,5 }); \
 				ylim({ -1,9 }); \
-				zlim({ 0,5 }); \
-            }                                                                \
+				zlim({ 0,2 }); \
         }                                                                    \
-    }                                                                        \
 }
+
 
 
 
@@ -97,6 +118,26 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 
 
 int main(int argc, char* argv[]) {
+
+	Gnuplot gp;
+
+    // // Prepare 3D data
+    // std::vector<std::vector<std::pair<double, double>>> xy_grid;
+    // for (double x = -5; x <= 5; x += 0.25) {
+    //     std::vector<std::pair<double, double>> row;
+    //     for (double y = -5; y <= 5; y += 0.25) {
+    //         double z = sin(sqrt(x * x + y * y));
+    //         row.emplace_back(y, z);  // note: gnuplot requires y,z pairs in each row
+    //     }
+    //     xy_grid.push_back(row);  // then each row is associated with a different x
+    // }
+
+    // // Plot
+    // gp << "set title '3D Sinc Surface'\n";
+    // gp << "set hidden3d\n";
+    // gp << "set pm3d\n";
+    // gp << "splot '-' matrix with lines notitle\n";
+    // gp.send2d(xy_grid);
 
 
 	if (argc != 6) {
@@ -175,8 +216,8 @@ int main(int argc, char* argv[]) {
 
 	// double uwb_stdev = 1e-3;
 	// double uwb_stdev = 0.1;
-	// double uwb_stdev = 0.2;
-	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_synth_stdev);
+	double uwb_stdev = 0.2;
+	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
 	// GT noise model - (use to define pose prior)
 	double gt_pos_stdev = 1e-2;
@@ -206,7 +247,6 @@ int main(int argc, char* argv[]) {
 	Matrix33 continuous_time_gyro_bias_rw = I_3x3 * pow(GYRO_BIAS_RW, 2) * GSCALE;
 
 	Matrix66 initial_bias_cov = I_6x6 * 1e-5 * ASCALE;
-
 	Matrix33 integration_cov = I_3x3 * 1e-5 * ASCALE;
 
 
@@ -364,7 +404,7 @@ int main(int argc, char* argv[]) {
 	write_trajectory_KITTI_format( t.mag_vectors, mag_vectors_fs);
 	mag_vectors_fs.close();
 
-
+	
 
 
 	cout << " Applied " << uwb_counter << " uwb measurements for 45 seconds of data " << endl;
@@ -376,6 +416,12 @@ int main(int argc, char* argv[]) {
 	cout << " GT frequency in the graph is " << fgt << endl;
 	cout << " GT skipped " << gt_skipped << endl;
 
+
+	// Takes several minutes to plot????
+	// Maybe Matplot++ is just incompatible with Ubuntu 24.
+
+	// PLOT_ESTIMATED_FOR_USER(t.track);
+	// show();
 
 	return 0;
 }
