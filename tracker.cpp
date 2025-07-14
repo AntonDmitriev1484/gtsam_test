@@ -420,13 +420,18 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 		std::normal_distribution<double> uwb_distribution(true_range, uwb_stdev);  // N(mean, stddev)
 		double noised_range = uwb_distribution(uwb_rng);
 
-		// Add UWB (range) factor — use ground truth here for stability
+		// Add UWB (range) factor
 		graph->add(RangeFactor<Pose3, Pose3, double>(
 			X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model));
+
+		// Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1));
+		// graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
+		// 	X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model, T_body_decawave));
 		cout << "Added Range factor " << graph->size() - 1 << endl;
 		cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
 	// }
 	
+
 
 	
 	// graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, yaw_constraint_pose_noise_model));
