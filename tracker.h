@@ -26,6 +26,7 @@ struct tracking {
 
 	vector<Pose3> est_poses; // Estimated pose
 	vector<double> est_timestamps; // Parallel array to poses.
+
 	vector<Vector3> est_velocities; // Estimated velocity from IMU factor
 	vector<Vector3> est_poses_error; // Estimated poses error
 
@@ -75,6 +76,8 @@ public:
     //Debug
     vector<Pose3> suwb_base_poses;
     vector<Pose3> mag_vectors; // identity rotation, just translation
+    vector<Pose3> postproc_velocity_vectors;
+    vector<Pose3> est_velocity_vectors;
 
     double mes_start;
 

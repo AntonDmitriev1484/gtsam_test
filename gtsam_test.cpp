@@ -64,6 +64,70 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 }
 
 
+// Function to draw a coordinate frame at a Pose3
+void draw_pose_axes(Gnuplot& gp, const Pose3& pose, double axis_len, const std::string& color) {
+    Point3 origin = pose.translation();
+    Rot3 R = pose.rotation();
+
+    // Axis endpoints in world frame
+    Point3 x_axis = origin + R.column(1) * axis_len;
+    Point3 y_axis = origin + R.column(2) * axis_len;
+    Point3 z_axis = origin + R.column(3) * axis_len;
+
+    // Plot 3 line segments: x (red), y (green), z (blue) or override with 'color'
+    std::vector<std::pair<Point3, Point3>> segments = {
+        {origin, x_axis},
+        {origin, y_axis},
+        {origin, z_axis}
+    };
+
+    std::string colors[3] = {color, color, color};
+
+    for (int i = 0; i < 3; ++i) {
+        std::vector<std::tuple<double, double, double>> line = {
+            {segments[i].first.x(), segments[i].first.y(), segments[i].first.z()},
+            {segments[i].second.x(), segments[i].second.y(), segments[i].second.z()}
+        };
+        gp << "splot '-' with lines linecolor rgb '" << colors[i] << "' notitle\n";
+        gp.send1d(line);
+    }
+}
+
+
+void plot_estimated_for_user(tracking& track) {
+
+    Gnuplot gp;
+
+    // Prepare data in Gnuplot's expected format: vector of 3-tuples
+    std::vector<std::tuple<double, double, double>> est_pts, gt_pts;
+
+    for (const auto& p : track.est_poses)
+        est_pts.emplace_back(p.x(), p.y(), p.z());
+
+    for (const auto& p : track.gt_poses)
+        gt_pts.emplace_back(p.x(), p.y(), p.z());
+
+	gp << "set terminal wxt persist\n";  // or use qt if available: "set terminal qt persist\n"
+    gp << "set xlabel 'X (m)'\n";
+    gp << "set ylabel 'Y (m)'\n";
+    gp << "set zlabel 'Z (m)'\n";
+    gp << "set xrange [-5:-1]\n";
+    gp << "set yrange [2:6]\n";
+    gp << "set zrange [0:2]\n";
+    gp << "set title 'Estimated vs Ground Truth'\n";
+    gp << "set key outside\n";
+    gp << "set grid\n";
+    gp << "set ticslevel 0\n";
+
+    // Plot both sets of points with lines
+    gp << "splot '-' with lines title 'Estimated' linecolor rgb 'blue', "
+          "'-' with lines title 'Ground Truth' linecolor rgb 'green'\n";
+    gp.send1d(est_pts);
+    gp.send1d(gt_pts);
+}
+
+
+
 
 
 #define PLOT_FOR_USERS(INFO, SHOW_LIST) {						           \
@@ -118,8 +182,6 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 
 
 int main(int argc, char* argv[]) {
-
-	Gnuplot gp;
 
     // // Prepare 3D data
     // std::vector<std::vector<std::pair<double, double>>> xy_grid;
@@ -420,8 +482,29 @@ int main(int argc, char* argv[]) {
 	// Takes several minutes to plot????
 	// Maybe Matplot++ is just incompatible with Ubuntu 24.
 
-	// PLOT_ESTIMATED_FOR_USER(t.track);
-	// show();
+	// plot_estimated_for_user(t.track);
+
+
+	
+
+	// Gnuplot gp;
+	// gp << "set terminal wxt persist\n";  // or use qt if available: "set terminal qt persist\n"
+    // gp << "set xrange [-2:3]\n";
+    // gp << "set yrange [-2:3]\n";
+    // gp << "set zrange [-1:2]\n";
+    // gp << "set xlabel 'X'\n";
+    // gp << "set ylabel 'Y'\n";
+    // gp << "set zlabel 'Z'\n";
+    // gp << "set ticslevel 0\n";
+    // gp << "set view 60,30\n";
+    // gp << "set grid\n";
+
+	// for (Pose3 est_velocity: t.est_velocity_vectors) {
+	// 	draw_pose_axes(gp, est_velocity, 0.5, "blue");
+	// }
+	// for (Pose3 postproc_velocity: t.postproc_velocity_vectors) {
+	// 	draw_pose_axes(gp, postproc_velocity, 0.5, "green");
+	// }
 
 	return 0;
 }

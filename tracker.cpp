@@ -257,6 +257,9 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		track.est_timestamps.push_back(mes_timestamp);
 
 		track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
+
+		est_velocity_vectors.push_back(Pose3(Rot3::Identity(), result.at<Vector3>(V(track.Iv))));
+
 		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
 
 		cout << "Successful estimate on "<<msg<<" factor" << endl;
@@ -320,6 +323,9 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 			track.est_timestamps.push_back(mes_timestamp);
 
 			track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
+
+			est_velocity_vectors.push_back(Pose3(Rot3::Identity(), result.at<Vector3>(V(track.Iv))));
+
 			prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
 
 			cout << "Successful estimate on "<<msg<<" factor" << endl;
@@ -398,9 +404,10 @@ void Tracker::processSLAM(const json& mes)
 
 		// Vector3 prior_velocity = T_imu_body.rotation().inverse() * slam_velocity; // TODO: WRONG!!!!
 		
-	// 		Pose3 pose_velocity(Rot3::Identity(), slam_velocity);
-	// Vector3 prior_velocity = (pose_velocity * T_imu_body.inverse()).translation();
-	// graph->add(PriorFactor<Vector3>(V(track.Iv), prior_velocity, Velocity_noise_model));
+	Pose3 pose_velocity(Rot3::Identity(), slam_velocity);
+	Pose3 prior_velocity = (pose_velocity * T_imu_body.inverse());
+	graph->add(PriorFactor<Vector3>(V(track.Iv), prior_velocity.translation(), Velocity_noise_model));
+	postproc_velocity_vectors.push_back(prior_velocity);
 
 	// Predict current state
 	// NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
