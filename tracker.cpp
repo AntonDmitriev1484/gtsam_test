@@ -169,23 +169,12 @@ void Tracker::init_state(json mes) {
 
 	Pose3 prior_pose = start_slam_pose * T_imu_body.inverse();
 
-	// TODO: I have no idea which one of these is right but they all seem to work?
-
 	// Velocity is computed using SLAM poses in the world frame.
 	// Therefore all we should need to do, is rotate the velocity vector into the body frame.
-	
-		// Vector3 prior_velocity = T_imu_body.rotation() * start_slam_velocity;
-		// TODO: WRONG!
 	Pose3 pose_velocity(Rot3::Identity(), start_slam_velocity);
 	Vector3 prior_velocity = (pose_velocity * T_imu_body.inverse()).translation();
+	// Note: Had problems here with rotation matrices, I trust the pose matrix here though.
 
-	// Vector3 prior_velocity = T_imu_body.rotation().inverse() * start_slam_velocity;
-
-	// Rot3 r = T_imu_body.inverse().rotation();
-	// Vector3 prior_velocity = r.matrix().inverse() * (start_slam_velocity);
-
-	// Rot3 r = T_imu_body.inverse().rotation();
-	// Vector3 prior_velocity = r.matrix() * (start_slam_velocity);
 
     vals.insert(X(track.Ix), prior_pose);
     vals.insert(V(track.Iv), prior_velocity);
@@ -199,6 +188,7 @@ void Tracker::init_state(json mes) {
     track.est_timestamps.push_back(timestamp);
     track.est_velocities.push_back(prior_velocity);
     track.constant_bias = prior_imu_bias;
+	track.changing_bias = prior_imu_bias;
 
 		// Add this key -> timestamp mapping to our map
 	key_timestamps[X(track.Ix)] = (double)mes["t"];
@@ -209,14 +199,12 @@ void Tracker::init_state(json mes) {
     // initialize isam with these estimates.
 	if (use_smoother) {
 		smoother->update(*graph, vals, key_timestamps);
-		graph->resize(0);
-		vals.clear();
 	}
 	else {
 		isam->update(*graph, vals);
-		graph->resize(0);
-		vals.clear();
 	}
+	graph->resize(0);
+	vals.clear();
 
 
     // Initialize our NavState
@@ -257,22 +245,16 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		track.est_timestamps.push_back(mes_timestamp);
 
 		track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
-
 		est_velocity_vectors.push_back(Pose3(Rot3::Identity(), result.at<Vector3>(V(track.Iv))));
 
 		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
-
-		cout << "Successful estimate on "<<msg<<" factor" << endl;
-
-					// Clear for next iteration
-		graph->resize(0);
-		vals.clear();
-
 		// imu_preintegrated->resetIntegrationAndSetBias(track.constant_bias);
 		track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
-
-		cout << " Bias estimate " << endl;
 		track.changing_bias.print();
+
+		// Clear for next iteration
+		graph->resize(0);
+		vals.clear();
 
 		imu_preintegrated->resetIntegrationAndSetBias(track.changing_bias);
 	}
@@ -316,32 +298,25 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 		result = smoother->calculateEstimate();
 		END_TIMER("Ended iSAM "+msg, isam_t);
 
-		// Problem doesn't seem to be below?
-			//Correct code:
-		if (result.exists(X(track.Ix))) {
-			track.est_poses.push_back(result.at<Pose3>(X(track.Ix)));
-			track.est_timestamps.push_back(mes_timestamp);
+		track.est_poses.push_back(result.at<Pose3>(X(track.Ix)));
+		track.est_timestamps.push_back(mes_timestamp);
 
-			track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
+		track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
+		est_velocity_vectors.push_back(Pose3(Rot3::Identity(), result.at<Vector3>(V(track.Iv))));
 
-			est_velocity_vectors.push_back(Pose3(Rot3::Identity(), result.at<Vector3>(V(track.Iv))));
+		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
 
-			prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
-
-			cout << "Successful estimate on "<<msg<<" factor" << endl;
-		}
-		else {
-			cout << "Why the heck not???" << endl;
-		}
-			// Clear for next iteration
-		graph->resize(0);
-		vals.clear();
-		key_timestamps.clear();
 		// imu_preintegrated->resetIntegrationAndSetBias(track.constant_bias);
 		track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
 
 		cout << " Bias estimate " << endl;
 		track.changing_bias.print();
+
+		// Clear for next iteration
+		graph->resize(0);
+		vals.clear();
+		key_timestamps.clear();
+
 
 		imu_preintegrated->resetIntegrationAndSetBias(track.changing_bias);
 	}
@@ -372,14 +347,13 @@ void Tracker::processSLAM(const json& mes)
 	track.gt_timestamps.push_back(mes["t"]);
 	
 
-		Vector3 slam_velocity;
-		double timestamp = mes["t"];
-			get_V(mes, slam_velocity);
+	Vector3 slam_velocity;
+	double timestamp = mes["t"];
+	get_V(mes, slam_velocity);
 
 	// Add IMU factor
 	auto* current_imu_preintegration =
 		dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-
 
 	// Add this key -> timestamp mapping to our map
 	key_timestamps[X(track.Ix)] = (double)mes["t"];
@@ -402,12 +376,11 @@ void Tracker::processSLAM(const json& mes)
 	graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, GT_noise_model));
 	cout << "Added Prior factor " << graph->size() - 1 << endl;
 
-		// Vector3 prior_velocity = T_imu_body.rotation().inverse() * slam_velocity; // TODO: WRONG!!!!
-		
+	// Add velocity prior factor
 	// Pose3 pose_velocity(Rot3::Identity(), slam_velocity);
 	// Pose3 prior_velocity = (pose_velocity * T_imu_body.inverse());
 	// graph->add(PriorFactor<Vector3>(V(track.Iv), prior_velocity.translation(), Velocity_noise_model));
-	// postproc_velocity_vectors.push_back(prior_velocity);
+	// postproc_velocity_vectors.push_back(pose_velocity); // Plot the velocity vector rotated into the body, into the world frame
 
 	// Predict current state
 	// NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
@@ -429,22 +402,16 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 {
 	cout << "Processing synthetic range for : " << mes["t"] << endl;
 
-		// Extract GT pose
-		Pose3 gt_pose_slam;
-		get_GT_HTM(mes, gt_pose_slam);
+	// Extract GT pose
+	Pose3 gt_pose_slam;
+	get_GT_HTM(mes, gt_pose_slam);
+	Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
 
-		Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
+	track.Ix++;
+	track.Iv++;
+	track.Ib++;
 
-
-
-		track.gt_poses.push_back(gt_pose);
-		track.gt_timestamps.push_back((double)mes["t"]);
-
-		track.Ix++;
-		track.Iv++;
-		track.Ib++;
-
-				// Add this key -> timestamp mapping to our map
+	// Add this key -> timestamp mapping to our map
 	key_timestamps[X(track.Ix)] = (double)mes["t"];
 	key_timestamps[V(track.Iv)] = (double)mes["t"];
 	key_timestamps[B(track.Ib)] = (double)mes["t"];
@@ -477,9 +444,6 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 		cout << "Added Range factor " << graph->size() - 1 << endl;
 		cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
 	}
-	
-	// graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, yaw_constraint_pose_noise_model));
-	// cout << "Added (fake) Prior factor " << graph->size() - 1 << endl;
 
 	// Magnetometer Factor
 	// N_body_frame = T_world_to_body * N_world_frame
@@ -494,17 +458,13 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 
 	Point3 bias(1e-3, 1e-3, 1e-3);
 	noiseModel::Diagonal::shared_ptr MAG_noise_model = noiseModel::Isotropic::Sigma(3, 0.1);
-
-	// Should the world frame mag vector be aligned to 0,0,0?
 	graph->add(MagPoseFactor<Pose3>(X(track.Ix), N_body_frame, scale, N_world_frame.translation(), bias, MAG_noise_model));
+	// Should the world frame mag vector be aligned to 0,0,0?
 	
 	Vector3 measured = N_body_frame; // Normalize to see where the vector points relative to the GT pose.
 	cout << " Synthetic vector " << measured.x() << " " << measured.y() << " " << measured.z() << " magnitude " << N_body_frame.norm() << endl;
 	suwb_base_poses.push_back(gt_pose);
 	mag_vectors.push_back(Pose3(Rot3::Identity(), N_body_frame));
-
-	// World -> Mag = Body -> Mag * World -> Body
-	// mag_vectors.push_back(N_body_frame * gt_pose);
 
 
 	// Add IMU factor
@@ -522,12 +482,10 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 
 	// Predict state and insert
 	// NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
-		NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
+	NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
 	vals.insert(X(track.Ix), proposed.pose());
 	vals.insert(V(track.Iv), proposed.v());
-	// vals.insert(B(track.Ib), track.constant_bias);
 	vals.insert(B(track.Ib), track.changing_bias);
-
 
 	// Run optimization
 	if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "SynthUWB", true); }

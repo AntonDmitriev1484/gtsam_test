@@ -183,25 +183,6 @@ void plot_estimated_for_user(tracking& track) {
 
 int main(int argc, char* argv[]) {
 
-    // // Prepare 3D data
-    // std::vector<std::vector<std::pair<double, double>>> xy_grid;
-    // for (double x = -5; x <= 5; x += 0.25) {
-    //     std::vector<std::pair<double, double>> row;
-    //     for (double y = -5; y <= 5; y += 0.25) {
-    //         double z = sin(sqrt(x * x + y * y));
-    //         row.emplace_back(y, z);  // note: gnuplot requires y,z pairs in each row
-    //     }
-    //     xy_grid.push_back(row);  // then each row is associated with a different x
-    // }
-
-    // // Plot
-    // gp << "set title '3D Sinc Surface'\n";
-    // gp << "set hidden3d\n";
-    // gp << "set pm3d\n";
-    // gp << "splot '-' matrix with lines notitle\n";
-    // gp.send2d(xy_grid);
-
-
 	if (argc != 6) {
 		// ex. stereoi_circle2 synthetic_20_60 uwb true
         std::cerr << "Usage: " << argv[0] << " <trial_name> <synthetic_trial_name or 'none'> <'uwb' or 'no_uwb'> <uwb_noise> <dump (true|false)>" << std::endl;
@@ -386,7 +367,7 @@ int main(int argc, char* argv[]) {
 
 			// Just for plotting at IMU frequency
 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(t.imu_preintegrated);
-			auto proposed = current_imu_preintegration->predict(t.prev_state, t.track.constant_bias);
+			auto proposed = current_imu_preintegration->predict(t.prev_state, t.track.changing_bias);
 			t.track.est_poses.push_back(proposed.pose());
 			t.track.est_timestamps.push_back((double)mes["t"]);
 
@@ -457,14 +438,23 @@ int main(int argc, char* argv[]) {
 	estimtated_timestamp_fs.close();
 
 
-	cout << "Dumping magnetometer vectors for visual debug" << endl;
+	cout << "Dumping magnetometer and velocity vectors for visual debug" << endl;
+	
 	ofstream suwb_base_poses_fs(out_dir + "/suwb_base_poses.txt");
 	write_trajectory_KITTI_format( t.suwb_base_poses, suwb_base_poses_fs);
 	suwb_base_poses_fs.close();
 
+	ofstream gt_base_poses_fs(out_dir + "/gt_base_poses.txt");
+	write_trajectory_KITTI_format( t.track.gt_poses, gt_base_poses_fs);
+	gt_base_poses_fs.close();
+
 	ofstream mag_vectors_fs(out_dir + "/mag_vectors_fs.txt");
 	write_trajectory_KITTI_format( t.mag_vectors, mag_vectors_fs);
 	mag_vectors_fs.close();
+
+	ofstream postproc_velocity_fs(out_dir + "/vel_vectors.txt");
+	write_trajectory_KITTI_format( t.postproc_velocity_vectors, postproc_velocity_fs);
+	postproc_velocity_fs.close();
 
 	
 
