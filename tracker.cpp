@@ -185,7 +185,8 @@ void Tracker::init_state(json mes) {
     graph->addPrior(B(track.Ib), prior_imu_bias, Bias_noise_model);
 
     track.est_poses.push_back(prior_pose); // We'll take the estimate out of values and put it here.
-    track.est_timestamps.push_back(timestamp);
+    track.gt_poses.push_back(prior_pose);
+	track.est_timestamps.push_back(timestamp);
     track.est_velocities.push_back(prior_velocity);
     track.constant_bias = prior_imu_bias;
 	track.changing_bias = prior_imu_bias;
@@ -424,11 +425,11 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 		uwb_counter++;
 		// string dst_user = ids[uwb_counter % 3];
 		tracking& dst = anchors[dst_user];
+		Point3 anchor_pos = dst.gt_poses.back().translation();
+		Point3 user_pos = gt_pose.translation();
 
 		// Ground truth range from GT poses
-		double true_range = distance3(
-			gt_pose.translation(),
-			dst.gt_poses.back().translation()); 
+		double true_range = distance3(anchor_pos, user_pos); 
 
 		std::normal_distribution<double> uwb_distribution(true_range, uwb_stdev);  // N(mean, stddev)
 		double noised_range = uwb_distribution(uwb_rng);
