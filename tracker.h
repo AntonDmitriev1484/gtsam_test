@@ -82,7 +82,7 @@ public:
     double mes_start;
 
     Tracker(const string& id,
-            const Pose3& T_imu_body,
+            const Pose3 T_imu_body,
             const double delta_t,
             const double smoother_lag,
             const bool use_smoother,

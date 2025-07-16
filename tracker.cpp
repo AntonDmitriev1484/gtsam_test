@@ -68,7 +68,7 @@ void get_beacon_info(map<string, tracking>& info, json beacon_data) {
 }
 
 Tracker::Tracker(const string& id,
-            const Pose3& T_imu_body,
+            const Pose3 T_imu_body,
             const double delta_t,
 			const double smoother_lag,
 			const bool use_smoother,
@@ -83,9 +83,12 @@ Tracker::Tracker(const string& id,
             const string& debug_dir) {
 
 	this->delta_t = delta_t;
-	this->T_imu_body = T_imu_body;
 
+	this->T_imu_body = T_imu_body;
     this->prior_imu_bias = prior_imu_bias;
+	(*imu_preintegration_params.get()).print();
+	// Instantiate IMU preintegration
+	this->imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
 
 	// Initialize UWB RNG
 	std::random_device rd; 
@@ -100,9 +103,6 @@ Tracker::Tracker(const string& id,
     this->FakePrior_noise_model = FakePrior_noise_model;
     this->Velocity_noise_model = Velocity_noise_model;
     this->Bias_noise_model = Bias_noise_model;
-
-	// Instantiate IMU preintegration
-	this->imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
 
     // Instantiate graph
     this->graph = new NonlinearFactorGraph();
@@ -249,7 +249,6 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		est_velocity_vectors.push_back(Pose3(Rot3::Identity(), result.at<Vector3>(V(track.Iv))));
 
 		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
-		// imu_preintegrated->resetIntegrationAndSetBias(track.constant_bias);
 		track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
 		track.changing_bias.print();
 
@@ -307,7 +306,6 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 
 		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
 
-		// imu_preintegrated->resetIntegrationAndSetBias(track.constant_bias);
 		track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
 
 		cout << " Bias estimate " << endl;
@@ -446,26 +444,28 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 		cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
 	}
 
-	// Magnetometer Factor
-	// N_body_frame = T_world_to_body * N_world_frame
-	Pose3 N_world_frame(Rot3::Identity(), Vector3(0,1,0)); //Correct
-	Pose3 N_world_frame_adjusted( Rot3::Identity(), gt_pose.translation() + Vector3(0,1,0));
+	// graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, GT_noise_model));
 
-	// Body -> Mag = World -> Mag * Inv(World -> Body)
-	// Pose3 N_body_frame =  N_world_frame_adjusted * gt_pose.inverse();
-	Vector3 N_body_frame = gt_pose.rotation().matrix().inverse() * Vector3(1, 0 ,0);
-			// WHY DO I NEED TO INVERT THIS ROTATION? TODO: Use pose for this.
-	double scale = 1; // Magnitude is 55k nT, or 55 muT - I think this is just in case your raw measurement is not already normalized?
+	// // Magnetometer Factor
+	// // N_body_frame = T_world_to_body * N_world_frame
+	// Pose3 N_world_frame(Rot3::Identity(), Vector3(0,1,0)); //Correct
+	// Pose3 N_world_frame_adjusted( Rot3::Identity(), gt_pose.translation() + Vector3(0,1,0));
 
-	Point3 bias(1e-3, 1e-3, 1e-3);
-	noiseModel::Diagonal::shared_ptr MAG_noise_model = noiseModel::Isotropic::Sigma(3, 0.1);
-	graph->add(MagPoseFactor<Pose3>(X(track.Ix), N_body_frame, scale, N_world_frame.translation(), bias, MAG_noise_model));
-	// Should the world frame mag vector be aligned to 0,0,0?
+	// // Body -> Mag = World -> Mag * Inv(World -> Body)
+	// // Pose3 N_body_frame =  N_world_frame_adjusted * gt_pose.inverse();
+	// Vector3 N_body_frame = gt_pose.rotation().matrix().inverse() * Vector3(1, 0 ,0);
+	// 		// WHY DO I NEED TO INVERT THIS ROTATION? TODO: Use pose for this.
+	// double scale = 1; // Magnitude is 55k nT, or 55 muT - I think this is just in case your raw measurement is not already normalized?
+
+	// Point3 bias(1e-3, 1e-3, 1e-3);
+	// noiseModel::Diagonal::shared_ptr MAG_noise_model = noiseModel::Isotropic::Sigma(3, 0.1);
+	// graph->add(MagPoseFactor<Pose3>(X(track.Ix), N_body_frame, scale, N_world_frame.translation(), bias, MAG_noise_model));
+	// // Should the world frame mag vector be aligned to 0,0,0?
 	
-	Vector3 measured = N_body_frame; // Normalize to see where the vector points relative to the GT pose.
-	cout << " Synthetic vector " << measured.x() << " " << measured.y() << " " << measured.z() << " magnitude " << N_body_frame.norm() << endl;
-	suwb_base_poses.push_back(gt_pose);
-	mag_vectors.push_back(Pose3(Rot3::Identity(), N_body_frame));
+	// Vector3 measured = N_body_frame; // Normalize to see where the vector points relative to the GT pose.
+	// cout << " Synthetic vector " << measured.x() << " " << measured.y() << " " << measured.z() << " magnitude " << N_body_frame.norm() << endl;
+	// suwb_base_poses.push_back(gt_pose);
+	// mag_vectors.push_back(Pose3(Rot3::Identity(), N_body_frame));
 
 
 	// Add IMU factor

@@ -316,7 +316,10 @@ int main(int argc, char* argv[]) {
 		0, 0, 1,
 		0, -1, 0;
 	Pose3 T_imu_body(Rot3(transform), Vector3(0, 0, 0));
+	// Pose3 T_imu_body(Rot3::Identity(), Vector3(0,0,0));
 	// body_P_sensor : "pose of sensor frame w.r.t body frame"
+
+	// Pose3 T_imu_body = Pose3::Identity();
 
 	imu_preintegration_params->body_P_sensor = T_imu_body;
 
