@@ -419,9 +419,9 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 	}
 
 	vector<string> ids = {"2", "3", "5"};
-	for (string dst_user: ids){ 
+	// for (string dst_user: ids){ 
 		uwb_counter++;
-		// string dst_user = ids[uwb_counter % 3];
+		string dst_user = ids[uwb_counter % 3];
 		tracking& dst = anchors[dst_user];
 		Point3 anchor_pos = dst.gt_poses.back().translation();
 		Point3 user_pos = gt_pose.translation();
@@ -433,16 +433,16 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 		double noised_range = uwb_distribution(uwb_rng);
 
 		// Add UWB (range) factor
-		// graph->add(RangeFactor<Pose3, Pose3, double>(
-		// 	X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model));
+		graph->add(RangeFactor<Pose3, Pose3, double>(
+			X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model));
 
-		Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1));
-		graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-			X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model, T_body_decawave));
+		// Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1));
+		// graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
+		// 	X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model, T_body_decawave));
 
 		cout << "Added Range factor " << graph->size() - 1 << endl;
 		cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
-	}
+	// }
 
 	// graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, GT_noise_model));
 
