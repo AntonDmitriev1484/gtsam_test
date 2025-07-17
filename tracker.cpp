@@ -275,9 +275,11 @@ Pose3 Tracker::filteredPose(Rot3 preintegration_rot) {
 	// double elapsed_since_last_correction;
 	// use double elapsed_t
 	Pose3 base_pose = track.est_poses.back();
-	Vector3 constant_velocity = track.est_velocities.back();
+	// Vector3 constant_velocity = track.est_velocities.back();
+	Vector3 constant_velocity = preintegration_rot * Vector3(0,1,0) * track.est_velocities.back().norm();
 
-	Pose3 next_pose(preintegration_rot, base_pose.translation() + (constant_velocity * elapsed_t));
+	Vector3 delta_translation = (constant_velocity * 0.0075 * elapsed_t);
+	Pose3 next_pose(preintegration_rot, base_pose.translation() + delta_translation);
 
 	return next_pose;
 }
@@ -402,10 +404,10 @@ void Tracker::processSLAM(const json& mes)
 	NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
 
 	Pose3 filter_estimate = filteredPose(proposed.pose().rotation());
-	vals.insert(X(track.Ix), filter_estimate);
+	proposed = NavState(filter_estimate, proposed.velocity());
 
 	// Insert initial values
-	// vals.insert(X(track.Ix), proposed.pose());
+	vals.insert(X(track.Ix), proposed.pose());
 	vals.insert(V(track.Iv), proposed.v());
 	// vals.insert(B(track.Ib), track.constant_bias);
 	vals.insert(B(track.Ib), track.changing_bias);
@@ -503,9 +505,9 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 	NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
 
 	Pose3 filter_estimate = filteredPose(proposed.pose().rotation());
-	vals.insert(X(track.Ix), filter_estimate);
-	
-	// vals.insert(X(track.Ix), proposed.pose());
+	proposed = NavState(filter_estimate, proposed.velocity());
+
+	vals.insert(X(track.Ix), proposed.pose());
 	vals.insert(V(track.Iv), proposed.v());
 	vals.insert(B(track.Ib), track.changing_bias);
 

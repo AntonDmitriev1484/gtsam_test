@@ -1,46 +1,46 @@
 APE w.r.t. translation part (m)
 (with SE(3) Umeyama alignment)
 
-       max	102.258784
-      mean	14.945752
-    median	9.904710
-       min	1.547362
-      rmse	19.773951
-       sse	310852.267218
-       std	12.947341
+       max	0.164204
+      mean	0.059397
+    median	0.053487
+       min	0.004394
+      rmse	0.068185
+       sse	3.696145
+       std	0.033484
 
 RPE w.r.t. translation part (m)
 for delta = 1 (frames) using consecutive pairs
 (with SE(3) Umeyama alignment)
 
-       max	111.356469
-      mean	3.955510
-    median	1.468660
-       min	0.025528
-      rmse	10.872188
-       sse	93854.355842
-       std	10.127113
+       max	0.208481
+      mean	0.016360
+    median	0.009134
+       min	0.000303
+      rmse	0.032133
+       sse	0.819826
+       std	0.027657
 
 APE w.r.t. rotation angle in degrees (deg)
 (with SE(3) Umeyama alignment)
 
-       max	56.665730
-      mean	55.531848
-    median	55.485639
-       min	54.614421
-      rmse	55.533336
-       sse	2451741.364495
-       std	0.406580
+       max	7.643314
+      mean	6.622996
+    median	6.616736
+       min	5.235739
+      rmse	6.646546
+       sse	35120.371031
+       std	0.559009
 
 RPE w.r.t. rotation angle in degrees (deg)
 for delta = 1 (frames) using consecutive pairs
 (with SE(3) Umeyama alignment)
 
-       max	3.870243
-      mean	0.179262
-    median	0.095433
-       min	0.013094
-      rmse	0.398418
-       sse	126.036834
-       std	0.355811
+       max	3.340206
+      mean	0.118881
+    median	0.085661
+       min	0.010168
+      rmse	0.212155
+       sse	35.737632
+       std	0.175719
 

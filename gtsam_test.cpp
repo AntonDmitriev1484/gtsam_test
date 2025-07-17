@@ -372,6 +372,8 @@ int main(int argc, char* argv[]) {
 			auto proposed = current_imu_preintegration->predict(t.prev_state, t.track.changing_bias);
 			// t.track.est_poses.push_back(proposed.pose());
 			Pose3 filter_estimate = t.filteredPose(proposed.pose().rotation());
+			proposed = NavState(filter_estimate, proposed.velocity());
+			
 			t.track.est_poses.push_back(filter_estimate);
 			t.track.est_timestamps.push_back((double)mes["t"]);
 
