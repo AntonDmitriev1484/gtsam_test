@@ -83,6 +83,7 @@ Tracker::Tracker(const string& id,
             const string& debug_dir) {
 
 	this->delta_t = delta_t;
+	this->elapsed_t = 0;
 	this->T_imu_body = T_imu_body;
 
     this->prior_imu_bias = prior_imu_bias;
@@ -256,6 +257,7 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		// Clear for next iteration
 		graph->resize(0);
 		vals.clear();
+		elapsed_t = 0;
 
 		imu_preintegrated->resetIntegrationAndSetBias(track.changing_bias);
 	}
@@ -267,6 +269,17 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		cerr << "Graph dumped to factor_graph.dot" << endl;
 		throw; // rethrow
 	}
+}
+
+Pose3 Tracker::filteredPose(Rot3 preintegration_rot) {
+	// double elapsed_since_last_correction;
+	// use double elapsed_t
+	Pose3 base_pose = track.est_poses.back();
+	Vector3 constant_velocity = track.est_velocities.back();
+
+	Pose3 next_pose(preintegration_rot, base_pose.translation() + (constant_velocity * elapsed_t));
+
+	return next_pose;
 }
 
 void Tracker::exec_smoother(NavState& proposed, double mes_timestamp, 
@@ -317,6 +330,7 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 		graph->resize(0);
 		vals.clear();
 		key_timestamps.clear();
+		elapsed_t = 0;
 
 
 		imu_preintegrated->resetIntegrationAndSetBias(track.changing_bias);
@@ -387,8 +401,11 @@ void Tracker::processSLAM(const json& mes)
 	// NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
 	NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
 
+	Pose3 filter_estimate = filteredPose(proposed.pose().rotation());
+	vals.insert(X(track.Ix), filter_estimate);
+
 	// Insert initial values
-	vals.insert(X(track.Ix), proposed.pose());
+	// vals.insert(X(track.Ix), proposed.pose());
 	vals.insert(V(track.Iv), proposed.v());
 	// vals.insert(B(track.Ib), track.constant_bias);
 	vals.insert(B(track.Ib), track.changing_bias);
@@ -484,7 +501,11 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 	// Predict state and insert
 	// NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
 	NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
-	vals.insert(X(track.Ix), proposed.pose());
+
+	Pose3 filter_estimate = filteredPose(proposed.pose().rotation());
+	vals.insert(X(track.Ix), filter_estimate);
+	
+	// vals.insert(X(track.Ix), proposed.pose());
 	vals.insert(V(track.Iv), proposed.v());
 	vals.insert(B(track.Ib), track.changing_bias);
 

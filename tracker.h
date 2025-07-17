@@ -65,6 +65,8 @@ public:
     string debug_dir;
 
     double delta_t;
+    double elapsed_t; // Time elapsed since last correction
+
     string id;
     tracking track;
 
@@ -109,6 +111,8 @@ public:
 
     void processSLAM(const json& mes);
     void processSUWB(const json& mes, int& uwb_counter, double uwb_stdev);
+
+    Pose3 filteredPose(Rot3 preintegration_rot);
 
 };
 

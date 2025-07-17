@@ -361,6 +361,8 @@ int main(int argc, char* argv[]) {
 			Vector3 gyro;
 			get_IMU(mes, accel, gyro);
 			t.imu_preintegrated->integrateMeasurement(accel, gyro, dt);
+			t.elapsed_t += dt;
+
 			imu_counter++;
 
 			cout << "Preintegration on at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
@@ -368,7 +370,9 @@ int main(int argc, char* argv[]) {
 			// Just for plotting at IMU frequency
 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(t.imu_preintegrated);
 			auto proposed = current_imu_preintegration->predict(t.prev_state, t.track.changing_bias);
-			t.track.est_poses.push_back(proposed.pose());
+			// t.track.est_poses.push_back(proposed.pose());
+			Pose3 filter_estimate = t.filteredPose(proposed.pose().rotation());
+			t.track.est_poses.push_back(filter_estimate);
 			t.track.est_timestamps.push_back((double)mes["t"]);
 
 			for (json mes : gt_pose_buffer) {
