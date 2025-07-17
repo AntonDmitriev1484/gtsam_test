@@ -273,7 +273,7 @@ int main(int argc, char* argv[]) {
 	//// IMU noise model
 
 
-	double ASCALE = 1;
+	double ASCALE = 50;
 	double GSCALE = 1;
 
 	double GYRO_NOISE_DENSITY = 0.0002049600985797649; 

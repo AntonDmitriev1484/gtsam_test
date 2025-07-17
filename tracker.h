@@ -25,6 +25,7 @@ struct tracking {
 	vector<double> gt_timestamps; // Parallel array to GT poses.
 
 	vector<Pose3> est_poses; // Estimated pose
+    vector<Pose3> correction_poses; // Just the poses resulting from a correction
 	vector<double> est_timestamps; // Parallel array to poses.
 
 	vector<Vector3> est_velocities; // Estimated velocity from IMU factor
@@ -105,11 +106,13 @@ public:
 
     void exec_iSAM(NavState& proposed, double mes_timestamp, 
         string msg="", bool print=false);
-
+void exec_iSAM_GT(NavState& proposed, double mes_timestamp, 
+    string msg, bool print);
     void exec_smoother(NavState& proposed, double mes_timestamp, 
         string msg="", bool print=false);
 
     void processSLAM(const json& mes);
+    
     void processSUWB(const json& mes, int& uwb_counter, double uwb_stdev);
 
     Pose3 filteredPose(Rot3 preintegration_rot);

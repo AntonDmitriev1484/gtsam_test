@@ -186,6 +186,7 @@ void Tracker::init_state(json mes) {
     graph->addPrior(B(track.Ib), prior_imu_bias, Bias_noise_model);
 
     track.est_poses.push_back(prior_pose); // We'll take the estimate out of values and put it here.
+	track.correction_poses.push_back(prior_pose); // We'll take the estimate out of values and put it here.
     track.gt_poses.push_back(prior_pose);
 	track.est_timestamps.push_back(timestamp);
     track.est_velocities.push_back(prior_velocity);
@@ -211,6 +212,72 @@ void Tracker::init_state(json mes) {
 
     // Initialize our NavState
     prev_state = NavState(track.est_poses.back(), track.est_velocities.back());
+}
+
+void Tracker::exec_iSAM_GT(NavState& proposed, double mes_timestamp, 
+    string msg, bool print){
+
+	Values result;
+
+	try {
+        if (print) {
+            cout << "Keys in vals: ";
+            for (const auto& key : vals.keys()) {
+                cout << DefaultKeyFormatter(key) << " ";
+            }
+            cout << endl;
+
+            cout << "Keys in graph: ";
+            for (const auto& f : *graph) {
+                auto keys = f->keys();
+                for (Key k : keys) {
+                    cout << DefaultKeyFormatter(k) << " ";
+                }
+            }
+            cout << endl;
+        }
+		
+		clock_t isam_t;
+		START_TIMER("Start iSAM, "+msg+", ts="+to_string(mes_timestamp), isam_t);
+		isam->update(*graph, vals);
+		result = isam->calculateEstimate();
+		END_TIMER("Ended iSAM "+msg, isam_t);
+
+
+		elapsed_t = 0;
+
+		// Pose3 next_pose(result.at<Pose3>(X(track.Ix)).rotation(), track.est_poses.back().translation());
+
+				//Correct code:
+		track.est_poses.push_back(result.at<Pose3>(X(track.Ix)));
+		track.correction_poses.push_back(result.at<Pose3>(X(track.Ix)));
+				// track.est_poses.push_back(next_pose);
+		track.correction_poses.push_back(result.at<Pose3>(X(track.Ix)));
+		track.est_timestamps.push_back(mes_timestamp);
+
+		track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
+		est_velocity_vectors.push_back(Pose3(Rot3::Identity(), result.at<Vector3>(V(track.Iv))));
+
+		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
+				// prev_state = NavState(next_pose, result.at<Vector3>(V(track.Iv)));
+		// imu_preintegrated->resetIntegrationAndSetBias(track.constant_bias);
+		track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
+		track.changing_bias.print();
+
+		// Clear for next iteration
+		graph->resize(0);
+		vals.clear();
+
+		imu_preintegrated->resetIntegrationAndSetBias(track.changing_bias);
+	}
+	catch (const std::exception& e) {
+		cerr << "Optimizer update failed: " << e.what() << endl;
+		cerr << "Data timestamp is " << mes_timestamp << endl;
+		graph->saveGraph(debug_dir+"/graph.dot", result);
+		graph->print("");
+		cerr << "Graph dumped to factor_graph.dot" << endl;
+		throw; // rethrow
+	}
 }
 
 void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp, 
@@ -242,14 +309,23 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		result = isam->calculateEstimate();
 		END_TIMER("Ended iSAM "+msg, isam_t);
 
+
+		elapsed_t = 0;
+
+		Pose3 next_pose(result.at<Pose3>(X(track.Ix)).rotation(), track.est_poses.back().translation());
+
 				//Correct code:
 		track.est_poses.push_back(result.at<Pose3>(X(track.Ix)));
+		track.correction_poses.push_back(result.at<Pose3>(X(track.Ix)));
+		// 		track.est_poses.push_back(next_pose);
+		// track.correction_poses.push_back(next_pose);
 		track.est_timestamps.push_back(mes_timestamp);
 
 		track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
 		est_velocity_vectors.push_back(Pose3(Rot3::Identity(), result.at<Vector3>(V(track.Iv))));
 
 		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
+				// prev_state = NavState(next_pose, result.at<Vector3>(V(track.Iv)));
 		// imu_preintegrated->resetIntegrationAndSetBias(track.constant_bias);
 		track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
 		track.changing_bias.print();
@@ -257,7 +333,6 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		// Clear for next iteration
 		graph->resize(0);
 		vals.clear();
-		elapsed_t = 0;
 
 		imu_preintegrated->resetIntegrationAndSetBias(track.changing_bias);
 	}
@@ -274,11 +349,15 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 Pose3 Tracker::filteredPose(Rot3 preintegration_rot) {
 	// double elapsed_since_last_correction;
 	// use double elapsed_t
-	Pose3 base_pose = track.est_poses.back();
+	// Pose3 base_pose = track.est_poses.back();
+	Pose3 base_pose = track.correction_poses.back();
+
+	// This actually uses the velocity estimate, but that estimate is too high, because of bias in IMU / coordinate frame
 	// Vector3 constant_velocity = track.est_velocities.back();
+
 	Vector3 constant_velocity = preintegration_rot * Vector3(0,1,0) * track.est_velocities.back().norm();
 
-	Vector3 delta_translation = (constant_velocity * 0.0075 * elapsed_t);
+	Vector3 delta_translation = (constant_velocity * elapsed_t); /// Why this constant?????
 	Pose3 next_pose(preintegration_rot, base_pose.translation() + delta_translation);
 
 	return next_pose;
@@ -315,6 +394,7 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 		END_TIMER("Ended iSAM "+msg, isam_t);
 
 		track.est_poses.push_back(result.at<Pose3>(X(track.Ix)));
+		track.correction_poses.push_back(result.at<Pose3>(X(track.Ix)));
 		track.est_timestamps.push_back(mes_timestamp);
 
 		track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
