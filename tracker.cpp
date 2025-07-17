@@ -168,6 +168,7 @@ void Tracker::init_state(json mes) {
 	get_V(mes, start_slam_velocity);
 
 	Pose3 prior_pose = start_slam_pose * T_imu_body.inverse();
+	// Pose3 prior_pose = start_slam_pose;
 
 	// Velocity is computed using SLAM poses in the world frame.
 	// Therefore all we should need to do, is rotate the velocity vector into the body frame.

@@ -179,8 +179,8 @@ void write_trajectory_TUM_format(vector<Pose3> trajectory, vector<double> timest
 
     for (size_t i = 0; i < trajectory.size(); i++) {
         const Pose3& pose = trajectory[i];
-		Pose3 out_pose = pose * transform; // Apply some transform to each pose before dumping
-		// Pose3 out_pose = pose;
+		// Pose3 out_pose = pose * transform; // Apply some transform to each pose before dumping
+		Pose3 out_pose = pose;
 
         Point3 t = out_pose.translation();
         Rot3 R = out_pose.rotation();

@@ -257,7 +257,7 @@ int main(int argc, char* argv[]) {
 
 	// UWB noise model
 
-	// double uwb_stdev = 1e-3;
+	// double uwb_stdev = 1e-2;
 	double uwb_stdev = 0.1;
 	// double uwb_stdev = 0.2;
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
@@ -273,8 +273,8 @@ int main(int argc, char* argv[]) {
 	//// IMU noise model
 
 
-	double ASCALE = 1;
-	double GSCALE = 1;
+	double ASCALE = 10;
+	double GSCALE = 10;
 
 	double GYRO_NOISE_DENSITY = 0.0002049600985797649; 
 	double ACCEL_NOISE_DENSITY = 0.002064189891192468;
@@ -313,15 +313,26 @@ int main(int argc, char* argv[]) {
 
 	Matrix33 transform;
 	transform << 1, 0, 0,
-		0, 0, 1,
-		0, -1, 0;
+				0, 0, 1,
+				0, -1, 0;
+	Matrix33 test1;
+	test1 << 1, 0, 0,
+			0, 0, -1,
+			0, 1, 0;
+
+	Matrix33 test2;
+	test2 << 0, 0, 1,
+			1, 0, 0,
+			0, 1, 0;
 	Pose3 T_imu_body(Rot3(transform), Vector3(0, 0, 0));
-	// Pose3 T_imu_body(Rot3::Identity(), Vector3(0,0,0));
+	// Pose3 T_imu_body = Pose3::Identity();
+	// Pose3 T_imu_body(Rot3(test2), Vector3(0,0,0));
 	// body_P_sensor : "pose of sensor frame w.r.t body frame"
 
 	// Pose3 T_imu_body = Pose3::Identity();
 
 	imu_preintegration_params->body_P_sensor = T_imu_body;
+	// imu_preintegration_params->body_P_sensor = Pose3::Identity();
 
 	const string id = "1";
 	const int smoother_lag = 4;
@@ -334,7 +345,6 @@ int main(int argc, char* argv[]) {
 		debug_dir);
 
 	t.init_anchors(json::parse(beacon_fs));
-	// t.init(sensor_stream);
 
 
 	int imu_counter = 0;
@@ -363,8 +373,12 @@ int main(int argc, char* argv[]) {
 			Vector3 accel;
 			Vector3 gyro;
 			get_IMU(mes, accel, gyro);
-			t.imu_preintegrated->integrateMeasurement(accel, gyro, dt);
+
+			// Vector3 stupid_a = (Pose3(Rot3::Identity(), accel) * T_imu_body.inverse()).translation();
+
+			t.imu_preintegrated->integrateMeasurement(a, gyro, dt);
 			imu_counter++;
+
 
 			cout << "Preintegration on at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
 
