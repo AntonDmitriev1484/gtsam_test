@@ -167,8 +167,8 @@ void Tracker::init_state(json mes) {
 	get_GT_HTM(mes, start_slam_pose);
 	get_V(mes, start_slam_velocity);
 
-	Pose3 prior_pose = start_slam_pose * T_imu_body.inverse();
-	// Pose3 prior_pose = start_slam_pose;
+	// Pose3 prior_pose = start_slam_pose * T_imu_body.inverse();
+	Pose3 prior_pose = start_slam_pose;
 
 	// Velocity is computed using SLAM poses in the world frame.
 	// Therefore all we should need to do, is rotate the velocity vector into the body frame.
@@ -342,7 +342,8 @@ void Tracker::processSLAM(const json& mes)
 	Pose3 gt_pose_slam;
 	string usrname;
 	get_GT_HTM(mes,gt_pose_slam);
-	Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
+	// Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
+	Pose3 gt_pose = gt_pose_slam;
 	track.gt_poses.push_back(gt_pose);
 	track.gt_timestamps.push_back(mes["t"]);
 	
@@ -405,7 +406,8 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 	// Extract GT pose
 	Pose3 gt_pose_slam;
 	get_GT_HTM(mes, gt_pose_slam);
-	Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
+	// Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
+	Pose3 gt_pose = gt_pose_slam;
 
 	track.Ix++;
 	track.Iv++;
@@ -420,9 +422,9 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 	}
 
 	vector<string> ids = {"2", "3", "5"};
-	// for (string dst_user: ids){ 
+	for (string dst_user: ids){ 
 		uwb_counter++;
-		string dst_user = ids[uwb_counter % 3];
+		// string dst_user = ids[uwb_counter % 3];
 		tracking& dst = anchors[dst_user];
 		Point3 anchor_pos = dst.gt_poses.back().translation();
 		Point3 user_pos = gt_pose.translation();
@@ -443,30 +445,30 @@ void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)
 
 		cout << "Added Range factor " << graph->size() - 1 << endl;
 		cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
-	// }
+	}
 
 	// graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, GT_noise_model));
 
-	// // Magnetometer Factor
-	// // N_body_frame = T_world_to_body * N_world_frame
-	// Pose3 N_world_frame(Rot3::Identity(), Vector3(0,1,0)); //Correct
-	// Pose3 N_world_frame_adjusted( Rot3::Identity(), gt_pose.translation() + Vector3(0,1,0));
+	// Magnetometer Factor
+	// N_body_frame = T_world_to_body * N_world_frame
+	Pose3 N_world_frame(Rot3::Identity(), Vector3(0,1,0)); //Correct
+	Pose3 N_world_frame_adjusted( Rot3::Identity(), gt_pose.translation() + Vector3(0,1,0));
 
-	// // Body -> Mag = World -> Mag * Inv(World -> Body)
-	// // Pose3 N_body_frame =  N_world_frame_adjusted * gt_pose.inverse();
-	// Vector3 N_body_frame = gt_pose.rotation().matrix().inverse() * Vector3(1, 0 ,0);
-	// 		// WHY DO I NEED TO INVERT THIS ROTATION? TODO: Use pose for this.
-	// double scale = 1; // Magnitude is 55k nT, or 55 muT - I think this is just in case your raw measurement is not already normalized?
+	// Body -> Mag = World -> Mag * Inv(World -> Body)
+	// Pose3 N_body_frame =  N_world_frame_adjusted * gt_pose.inverse();
+	Vector3 N_body_frame = gt_pose.rotation().matrix().inverse() * Vector3(1, 0 ,0);
+			// WHY DO I NEED TO INVERT THIS ROTATION? TODO: Use pose for this.
+	double scale = 1; // Magnitude is 55k nT, or 55 muT - I think this is just in case your raw measurement is not already normalized?
 
-	// Point3 bias(1e-3, 1e-3, 1e-3);
-	// noiseModel::Diagonal::shared_ptr MAG_noise_model = noiseModel::Isotropic::Sigma(3, 0.1);
-	// graph->add(MagPoseFactor<Pose3>(X(track.Ix), N_body_frame, scale, N_world_frame.translation(), bias, MAG_noise_model));
-	// // Should the world frame mag vector be aligned to 0,0,0?
+	Point3 bias(1e-3, 1e-3, 1e-3);
+	noiseModel::Diagonal::shared_ptr MAG_noise_model = noiseModel::Isotropic::Sigma(3, 0.1);
+	graph->add(MagPoseFactor<Pose3>(X(track.Ix), N_body_frame, scale, N_world_frame.translation(), bias, MAG_noise_model));
+	// Should the world frame mag vector be aligned to 0,0,0?
 	
-	// Vector3 measured = N_body_frame; // Normalize to see where the vector points relative to the GT pose.
-	// cout << " Synthetic vector " << measured.x() << " " << measured.y() << " " << measured.z() << " magnitude " << N_body_frame.norm() << endl;
-	// suwb_base_poses.push_back(gt_pose);
-	// mag_vectors.push_back(Pose3(Rot3::Identity(), N_body_frame));
+	Vector3 measured = N_body_frame; // Normalize to see where the vector points relative to the GT pose.
+	cout << " Synthetic vector " << measured.x() << " " << measured.y() << " " << measured.z() << " magnitude " << N_body_frame.norm() << endl;
+	suwb_base_poses.push_back(gt_pose);
+	mag_vectors.push_back(Pose3(Rot3::Identity(), N_body_frame));
 
 
 	// Add IMU factor

@@ -294,7 +294,7 @@ int main(int argc, char* argv[]) {
 
 
 	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
-	// std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = std::make_shared<PreintegratedCombinedMeasurements::Params>(Vector3(0, 9.81, 0));
+	// std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = std::make_shared<PreintegratedCombinedMeasurements::Params>(Vector3(0, -9.81, 0));
 	imu_preintegration_params->accelerometerCovariance = continuous_time_accel_noise_cov;
 	imu_preintegration_params->gyroscopeCovariance = continuous_time_gyro_noise_cov;
 
@@ -321,12 +321,15 @@ int main(int argc, char* argv[]) {
 			0, 1, 0;
 
 	Matrix33 test2;
-	test2 << 0, 0, 1,
-			1, 0, 0,
-			0, 1, 0;
-	Pose3 T_imu_body(Rot3(transform), Vector3(0, 0, 0));
+	test2 << -1, 0, 0,
+			0, -1, 0,
+			0, 0, -1;
+	// Pose3 T_imu_body(Rot3(transform), Vector3(0, 0, 0));
 	// Pose3 T_imu_body = Pose3::Identity();
-	// Pose3 T_imu_body(Rot3(test2), Vector3(0,0,0));
+
+	// SLAM : +Z forward, +Y down, +X right
+	Pose3 T_imu_body(Rot3::Rx(0.05) * Rot3::Rz(0.05), Vector3(0.02,0.02,-0.02)); // Units??? in rad I think?
+	// Pose3 T_imu_body( Rot3(test2), Vector3(0,0,0));
 	// body_P_sensor : "pose of sensor frame w.r.t body frame"
 
 	// Pose3 T_imu_body = Pose3::Identity();
@@ -374,9 +377,7 @@ int main(int argc, char* argv[]) {
 			Vector3 gyro;
 			get_IMU(mes, accel, gyro);
 
-			// Vector3 stupid_a = (Pose3(Rot3::Identity(), accel) * T_imu_body.inverse()).translation();
-
-			t.imu_preintegrated->integrateMeasurement(a, gyro, dt);
+			t.imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 			imu_counter++;
 
 
