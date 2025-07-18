@@ -140,9 +140,9 @@ void write_trajectory_TUM_format(vector<Pose3> trajectory, ofstream& fs) {
         Rot3 R = pose.rotation();
         Quaternion q = pose.rotation().toQuaternion();
 
-        fs << i << ","; // TODO: replace with timestamp
-        fs << t.x() << "," << t.y() << "," << t.z() << ",";
-        fs << q.x() << ", " << q.y() << ", " << q.z() << ", " << q.w() << "\n";
+        fs << i << " "; // TODO: replace with timestamp
+        fs << t.x() << " " << t.y() << " " << t.z() << " ";
+        fs << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << "\n";
     }
 
 }

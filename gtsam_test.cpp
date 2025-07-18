@@ -101,10 +101,9 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 // Thinkpad paths
 string directory = "/home/antond2/ws/post/out"; // Need to post process on NUC, then SFTP to here.
 string trial_name = "/stereoi_circle2_post";
-string out_directory = "./out_trajectory";
 string debug_dump_directory = "./debug";
 
-ifstream raw_fs(directory + trial_name + "/synthetic/" + "all_synthetic_20_60.json");
+ifstream raw_fs(directory + trial_name + "/synthetic/" + "all_synthetic_1_5.json");
 ifstream beacon_fs(directory + trial_name + "/anchors.json");
 ifstream transform_fs(directory + trial_name + "/transforms.json");
 
@@ -469,6 +468,9 @@ int main(int argc, char* argv[]) {
 		0, 0, 1,
 		0, -1, 0;
 	Pose3 T_imu_body(Rot3(transform), Vector3(0, 0, 0));
+	// Pose3 T_imu_body = Pose3::Identity();
+	imu_preintegration_params->body_P_sensor = T_imu_body;
+
 	// body_P_sensor : "pose of sensor frame w.r.t body frame"
 
 	// auto trans = json::parse(transform_fs);
@@ -488,8 +490,6 @@ int main(int argc, char* argv[]) {
 	// }
 	// Pose3 T_imu_world(pose_matrix);
 	// Pose3 T_imu_body(T_imu_world.rotation(), Vector3(0, 0, 0));
-
-	imu_preintegration_params->body_P_sensor = T_imu_body;
 
 	NonlinearFactorGraph* graph = new NonlinearFactorGraph();
 
@@ -703,11 +703,13 @@ int main(int argc, char* argv[]) {
 		
 	}
 
-	ofstream estimated_trajectory_fs("./out_trajectory/estimated.txt");
+	string out_directory = "/home/antond2/Desktop/Research/gtsam_test/out_results/stereoi_circle2/synthetic_1_5";
+
+	ofstream estimated_trajectory_fs(out_directory+"/est.txt");
 	write_trajectory_TUM_format( user.est_poses, estimated_trajectory_fs);
 	estimated_trajectory_fs.close();
 
-	ofstream slam_trajectory_fs("./out_trajectory/slam.txt");
+	ofstream slam_trajectory_fs(out_directory+"/slam.txt");
 	write_trajectory_TUM_format( user.gt_poses, slam_trajectory_fs);
 	slam_trajectory_fs.close();
 
