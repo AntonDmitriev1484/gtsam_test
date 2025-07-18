@@ -48,6 +48,9 @@ enable_testing()
 # add_test(NAME synthetic_20_60_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_20_60 no_uwb 0.2 true)
 # add_test(NAME synthetic_20_60_uwb COMMAND gtsam_test stereoi_circle2 synthetic_20_60 uwb 0.2 true)
 
+add_test(NAME loopy_synthetic_1_5_nouwb COMMAND gtsam_test pilot3_stereoi_loopy synthetic_1_5 no_uwb 0.2 true)
+add_test(NAME loopy_synthetic_1_5_uwb COMMAND gtsam_test pilot3_stereoi_loopy synthetic_1_5 uwb 0.2 true)
+
 add_test(NAME synthetic_1_5_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_1_5 no_uwb 0.2 true)
 add_test(NAME synthetic_1_5_uwb COMMAND gtsam_test stereoi_circle2 synthetic_1_5 uwb 0.2 true)
 

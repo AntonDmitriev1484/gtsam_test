@@ -334,7 +334,7 @@ int main(int argc, char* argv[]) {
 
 	// Pose3 T_imu_body = Pose3::Identity();
 
-	imu_preintegration_params->body_P_sensor = T_imu_body;
+	// imu_preintegration_params->body_P_sensor = T_imu_body;
 	// imu_preintegration_params->body_P_sensor = Pose3::Identity();
 
 	const string id = "1";
