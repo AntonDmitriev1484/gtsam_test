@@ -86,6 +86,7 @@ Tracker::Tracker(const string& id,
 
 	this->T_imu_body = T_imu_body;
     this->prior_imu_bias = prior_imu_bias;
+	this->imu_preintegration_params = imu_preintegration_params;
 	(*imu_preintegration_params.get()).print();
 	// Instantiate IMU preintegration
 	this->imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
@@ -138,7 +139,9 @@ Tracker::Tracker(const string& id,
 
 Key AnchorKey(string name) {return symbol('s', stoi(name));}
 
+// void Tracker::reset_preintegration() {
 
+// }
 // Assuming we have already called
 // get_beacon_info(tracker.anchors, json::parse(beacon_fs));
 void Tracker::init_anchor(string id){
@@ -257,7 +260,12 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		graph->resize(0);
 		vals.clear();
 
+		// How get preint mes cov?? 15x15?
+		// PreintegratedCombinedMeasurements()
+		// imu_preintegrated = new PreintegratedCombinedMeasurementsT(imu_preintegration_params, track.changing_bias);
 		imu_preintegrated->resetIntegrationAndSetBias(track.changing_bias);
+		// imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, track.changing_bias);
+
 	}
 	catch (const std::exception& e) {
 		cerr << "Optimizer update failed: " << e.what() << endl;
@@ -377,12 +385,6 @@ void Tracker::processSLAM(const json& mes)
 	graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, GT_noise_model));
 	cout << "Added Prior factor " << graph->size() - 1 << endl;
 
-	// Add velocity prior factor
-	// Pose3 pose_velocity(Rot3::Identity(), slam_velocity);
-	// Pose3 prior_velocity = (pose_velocity * T_imu_body.inverse());
-	// graph->add(PriorFactor<Vector3>(V(track.Iv), prior_velocity.translation(), Velocity_noise_model));
-	// postproc_velocity_vectors.push_back(pose_velocity); // Plot the velocity vector rotated into the body, into the world frame
-
 	// Predict current state
 	// NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
 	NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
@@ -397,6 +399,56 @@ void Tracker::processSLAM(const json& mes)
 	if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "GT", true); }
 	else { exec_iSAM(proposed, (double)mes["t"], "GT", true); }
 	
+		// The more extreme we scale these, the more each next integration pose is off from the correction
+		// Which means we hit the outlier case again.
+
+	Vector3 preint_err_result = (proposed.pose().translation() - gt_pose.translation())
+	if (preint_err_result.norm() > 0.2) {
+		
+		std::shared_ptr<PreintegratedCombinedMeasurements::Params> p = get_imu_preintegration_params(45, 10);
+		imu_preintegrated = new PreintegratedCombinedMeasurements(p, track.changing_bias);
+		gt_outlier++;
+	}
+	else {
+		std::shared_ptr<PreintegratedCombinedMeasurements::Params> p = get_imu_preintegration_params(1, 10);
+		imu_preintegrated = new PreintegratedCombinedMeasurements(p, track.changing_bias);
+	}
+}
+
+std::shared_ptr<PreintegratedCombinedMeasurements::Params> get_imu_preintegration_params(int ASCALE, int GSCALE) {
+
+
+	double GYRO_NOISE_DENSITY = 0.0002049600985797649; 
+	double ACCEL_NOISE_DENSITY = 0.002064189891192468;
+
+	Matrix33 continuous_time_accel_noise_cov = I_3x3 * pow(ACCEL_NOISE_DENSITY, 2) * ASCALE;
+	Matrix33 continuous_time_gyro_noise_cov = I_3x3 * pow(GYRO_NOISE_DENSITY, 2) * GSCALE;
+
+
+	double GYRO_BIAS_RW = 3.1998555455947417e-06;
+	double ACCEL_BIAS_RW = 0.00022919238444020807;
+
+	Matrix33 continuous_time_accel_bias_rw = I_3x3 * pow(ACCEL_BIAS_RW, 2) * ASCALE;
+	Matrix33 continuous_time_gyro_bias_rw = I_3x3 * pow(GYRO_BIAS_RW, 2) * GSCALE;
+
+	Matrix66 initial_bias_cov = I_6x6 * 1e-5 * ASCALE;
+	Matrix33 integration_cov = I_3x3 * 1e-5 * ASCALE;
+
+
+	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
+	// std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = std::make_shared<PreintegratedCombinedMeasurements::Params>(Vector3(0, -9.81, 0));
+	imu_preintegration_params->accelerometerCovariance = continuous_time_accel_noise_cov;
+	imu_preintegration_params->gyroscopeCovariance = continuous_time_gyro_noise_cov;
+
+	imu_preintegration_params->biasAccCovariance = continuous_time_accel_bias_rw;
+	imu_preintegration_params->biasOmegaCovariance = continuous_time_gyro_bias_rw;
+
+	imu_preintegration_params->integrationCovariance = integration_cov;
+	imu_preintegration_params->biasAccOmegaInt = initial_bias_cov;
+
+	imu_preintegration_params->use2ndOrderCoriolis = false;
+
+	return imu_preintegration_params;
 }
 
 void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)

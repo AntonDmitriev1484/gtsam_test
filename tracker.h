@@ -52,7 +52,9 @@ public:
 
     NavState prev_state;
     
-    PreintegrationType* imu_preintegrated;
+    // PreintegrationType* imu_preintegrated;
+    PreintegratedCombinedMeasurements* imu_preintegrated;
+    std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params;
     imuBias::ConstantBias prior_imu_bias;
 
     Pose3 T_imu_body;
@@ -80,6 +82,8 @@ public:
     vector<Pose3> est_velocity_vectors;
 
     double mes_start;
+
+    int gt_outlier = 0;
 
     Tracker(const string& id,
             const Pose3 T_imu_body,
@@ -115,3 +119,4 @@ public:
 // Moved in here because circular includes confuse me
 void get_gt_info(map<string, tracking>& info, json gt_data);
 void get_beacon_info(map<string, tracking>& info, json beacon_data);
+std::shared_ptr<PreintegratedCombinedMeasurements::Params> get_imu_preintegration_params(int ASCALE, int GSCALE);

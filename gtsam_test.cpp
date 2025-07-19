@@ -272,40 +272,7 @@ int main(int argc, char* argv[]) {
 
 	//// IMU noise model
 
-
-	double ASCALE = 10;
-	double GSCALE = 10;
-
-	double GYRO_NOISE_DENSITY = 0.0002049600985797649; 
-	double ACCEL_NOISE_DENSITY = 0.002064189891192468;
-
-	Matrix33 continuous_time_accel_noise_cov = I_3x3 * pow(ACCEL_NOISE_DENSITY, 2) * ASCALE;
-	Matrix33 continuous_time_gyro_noise_cov = I_3x3 * pow(GYRO_NOISE_DENSITY, 2) * GSCALE;
-
-
-	double GYRO_BIAS_RW = 3.1998555455947417e-06;
-	double ACCEL_BIAS_RW = 0.00022919238444020807;
-
-	Matrix33 continuous_time_accel_bias_rw = I_3x3 * pow(ACCEL_BIAS_RW, 2) * ASCALE;
-	Matrix33 continuous_time_gyro_bias_rw = I_3x3 * pow(GYRO_BIAS_RW, 2) * GSCALE;
-
-	Matrix66 initial_bias_cov = I_6x6 * 1e-5 * ASCALE;
-	Matrix33 integration_cov = I_3x3 * 1e-5 * ASCALE;
-
-
-	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
-	// std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = std::make_shared<PreintegratedCombinedMeasurements::Params>(Vector3(0, -9.81, 0));
-	imu_preintegration_params->accelerometerCovariance = continuous_time_accel_noise_cov;
-	imu_preintegration_params->gyroscopeCovariance = continuous_time_gyro_noise_cov;
-
-	imu_preintegration_params->biasAccCovariance = continuous_time_accel_bias_rw;
-	imu_preintegration_params->biasOmegaCovariance = continuous_time_gyro_bias_rw;
-
-	imu_preintegration_params->integrationCovariance = integration_cov;
-	imu_preintegration_params->biasAccOmegaInt = initial_bias_cov;
-
-	imu_preintegration_params->use2ndOrderCoriolis = false;
-
+	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = get_imu_preintegration_params(1, 10);
 	imuBias::ConstantBias prior_imu_bias;
 	// double GBIAS = 1e-3;
 	// double ABIAS = 1e-3;
@@ -325,10 +292,10 @@ int main(int argc, char* argv[]) {
 			0, -1, 0,
 			0, 0, -1;
 	// Pose3 T_imu_body(Rot3(transform), Vector3(0, 0, 0));
-	// Pose3 T_imu_body = Pose3::Identity();
+	Pose3 T_imu_body = Pose3::Identity();
 
 	// SLAM : +Z forward, +Y down, +X right
-	Pose3 T_imu_body(Rot3::Rx(0.05) * Rot3::Rz(0.05), Vector3(0.02,0.02,-0.02)); // Units??? in rad I think?
+	// Pose3 T_imu_body(Rot3::Rx(0.05) * Rot3::Rz(0.05), Vector3(0.02,0.02,-0.02)); // Units??? in rad I think?
 	// Pose3 T_imu_body( Rot3(test2), Vector3(0,0,0));
 	// body_P_sensor : "pose of sensor frame w.r.t body frame"
 
@@ -485,6 +452,8 @@ int main(int argc, char* argv[]) {
 	double fgt = gt_counter /45.0;
 	cout << " GT frequency in the graph is " << fgt << endl;
 	cout << " GT skipped " << gt_skipped << endl;
+
+		cout << " Outliers " << t.gt_outlier << " of " << gt_counter  << endl;
 
 	return 0;
 }
