@@ -273,7 +273,7 @@ int main(int argc, char* argv[]) {
 	//// IMU noise model
 
 
-	double ASCALE = 10;
+	double ASCALE = 1;
 	double GSCALE = 10;
 
 	double GYRO_NOISE_DENSITY = 0.0002049600985797649; 
@@ -325,10 +325,10 @@ int main(int argc, char* argv[]) {
 			0, -1, 0,
 			0, 0, -1;
 	// Pose3 T_imu_body(Rot3(transform), Vector3(0, 0, 0));
-	// Pose3 T_imu_body = Pose3::Identity();
+	Pose3 T_imu_body = Pose3::Identity();
 
 	// SLAM : +Z forward, +Y down, +X right
-	Pose3 T_imu_body(Rot3::Rx(0.05) * Rot3::Rz(0.05), Vector3(0.02,0.02,-0.02)); // Units??? in rad I think?
+	// Pose3 T_imu_body(Rot3::Rx(0.05) * Rot3::Rz(0.05), Vector3(0.02,0.02,-0.02)); // Units??? in rad I think?
 	// Pose3 T_imu_body( Rot3(test2), Vector3(0,0,0));
 	// body_P_sensor : "pose of sensor frame w.r.t body frame"
 
@@ -386,9 +386,11 @@ int main(int argc, char* argv[]) {
 			// Just for plotting at IMU frequency
 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(t.imu_preintegrated);
 			auto proposed = current_imu_preintegration->predict(t.prev_state, t.track.changing_bias);
-			t.track.est_poses.push_back(proposed.pose());
-			t.track.est_timestamps.push_back((double)mes["t"]);
+				// t.track.est_poses.push_back(proposed.pose());
+				// t.track.est_timestamps.push_back((double)mes["t"]);
+			t.filter_and_estimate(proposed.pose(), mes["t"]);
 
+			
 			for (json mes : gt_pose_buffer) {
 				t.processSLAM(mes);
 				imu_count_at_last_correction = imu_counter;

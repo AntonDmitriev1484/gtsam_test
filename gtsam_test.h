@@ -33,3 +33,5 @@
 #include <cctype>
 #include <filesystem>
 #include <random>
+
+#include "1euro.h"

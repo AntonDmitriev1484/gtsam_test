@@ -80,7 +80,17 @@ Tracker::Tracker(const string& id,
             const SharedNoiseModel& Bias_noise_model,
 			std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params,
             const imuBias::ConstantBias prior_imu_bias,
-            const string& debug_dir) {
+            const string& debug_dir) : 
+            
+            translation_filt(
+                200.,
+                Eigen::Array<double, 3, 1>::Constant(5.),   // min_cutoff
+                Eigen::Array<double, 3, 1>::Constant(1),    // beta > 1
+                Eigen::Array<double, 3, 1>::Constant(10.),   // d_cutoff
+                Eigen::Array<double, 3, 1>::Zero(),          // zero
+                Eigen::Array<double, 3, 1>::Ones(),          // one
+                [](auto& in) { return in.abs(); }            // abs function
+            ){
 
 	this->delta_t = delta_t;
 
@@ -133,6 +143,20 @@ Tracker::Tracker(const string& id,
 		this->isam = new ISAM2(isam_params);
 	}
 	// key_to_ts gets initialized in class
+
+    
+
+}
+
+Pose3 Tracker::filter_and_estimate(Pose3 initial, double timestamp){
+
+	Vector3 filtered_translation = translation_filt(initial.translation() , timestamp);
+	Pose3 good_pose(Pose3(initial.rotation(), filtered_translation));
+
+	cout << "Filtering changed pose by " << (initial.translation().norm() - filtered_translation.norm()) << endl;
+	track.est_poses.push_back(good_pose);
+	track.est_timestamps.push_back(timestamp);
+	return good_pose;
 
 }
 
@@ -243,8 +267,10 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		END_TIMER("Ended iSAM "+msg, isam_t);
 
 				//Correct code:
-		track.est_poses.push_back(result.at<Pose3>(X(track.Ix)));
-		track.est_timestamps.push_back(mes_timestamp);
+		// track.est_poses.push_back(result.at<Pose3>(X(track.Ix)));
+		// track.est_timestamps.push_back(mes_timestamp);
+
+		filter_and_estimate(proposed.pose(), mes_timestamp);
 
 		track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
 		est_velocity_vectors.push_back(Pose3(Rot3::Identity(), result.at<Vector3>(V(track.Iv))));
@@ -299,8 +325,10 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 		result = smoother->calculateEstimate();
 		END_TIMER("Ended iSAM "+msg, isam_t);
 
-		track.est_poses.push_back(result.at<Pose3>(X(track.Ix)));
-		track.est_timestamps.push_back(mes_timestamp);
+		// track.est_poses.push_back(result.at<Pose3>(X(track.Ix)));
+		// track.est_timestamps.push_back(mes_timestamp);
+
+		filter_and_estimate(result.at<Pose3>(X(track.Ix)), mes_timestamp);
 
 		track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
 		est_velocity_vectors.push_back(Pose3(Rot3::Identity(), result.at<Vector3>(V(track.Iv))));
@@ -397,6 +425,8 @@ void Tracker::processSLAM(const json& mes)
 	if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "GT", true); }
 	else { exec_iSAM(proposed, (double)mes["t"], "GT", true); }
 	
+
+	// translation_filt.clear(); // clear filter
 }
 
 void Tracker::processSUWB(const json& mes, int& uwb_counter, double uwb_stdev)

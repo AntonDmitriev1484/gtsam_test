@@ -81,6 +81,10 @@ public:
 
     double mes_start;
 
+
+    one_euro_filter<Eigen::Array<double, 3, 1>, double> translation_filt;
+    // OneEuroFilter<3> translation_filt;
+
     Tracker(const string& id,
             const Pose3 T_imu_body,
             const double delta_t,
@@ -100,6 +104,11 @@ public:
     void init_anchors(json anchor_json);
     void init_anchor(string id);
     void init_state(json mes);
+
+        // one_euro_filter(double _freq, T _mincutoff, T _beta, T _dcutoff, T zero, T one, std::function<T(T&)> abs)
+
+
+    Pose3 filter_and_estimate(Pose3 initial, double timestamp); // take in a GTSAM pose, apply 1-euro filter, and append output to est
 
     void exec_iSAM(NavState& proposed, double mes_timestamp, 
         string msg="", bool print=false);
