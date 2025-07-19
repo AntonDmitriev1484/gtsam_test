@@ -83,7 +83,10 @@ public:
 
     double mes_start;
 
+    Vector3 preint_err_result;
+
     int gt_outlier = 0;
+    double elapsed_since_gt = 0;
 
     Tracker(const string& id,
             const Pose3 T_imu_body,

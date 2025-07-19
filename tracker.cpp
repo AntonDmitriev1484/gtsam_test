@@ -346,6 +346,8 @@ void Tracker::processSLAM(const json& mes)
 	track.Iv++;
 	track.Ib++;
 
+	elapsed_since_gt = 0;
+
 	// Extract GT pose
 	Pose3 gt_pose_slam;
 	string usrname;
@@ -402,14 +404,15 @@ void Tracker::processSLAM(const json& mes)
 		// The more extreme we scale these, the more each next integration pose is off from the correction
 		// Which means we hit the outlier case again.
 
-	Vector3 preint_err_result = (proposed.pose().translation() - gt_pose.translation())
+	preint_err_result = (proposed.pose().translation() - gt_pose.translation());
 	if (preint_err_result.norm() > 0.2) {
 		
-		std::shared_ptr<PreintegratedCombinedMeasurements::Params> p = get_imu_preintegration_params(45, 10);
+		std::shared_ptr<PreintegratedCombinedMeasurements::Params> p = get_imu_preintegration_params(10, 1);
 		imu_preintegrated = new PreintegratedCombinedMeasurements(p, track.changing_bias);
 		gt_outlier++;
 	}
 	else {
+		// preint_err_result = Vector3(0,0,0);
 		std::shared_ptr<PreintegratedCombinedMeasurements::Params> p = get_imu_preintegration_params(1, 10);
 		imu_preintegrated = new PreintegratedCombinedMeasurements(p, track.changing_bias);
 	}
