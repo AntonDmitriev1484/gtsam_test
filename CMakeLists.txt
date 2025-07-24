@@ -48,27 +48,24 @@ enable_testing()
 # add_test(NAME synthetic_20_60_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_20_60 no_uwb 0.2 true)
 # add_test(NAME synthetic_20_60_uwb COMMAND gtsam_test stereoi_circle2 synthetic_20_60 uwb 0.2 true)
 
-add_test(NAME whiteboard_synthetic_1_5_nouwb COMMAND gtsam_test pilot4_whiteboard synthetic_1_5 no_uwb 0.05 true)
-add_test(NAME whiteboard_synthetic_1_5_uwb COMMAND gtsam_test pilot4_whiteboard synthetic_1_5 uwb 0.05 true)
+# Just going to pass synthetic noise model as 0 since I won't be generating synthetic ranges
+add_test(NAME pilot4_whiteboard2/real_nouwb COMMAND gtsam_test pilot4_whiteboard2 synthetic_1_0 no_uwb 0.0 true)
+add_test(NAME pilot4_whiteboard2/real_uwb COMMAND gtsam_test pilot4_whiteboard2 synthetic_1_0 uwb 0.0 true)
+
+add_test(NAME pilot4_chair2/real_nouwb COMMAND gtsam_test pilot4_chair2 synthetic_1_0 no_uwb 0.0 true)
+add_test(NAME pilot4_chair2/real_uwb COMMAND gtsam_test pilot4_chair2 synthetic_1_0 uwb 0.0 true)
+
+add_test(NAME pilot4_loopy/real_nouwb COMMAND gtsam_test pilot4_loopy synthetic_1_0 no_uwb 0.0 true)
+add_test(NAME pilot4_loopy/real_uwb COMMAND gtsam_test pilot4_loopy synthetic_1_0 uwb 0.0 true)
+
+add_test(NAME pilot4_room/real_nouwb COMMAND gtsam_test pilot4_room synthetic_1_0 no_uwb 0.0 true)
+add_test(NAME pilot4_room/real_uwb COMMAND gtsam_test pilot4_room synthetic_1_0 uwb 0.0 true)
 
 # add_test(NAME loopy_synthetic_1_5_nouwb COMMAND gtsam_test pilot3_stereoi_loopy synthetic_1_5 no_uwb 0.1 true)
 # add_test(NAME loopy_synthetic_1_5_uwb COMMAND gtsam_test pilot3_stereoi_loopy synthetic_1_5 uwb 0.1 true)
 
-add_test(NAME synthetic_1_5_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_1_5 no_uwb 0.2 true)
-add_test(NAME synthetic_1_5_uwb COMMAND gtsam_test stereoi_circle2 synthetic_1_5 uwb 0.2 true)
+add_test(NAME stereoi_circle2/synthetic_1_5_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_1_5 no_uwb 0.2 true)
+add_test(NAME stereoi_circle2/synthetic_1_5_uwb COMMAND gtsam_test stereoi_circle2 synthetic_1_5 uwb 0.2 true)
 
-add_test(NAME synthetic_1_10_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_1_10 no_uwb 0.2 true)
-add_test(NAME synthetic_1_10_uwb COMMAND gtsam_test stereoi_circle2 synthetic_1_10 uwb 0.2 true)
-
-add_test(NAME synthetic_1_20_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_1_20 no_uwb 0.2 true)
-add_test(NAME synthetic_1_20_uwb COMMAND gtsam_test stereoi_circle2 synthetic_1_20 uwb 0.2 true)
-
-
-add_test(NAME synthetic_2_5_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_2_5 no_uwb 0.2 true)
-add_test(NAME synthetic_2_5_uwb COMMAND gtsam_test stereoi_circle2 synthetic_2_5 uwb 0.2 true)
-
-add_test(NAME synthetic_2_10_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_2_10 no_uwb 0.2 true)
-add_test(NAME synthetic_2_10_uwb COMMAND gtsam_test stereoi_circle2 synthetic_2_10 uwb 0.2 true)
-
-add_test(NAME synthetic_2_20_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_2_20 no_uwb 0.2 true)
-add_test(NAME synthetic_2_20_uwb COMMAND gtsam_test stereoi_circle2 synthetic_2_20 uwb 0.2 true)
+add_test(NAME stereoi_circle2/synthetic_1_10_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_1_10 no_uwb 0.2 true)
+add_test(NAME stereoi_circle2/synthetic_1_10_uwb COMMAND gtsam_test stereoi_circle2 synthetic_1_10 uwb 0.2 true)
