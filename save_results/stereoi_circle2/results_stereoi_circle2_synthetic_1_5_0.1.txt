@@ -1,15 +1,6 @@
 APE w.r.t. translation part (m)
 (with SE(3) Umeyama alignment)
 
-<<<<<<< Updated upstream
-       max	0.368170
-      mean	0.044574
-    median	0.034885
-       min	0.002211
-      rmse	0.060665
-       sse	2.925774
-       std	0.041151
-=======
        max	0.355334
       mean	0.043806
     median	0.035014
@@ -17,21 +8,11 @@ APE w.r.t. translation part (m)
       rmse	0.059060
        sse	2.773006
        std	0.039612
->>>>>>> Stashed changes
 
 RPE w.r.t. translation part (m)
 for delta = 1 (frames) using consecutive pairs
 (with SE(3) Umeyama alignment)
 
-<<<<<<< Updated upstream
-       max	0.394131
-      mean	0.012523
-    median	0.005883
-       min	0.000514
-      rmse	0.029540
-       sse	0.692867
-       std	0.026755
-=======
        max	0.409194
       mean	0.012993
     median	0.005573
@@ -39,20 +20,10 @@ for delta = 1 (frames) using consecutive pairs
       rmse	0.032648
        sse	0.846338
        std	0.029952
->>>>>>> Stashed changes
 
 APE w.r.t. rotation angle in degrees (deg)
 (with SE(3) Umeyama alignment)
 
-<<<<<<< Updated upstream
-       max	6.082717
-      mean	4.808824
-    median	5.036292
-       min	2.102673
-      rmse	4.900359
-       sse	19090.745646
-       std	0.942725
-=======
        max	6.344864
       mean	5.101478
     median	5.334661
@@ -60,21 +31,11 @@ APE w.r.t. rotation angle in degrees (deg)
       rmse	5.178109
        sse	21316.185450
        std	0.887546
->>>>>>> Stashed changes
 
 RPE w.r.t. rotation angle in degrees (deg)
 for delta = 1 (frames) using consecutive pairs
 (with SE(3) Umeyama alignment)
 
-<<<<<<< Updated upstream
-       max	3.144201
-      mean	0.118572
-    median	0.085232
-       min	0.013094
-      rmse	0.210118
-       sse	35.054685
-       std	0.173465
-=======
        max	3.278584
       mean	0.118795
     median	0.085611
@@ -82,5 +43,4 @@ for delta = 1 (frames) using consecutive pairs
       rmse	0.210008
        sse	35.018011
        std	0.173179
->>>>>>> Stashed changes
 

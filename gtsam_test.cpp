@@ -258,7 +258,7 @@ int main(int argc, char* argv[]) {
 	// UWB noise model
 
 	// double uwb_stdev = 1e-2;
-	double uwb_stdev = 0.1;
+	double uwb_stdev = 0.05;
 	// double uwb_stdev = 0.2;
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 

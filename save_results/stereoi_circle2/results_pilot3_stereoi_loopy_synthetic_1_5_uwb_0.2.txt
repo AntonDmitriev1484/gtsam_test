@@ -1,0 +1,1 @@
+[ERROR] TUM trajectory files must have 8 entries per row and no trailing delimiter at the end of the rows (space)
