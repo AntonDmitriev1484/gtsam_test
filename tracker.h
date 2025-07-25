@@ -81,7 +81,7 @@ public:
 
     double mes_start;
 
-
+    bool use_filter;
     one_euro_filter<Eigen::Array<double, 3, 1>, double> translation_filt;
     // OneEuroFilter<3> translation_filt;
 
@@ -90,6 +90,7 @@ public:
             const double delta_t,
             const double smoother_lag,
             const bool use_smoother,
+            const bool use_filter,
             const double uwb_stdev,
             const SharedNoiseModel& GT_noise_model,
             const SharedNoiseModel& UWB_noise_model,
@@ -105,10 +106,7 @@ public:
     void init_anchor(string id);
     void init_state(json mes);
 
-        // one_euro_filter(double _freq, T _mincutoff, T _beta, T _dcutoff, T zero, T one, std::function<T(T&)> abs)
-
-
-    Pose3 filter_and_estimate(Pose3 initial, double timestamp); // take in a GTSAM pose, apply 1-euro filter, and append output to est
+    Pose3 report_estimate(Pose3 initial, double timestamp); // take in a GTSAM pose, apply 1-euro filter, and append output to est
 
     void exec_iSAM(NavState& proposed, double mes_timestamp, 
         string msg="", bool print=false);
@@ -117,10 +115,11 @@ public:
         string msg="", bool print=false);
 
     void processSLAM(const json& mes);
-    void processSUWB(const json& mes, int& uwb_counter, double uwb_stdev);
-
+    void processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_stdev);
+    void processAssistedUWB(const json& mes, int& uwb_counter);
 };
 
 // Moved in here because circular includes confuse me
 void get_gt_info(map<string, tracking>& info, json gt_data);
 void get_beacon_info(map<string, tracking>& info, json beacon_data);
+std::shared_ptr<PreintegratedCombinedMeasurements::Params> get_imu_preintegration_params(int ASCALE, int GSCALE);

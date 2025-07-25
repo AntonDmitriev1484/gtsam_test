@@ -199,7 +199,7 @@ int main(int argc, char* argv[]) {
 	bool use_gt = true;
 	bool synthetic = synthetic_trial_name != "none";
 	double uwb_synth_stdev = stod(uwb_noise_str);
-
+	bool use_synthetic_uwb = uwb_synth_stdev > 1e-5;
 
 	string data_dir = "/home/antond2/ws/post/out/"+trial_name+"_post";
 	string out_dir = "/home/antond2/Desktop/Research/gtsam_test/out_results/"+trial_name;
@@ -272,77 +272,20 @@ int main(int argc, char* argv[]) {
 
 	//// IMU noise model
 
-
-	double ASCALE = 1;
-	double GSCALE = 10;
-
-	double GYRO_NOISE_DENSITY = 0.0002049600985797649; 
-	double ACCEL_NOISE_DENSITY = 0.002064189891192468;
-
-	Matrix33 continuous_time_accel_noise_cov = I_3x3 * pow(ACCEL_NOISE_DENSITY, 2) * ASCALE;
-	Matrix33 continuous_time_gyro_noise_cov = I_3x3 * pow(GYRO_NOISE_DENSITY, 2) * GSCALE;
-
-
-	double GYRO_BIAS_RW = 3.1998555455947417e-06;
-	double ACCEL_BIAS_RW = 0.00022919238444020807;
-
-	Matrix33 continuous_time_accel_bias_rw = I_3x3 * pow(ACCEL_BIAS_RW, 2) * ASCALE;
-	Matrix33 continuous_time_gyro_bias_rw = I_3x3 * pow(GYRO_BIAS_RW, 2) * GSCALE;
-
-	Matrix66 initial_bias_cov = I_6x6 * 1e-5 * ASCALE;
-	Matrix33 integration_cov = I_3x3 * 1e-5 * ASCALE;
-
-
-	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
-	// std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = std::make_shared<PreintegratedCombinedMeasurements::Params>(Vector3(0, -9.81, 0));
-	imu_preintegration_params->accelerometerCovariance = continuous_time_accel_noise_cov;
-	imu_preintegration_params->gyroscopeCovariance = continuous_time_gyro_noise_cov;
-
-	imu_preintegration_params->biasAccCovariance = continuous_time_accel_bias_rw;
-	imu_preintegration_params->biasOmegaCovariance = continuous_time_gyro_bias_rw;
-
-	imu_preintegration_params->integrationCovariance = integration_cov;
-	imu_preintegration_params->biasAccOmegaInt = initial_bias_cov;
-
-	imu_preintegration_params->use2ndOrderCoriolis = false;
-
+	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = get_imu_preintegration_params(1, 10);
 	imuBias::ConstantBias prior_imu_bias;
-	// double GBIAS = 1e-3;
-	// double ABIAS = 1e-3;
-	// imuBias::ConstantBias prior_imu_bias(Vector3(ABIAS, ABIAS, 1e-1), Vector3(1e-1, 1e-1, GBIAS));
-
-	Matrix33 transform;
-	transform << 1, 0, 0,
-				0, 0, 1,
-				0, -1, 0;
-	Matrix33 test1;
-	test1 << 1, 0, 0,
-			0, 0, -1,
-			0, 1, 0;
-
-	Matrix33 test2;
-	test2 << -1, 0, 0,
-			0, -1, 0,
-			0, 0, -1;
-	// Pose3 T_imu_body(Rot3(transform), Vector3(0, 0, 0));
 	Pose3 T_imu_body = Pose3::Identity();
-
-	// SLAM : +Z forward, +Y down, +X right
-	// Pose3 T_imu_body(Rot3::Rx(0.05) * Rot3::Rz(0.05), Vector3(0.02,0.02,-0.02)); // Units??? in rad I think?
-	// Pose3 T_imu_body( Rot3(test2), Vector3(0,0,0));
-	// body_P_sensor : "pose of sensor frame w.r.t body frame"
-
-	// Pose3 T_imu_body = Pose3::Identity();
-
-	// imu_preintegration_params->body_P_sensor = T_imu_body;
-	// imu_preintegration_params->body_P_sensor = Pose3::Identity();
+	imu_preintegration_params->body_P_sensor = T_imu_body;
+	
 
 	const string id = "1";
 	const int smoother_lag = 4;
 	const bool use_smoother = false;
+
+	const bool use_filter = false;
 	Tracker t(
-		id, T_imu_body, dt, smoother_lag, use_smoother, uwb_synth_stdev,
-		GT_noise_model, UWB_noise_model, VIO_pose_noise_model, 
+		id, T_imu_body, dt, smoother_lag, use_smoother, use_filter, 
+		uwb_synth_stdev, GT_noise_model, UWB_noise_model, VIO_pose_noise_model, 
 		prior_velocity_noise_model, prior_bias_noise_model,
 		imu_preintegration_params, prior_imu_bias,
 		debug_dir);
@@ -350,18 +293,11 @@ int main(int argc, char* argv[]) {
 	t.init_anchors(json::parse(beacon_fs));
 
 
-	int imu_counter = 0;
-	int last_imu_counter = 0;
-
 	bool start_graph = false;
 
-	int uwb_counter = 0;
-	int gt_counter = 0;
-
-	int imu_count_at_last_correction = 0;
-	int imu_count_at_last_imu_factor = 0;
-	int factor_counter = 0;
-	int gt_skipped = 0;
+	// TODO: Counters can all be internal to tracker.
+	int imu_counter=0, uwb_counter = 0, gt_counter=0,
+	imu_count_at_last_correction = 0, imu_count_at_last_imu_factor = 0;
 
 	vector<json> gt_pose_buffer;
 	vector<json> range_buffer;
@@ -386,11 +322,8 @@ int main(int argc, char* argv[]) {
 			// Just for plotting at IMU frequency
 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(t.imu_preintegrated);
 			auto proposed = current_imu_preintegration->predict(t.prev_state, t.track.changing_bias);
-				// t.track.est_poses.push_back(proposed.pose());
-				// t.track.est_timestamps.push_back((double)mes["t"]);
-			t.filter_and_estimate(proposed.pose(), mes["t"]);
+			t.report_estimate(proposed.pose(), mes["t"]);
 
-			
 			for (json mes : gt_pose_buffer) {
 				t.processSLAM(mes);
 				imu_count_at_last_correction = imu_counter;
@@ -400,30 +333,25 @@ int main(int argc, char* argv[]) {
 			gt_pose_buffer.clear();
 
 			for (json mes : range_buffer) {
-				if (synthetic) {
-					t.processSUWB(mes, uwb_counter, uwb_synth_stdev);
-					// uwb_counter++; // TODO check to make sure I'm not double counting.
+				if (use_synthetic_uwb) {
+					t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
 				}
 				else {
-					//t.processUWB
+					t.processAssistedUWB(mes, uwb_counter);
 				}
-
 			}
 			range_buffer.clear();
 		}
 		else if (use_gt && mes["type"] == "slam_pose" && !start_graph) {
-			// Skip all measurements until we find a slam pose and velocity that we can use
-			// to set up priors
+			// Skip all measurements until we find a slam pose and velocity that we can use to set up priors
 			t.init_state(mes);
 			start_graph = true;
-			
 		}
 		else if (use_gt && mes["type"] == "slam_pose" && start_graph) {
 
 			if (imu_counter == imu_count_at_last_imu_factor) {
 				// Pass this measurement and buffer it until the next IMU becomes available
 				cout << " Skipped SLAM pose " << endl;
-				gt_skipped ++; 
 				gt_pose_buffer.push_back(mes);
 				continue;
 			}
@@ -431,20 +359,30 @@ int main(int argc, char* argv[]) {
 			imu_count_at_last_correction = imu_counter;
 			imu_count_at_last_imu_factor = imu_counter;
 			gt_counter++;
-			
 		}
-		else if (synthetic && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
+		else if (!use_synthetic_uwb && use_uwb && mes["type"] == "uwb" && start_graph) {
+			// For the pilot4 case, where we aren't generating synthetic ranges, 
+			// but still need synthetic orientations from post processed interpolation
+			// TODO: Could explicitly rename the mes "type" to assisted_uwb but I'm to lazy to re-run postproc on all of these.
 			if (imu_counter == imu_count_at_last_correction) { continue; }
 			else {
-				t.processSUWB(mes, uwb_counter, uwb_synth_stdev);
-				// uwb_counter++;
+				t.processAssistedUWB(mes, uwb_counter);
+			}
+			imu_count_at_last_imu_factor = imu_counter;
+			imu_count_at_last_imu_factor = imu_counter;
+
+		}
+		else if (use_synthetic_uwb && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
+			if (imu_counter == imu_count_at_last_correction) { continue; }
+			else {
+				t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
 			}
 			imu_count_at_last_imu_factor = imu_counter;
 			imu_count_at_last_imu_factor = imu_counter;
 		}
 		// else if (use_uwb && mes["type"] == "uwb" && start_graph) {
-
 		// }
+
 		mes_idx ++;
 	}
 
@@ -480,13 +418,12 @@ int main(int argc, char* argv[]) {
 
 
 	cout << " Applied " << uwb_counter << " uwb measurements for 45 seconds of data " << endl;
-	double fuwb = uwb_counter /45.0;
-	cout << " UWB frequency in the graph is " << fuwb << endl;
+	double f_uwb = uwb_counter /45.0;
+	cout << " UWB frequency in the graph is " << f_uwb << endl;
 
 	cout << " Applied " << gt_counter << " slam measurements for 45 seconds of data " << endl;
-	double fgt = gt_counter /45.0;
-	cout << " GT frequency in the graph is " << fgt << endl;
-	cout << " GT skipped " << gt_skipped << endl;
+	double f_gt = gt_counter /45.0;
+	cout << " GT frequency in the graph is " << f_gt << endl;
 
 	return 0;
 }
