@@ -554,12 +554,13 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 		key_timestamps[AnchorKey(id)] = (double)mes["t"];
 	}
 
-	string dst_user = mes["id"];
-	
+	string dst_user = to_string((int)mes["id"]);
+
 	tracking& dst = anchors[dst_user];
 	Point3 anchor_pos = dst.gt_poses.back().translation();
 	Point3 user_pos = gt_pose.translation();
 
+	double measured_range = (double)mes["range"];
 	// Ground truth range from GT poses
 	double true_range = distance3(anchor_pos, user_pos); 
 
@@ -568,11 +569,11 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 
 	// Add UWB (range) factor
 	graph->add(RangeFactor<Pose3, Pose3, double>(
-		X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model));
+		X(track.Ix), AnchorKey(dst_user), measured_range, UWB_noise_model));
 
 	// Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1));
 	// graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-	// 	X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model, T_body_decawave));
+	// 	X(track.Ix), AnchorKey(dst_user), measured_range, UWB_noise_model, T_body_decawave));
 
 	cout << "Added Range factor " << graph->size() - 1 << endl;
 	cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;

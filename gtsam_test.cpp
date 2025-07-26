@@ -94,41 +94,6 @@ void draw_pose_axes(Gnuplot& gp, const Pose3& pose, double axis_len, const std::
 }
 
 
-void plot_estimated_for_user(tracking& track) {
-
-    Gnuplot gp;
-
-    // Prepare data in Gnuplot's expected format: vector of 3-tuples
-    std::vector<std::tuple<double, double, double>> est_pts, gt_pts;
-
-    for (const auto& p : track.est_poses)
-        est_pts.emplace_back(p.x(), p.y(), p.z());
-
-    for (const auto& p : track.gt_poses)
-        gt_pts.emplace_back(p.x(), p.y(), p.z());
-
-	gp << "set terminal wxt persist\n";  // or use qt if available: "set terminal qt persist\n"
-    gp << "set xlabel 'X (m)'\n";
-    gp << "set ylabel 'Y (m)'\n";
-    gp << "set zlabel 'Z (m)'\n";
-    gp << "set xrange [-5:-1]\n";
-    gp << "set yrange [2:6]\n";
-    gp << "set zrange [0:2]\n";
-    gp << "set title 'Estimated vs Ground Truth'\n";
-    gp << "set key outside\n";
-    gp << "set grid\n";
-    gp << "set ticslevel 0\n";
-
-    // Plot both sets of points with lines
-    gp << "splot '-' with lines title 'Estimated' linecolor rgb 'blue', "
-          "'-' with lines title 'Ground Truth' linecolor rgb 'green'\n";
-    gp.send1d(est_pts);
-    gp.send1d(gt_pts);
-}
-
-
-
-
 
 #define PLOT_FOR_USERS(INFO, SHOW_LIST) {						           \
     for (const auto& [user_name, user_info] : INFO) {                      \
@@ -217,6 +182,7 @@ int main(int argc, char* argv[]) {
 	else {
 		raw_fs = ifstream(data_dir + "/all.json");
 	}
+
 	ifstream beacon_fs("/home/antond2/ws/post/out/"+trial_name+"_post" + "/anchors.json");
 	ifstream transform_fs("/home/antond2/ws/post/out/"+trial_name+"_post" + "/transforms.json");
 
@@ -281,7 +247,6 @@ int main(int argc, char* argv[]) {
 	const string id = "1";
 	const int smoother_lag = 4;
 	const bool use_smoother = false;
-
 	const bool use_filter = false;
 	Tracker t(
 		id, T_imu_body, dt, smoother_lag, use_smoother, use_filter, 
@@ -360,7 +325,7 @@ int main(int argc, char* argv[]) {
 			imu_count_at_last_imu_factor = imu_counter;
 			gt_counter++;
 		}
-		else if (!use_synthetic_uwb && use_uwb && mes["type"] == "uwb" && start_graph) {
+		else if (!use_synthetic_uwb && use_uwb && mes["type"] == "assisted_uwb" && start_graph) {
 			// For the pilot4 case, where we aren't generating synthetic ranges, 
 			// but still need synthetic orientations from post processed interpolation
 			// TODO: Could explicitly rename the mes "type" to assisted_uwb but I'm to lazy to re-run postproc on all of these.
@@ -372,14 +337,14 @@ int main(int argc, char* argv[]) {
 			imu_count_at_last_imu_factor = imu_counter;
 
 		}
-		else if (use_synthetic_uwb && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
-			if (imu_counter == imu_count_at_last_correction) { continue; }
-			else {
-				t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
-			}
-			imu_count_at_last_imu_factor = imu_counter;
-			imu_count_at_last_imu_factor = imu_counter;
-		}
+		// else if (use_synthetic_uwb && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
+		// 	if (imu_counter == imu_count_at_last_correction) { continue; }
+		// 	else {
+		// 		t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
+		// 	}
+		// 	imu_count_at_last_imu_factor = imu_counter;
+		// 	imu_count_at_last_imu_factor = imu_counter;
+		// }
 		// else if (use_uwb && mes["type"] == "uwb" && start_graph) {
 		// }
 
@@ -416,13 +381,13 @@ int main(int argc, char* argv[]) {
 
 	
 
-
-	cout << " Applied " << uwb_counter << " uwb measurements for 45 seconds of data " << endl;
-	double f_uwb = uwb_counter /45.0;
+	// NOTE: THIS WILL CHANGE FOR EACH DATASET duration
+	cout << " Applied " << uwb_counter << " uwb measurements for 120 seconds of data " << endl;
+	double f_uwb = uwb_counter /120.0;
 	cout << " UWB frequency in the graph is " << f_uwb << endl;
 
-	cout << " Applied " << gt_counter << " slam measurements for 45 seconds of data " << endl;
-	double f_gt = gt_counter /45.0;
+	cout << " Applied " << gt_counter << " slam measurements for 120 seconds of data " << endl;
+	double f_gt = gt_counter /120.0;
 	cout << " GT frequency in the graph is " << f_gt << endl;
 
 	return 0;
