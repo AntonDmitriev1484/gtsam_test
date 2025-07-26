@@ -202,8 +202,8 @@ void Tracker::init_state(json mes) {
 	get_GT_HTM(mes, start_slam_pose);
 	get_V(mes, start_slam_velocity);
 
-	// Pose3 prior_pose = start_slam_pose * T_imu_body.inverse();
-	Pose3 prior_pose = start_slam_pose;
+	Pose3 prior_pose = start_slam_pose * T_imu_body.inverse();
+	// Pose3 prior_pose = start_slam_pose;
 
 	// Velocity is computed using SLAM poses in the world frame.
 	// Therefore all we should need to do, is rotate the velocity vector into the body frame.
@@ -377,8 +377,8 @@ void Tracker::processSLAM(const json& mes)
 	Pose3 gt_pose_slam;
 	string usrname;
 	get_GT_HTM(mes,gt_pose_slam);
-	// Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
-	Pose3 gt_pose = gt_pose_slam;
+	Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
+	// Pose3 gt_pose = gt_pose_slam;
 	track.gt_poses.push_back(gt_pose);
 	track.gt_timestamps.push_back(mes["t"]);
 	
@@ -443,8 +443,8 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 	// Extract GT pose
 	Pose3 gt_pose_slam;
 	get_GT_HTM(mes, gt_pose_slam);
-	// Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
-	Pose3 gt_pose = gt_pose_slam;
+	Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
+	// Pose3 gt_pose = gt_pose_slam;
 
 	track.Ix++;
 	track.Iv++;
@@ -538,8 +538,9 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	cout << "Processing assisted range for : " << mes["t"] << endl;
 
 	// Extract GT pose
-	Pose3 gt_pose; // slam pose in world frame
-	get_GT_HTM(mes, gt_pose);
+	Pose3 gt_pose_slam;
+	get_GT_HTM(mes, gt_pose_slam);
+	Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // body pose in world frame
 
 	track.Ix++;
 	track.Iv++;
