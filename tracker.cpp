@@ -572,15 +572,36 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	// graph->add(RangeFactor<Pose3, Pose3, double>(
 	// 	X(track.Ix), AnchorKey(dst_user), measured_range, UWB_noise_model));
 
+	// Math Source: https://www.sunnywale.com/uploadfile/2021/1230/DW1000%20User%20Manual_Awin.pdf sec 4.7.1
+	double A = 121.74; // Source: https://github.com/AntonDmitriev1484/DecawaveMDEK1001-SNR-Firmware-Mod/blob/master/Decawave_firmware_mod/examples/ss_twr_init/ss_init_main.c
+	double fp_power = 10 * log10( (pow((float)mes["firstpathamp1"], 2)
+										+ pow((float)mes["firstpathamp2"], 2) 
+										+ pow((float)mes["firstpathamp3"], 2))
+										/ pow((float)mes["rxpreamcount"], 2)
+									) - A;
+
+	double rx_power = 10 * log10( (((float)mes["maxgrowthcir"]) * pow(2, 17))
+									/ pow((float)mes["rxpreamcount"], 2)) - A;
+	
+	double snr = (float)mes["firstpathamp1"] / (float)mes["maxnoise"];
+	double nlos_score = (rx_power - fp_power);
+	bool nlos = nlos_score > 10;
+	double corrected_range = measured_range;
+	double helmet_bias = 0.183; // 18.3cm
+
+	if (nlos) {
+		corrected_range = measured_range - helmet_bias;
+	}
+
+
 	Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1));
 	graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-		X(track.Ix), AnchorKey(dst_user), measured_range, UWB_noise_model, T_body_decawave));
+		X(track.Ix), AnchorKey(dst_user), corrected_range, UWB_noise_model, T_body_decawave));
+
 
 	cout << "Added Range factor " << graph->size() - 1 << endl;
-	cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
-
-
-	// graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, GT_noise_model));
+	cout << "UWB. Synthetic Range " << true_range << ", Real Range " << measured_range << ", Corrected Range " << corrected_range << endl;
+	cout << "UWB. NLOS " << nlos_score << ", SNR " << snr << endl;
 
 	// Magnetometer Factor
 	// N_body_frame = T_world_to_body * N_world_frame
