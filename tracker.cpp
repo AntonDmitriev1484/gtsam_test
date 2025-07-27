@@ -569,12 +569,12 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	double noised_range = uwb_distribution(uwb_rng);
 
 	// Add UWB (range) factor
-	graph->add(RangeFactor<Pose3, Pose3, double>(
-		X(track.Ix), AnchorKey(dst_user), measured_range, UWB_noise_model));
+	// graph->add(RangeFactor<Pose3, Pose3, double>(
+	// 	X(track.Ix), AnchorKey(dst_user), measured_range, UWB_noise_model));
 
-	// Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1));
-	// graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-	// 	X(track.Ix), AnchorKey(dst_user), measured_range, UWB_noise_model, T_body_decawave));
+	Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1));
+	graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
+		X(track.Ix), AnchorKey(dst_user), measured_range, UWB_noise_model, T_body_decawave));
 
 	cout << "Added Range factor " << graph->size() - 1 << endl;
 	cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;

@@ -1,4 +1,46 @@
-[ERROR] TUM trajectory files must have 8 entries per row and no trailing delimiter at the end of the rows (space)
-[ERROR] TUM trajectory files must have 8 entries per row and no trailing delimiter at the end of the rows (space)
-[ERROR] TUM trajectory files must have 8 entries per row and no trailing delimiter at the end of the rows (space)
-[ERROR] TUM trajectory files must have 8 entries per row and no trailing delimiter at the end of the rows (space)
+APE w.r.t. translation part (m)
+(with SE(3) Umeyama alignment)
+
+       max	0.803693
+      mean	0.096482
+    median	0.066004
+       min	0.006248
+      rmse	0.131719
+       sse	37.631847
+       std	0.089673
+
+RPE w.r.t. translation part (m)
+for delta = 1 (frames) using consecutive pairs
+(with SE(3) Umeyama alignment)
+
+       max	0.677025
+      mean	0.035193
+    median	0.010681
+       min	0.000375
+      rmse	0.077113
+       sse	12.891785
+       std	0.068614
+
+APE w.r.t. rotation angle in degrees (deg)
+(with SE(3) Umeyama alignment)
+
+       max	10.376222
+      mean	3.196955
+    median	3.119807
+       min	0.336241
+      rmse	3.357593
+       sse	24452.069714
+       std	1.026113
+
+RPE w.r.t. rotation angle in degrees (deg)
+for delta = 1 (frames) using consecutive pairs
+(with SE(3) Umeyama alignment)
+
+       max	7.338341
+      mean	0.274754
+    median	0.110768
+       min	0.002112
+      rmse	0.546544
+       sse	647.603110
+       std	0.472462
+
