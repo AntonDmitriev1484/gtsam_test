@@ -535,7 +535,7 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 
 void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 {
-	cout << "Processing assisted range for : " << mes["t"] << endl;
+	cout << "Processing assisted range for t=" << mes["t"] << endl;
 
 	// Extract GT pose
 	Pose3 gt_pose_slam;
@@ -557,9 +557,12 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 
 	string dst_user = to_string((int)mes["id"]);
 
+	Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1));
+
 	tracking& dst = anchors[dst_user];
-	Point3 anchor_pos = dst.gt_poses.back().translation();
+	Point3 anchor_pos = (T_body_decawave * dst.gt_poses.back()).translation();
 	Point3 user_pos = gt_pose.translation();
+
 
 	double measured_range = (double)mes["range"];
 	// Ground truth range from GT poses
@@ -585,23 +588,30 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	
 	double snr = (float)mes["firstpathamp1"] / (float)mes["maxnoise"];
 	double nlos_score = (rx_power - fp_power);
-	bool nlos = nlos_score > 10;
+
+	double min_nlos = 7.5;
+	double max_nlos = 15;
+	bool nlos = nlos_score > min_nlos;
 	double corrected_range = measured_range;
 	double helmet_bias = 0.183; // 18.3cm
 
-	if (nlos) {
-		corrected_range = measured_range - helmet_bias;
-	}
+	// if (nlos) {
+		double max_score = 15;
+		double scale_factor = 3 * (nlos_score-min_nlos) / (max_nlos-min_nlos);
+		// TODO: pick right function to go here, scale factor should be between 1 and 3.
+
+		corrected_range =  (measured_range - (scale_factor*helmet_bias));
+	// }
 
 
-	Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1));
+
 	graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
 		X(track.Ix), AnchorKey(dst_user), corrected_range, UWB_noise_model, T_body_decawave));
 
 
 	cout << "Added Range factor " << graph->size() - 1 << endl;
-	cout << "UWB. Synthetic Range " << true_range << ", Real Range " << measured_range << ", Corrected Range " << corrected_range << endl;
-	cout << "UWB. NLOS " << nlos_score << ", SNR " << snr << endl;
+	cout << "UWB "<<mes["id"]<<". Synthetic Range " << true_range << ", Real Range " << measured_range << ", Corrected Range " << corrected_range << endl;
+	cout << "UWB "<<mes["id"]<<". NLOS " << nlos_score << ", SNR " << snr << endl;
 
 	// Magnetometer Factor
 	// N_body_frame = T_world_to_body * N_world_frame
