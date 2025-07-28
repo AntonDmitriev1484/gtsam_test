@@ -81,6 +81,8 @@ public:
 
     double mes_start;
 
+    vector<double> nlos_score_window;
+
     bool use_filter;
     one_euro_filter<Eigen::Array<double, 3, 1>, double> translation_filt;
     // OneEuroFilter<3> translation_filt;

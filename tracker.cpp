@@ -588,6 +588,25 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	
 	double snr = (float)mes["firstpathamp1"] / (float)mes["maxnoise"];
 	double nlos_score = (rx_power - fp_power);
+	double smoothed_nlos_score = nlos_score;
+	int NLOS_SCORE_WINDOW_SIZE = 20;
+
+	if (nlos_score_window.size() > NLOS_SCORE_WINDOW_SIZE) {
+		nlos_score_window.erase(nlos_score_window.begin());
+		nlos_score_window.push_back(nlos_score);
+		smoothed_nlos_score = 0;
+		for (double s: nlos_score_window) {
+			smoothed_nlos_score += s;
+		}
+		smoothed_nlos_score /= NLOS_SCORE_WINDOW_SIZE;
+	}
+	else {
+		nlos_score_window.push_back(nlos_score);
+	}
+
+
+	nlos_score = smoothed_nlos_score;
+
 
 	double min_nlos = 7.5;
 	double max_nlos = 15;
@@ -595,13 +614,13 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	double corrected_range = measured_range;
 	double helmet_bias = 0.183; // 18.3cm
 
-	// if (nlos) {
-		double max_score = 15;
-		double scale_factor = 3 * (nlos_score-min_nlos) / (max_nlos-min_nlos);
-		// TODO: pick right function to go here, scale factor should be between 1 and 3.
+	// We want more corrective power on measurements that are closer to the min
 
-		corrected_range =  (measured_range - (scale_factor*helmet_bias));
-	// }
+	if (nlos) {
+		double scale_factor = 3 * (nlos_score-min_nlos) / (max_nlos-min_nlos);
+		cout << "scale factor: " << scale_factor << endl;
+		corrected_range =  (measured_range - ((scale_factor+1)*helmet_bias));
+	}
 
 
 
@@ -634,7 +653,7 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	suwb_base_poses.push_back(gt_pose);
 	mag_vectors.push_back(Pose3(Rot3::Identity(), N_body_frame));
 
-
+	
 	// Add IMU factor
 	auto* current_imu_preintegration =
 		dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
