@@ -173,14 +173,14 @@ void write_trajectory_KITTI_format(vector<Pose3> trajectory, ofstream& fs) {
 // 	}
 // }
 
-void write_trajectory_TUM_format(vector<Pose3> trajectory, vector<double> timestamps, ofstream& fs, Pose3 transform) {
+void write_trajectory_TUM_format(vector<Pose3> trajectory, vector<double> timestamps, ofstream& fs, Pose3 body_to_imu) {
 
 	fs << std::fixed << std::setprecision(8);  // Set once before the loop
 
     for (size_t i = 0; i < trajectory.size(); i++) {
         const Pose3& pose = trajectory[i];
-		Pose3 out_pose = pose * transform; // Apply some transform to each pose before dumping
-		// Pose3 out_pose = pose;
+		// Pose3 out_pose = body_to_imu * pose; // Apply some transform to each pose before dumping
+		Pose3 out_pose = pose;
 
         Point3 t = out_pose.translation();
         Rot3 R = out_pose.rotation();

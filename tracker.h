@@ -55,7 +55,7 @@ public:
     PreintegrationType* imu_preintegrated;
     imuBias::ConstantBias prior_imu_bias;
 
-    Pose3 T_imu_body;
+    Pose3 T_body_to_imu;
     SharedNoiseModel GT_noise_model;
     SharedNoiseModel UWB_noise_model;
     SharedNoiseModel FakePrior_noise_model;
@@ -78,6 +78,8 @@ public:
     vector<Pose3> mag_vectors; // identity rotation, just translation
     vector<Pose3> postproc_velocity_vectors;
     vector<Pose3> est_velocity_vectors;
+    ofstream* estimated_trajectory_fs;
+    ofstream* slam_trajectory_fs;
 
     double mes_start;
 

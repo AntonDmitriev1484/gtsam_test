@@ -244,9 +244,10 @@ int main(int argc, char* argv[]) {
 	transform << 1, 0, 0,
 		0, 0, 1,
 		0, -1, 0;
-	Pose3 T_imu_body(Rot3(transform), Vector3(0, 0, 0));
+	Pose3 T_body_to_imu(Rot3(transform), Vector3(0, 0, 0)); // T body to imu
 	// Pose3 T_imu_body = Pose3::Identity();
-	imu_preintegration_params->body_P_sensor = T_imu_body;
+	imu_preintegration_params->setBodyPSensor(T_body_to_imu);
+	// imu_preintegration_params->body_P_sensor = T_imu_body;
 	
 
 	const string id = "1";
@@ -254,11 +255,14 @@ int main(int argc, char* argv[]) {
 	const bool use_smoother = false;
 	const bool use_filter = false;
 	Tracker t(
-		id, T_imu_body, dt, smoother_lag, use_smoother, use_filter, 
+		id, T_body_to_imu, dt, smoother_lag, use_smoother, use_filter, 
 		uwb_synth_stdev, GT_noise_model, UWB_noise_model, VIO_pose_noise_model, 
 		prior_velocity_noise_model, prior_bias_noise_model,
 		imu_preintegration_params, prior_imu_bias,
 		debug_dir);
+	
+	t.estimated_trajectory_fs = &estimated_trajectory_fs;
+	t.slam_trajectory_fs = &slam_trajectory_fs;
 
 	t.init_anchors(json::parse(beacon_fs));
 
@@ -356,10 +360,10 @@ int main(int argc, char* argv[]) {
 		mes_idx ++;
 	}
 
-	write_trajectory_TUM_format( t.track.est_poses, t.track.est_timestamps, estimated_trajectory_fs, T_imu_body);
+	write_trajectory_TUM_format( t.track.est_poses, t.track.est_timestamps, estimated_trajectory_fs, T_body_to_imu);
 	estimated_trajectory_fs.close();
 
-	write_trajectory_TUM_format( t.track.gt_poses, t.track.gt_timestamps, slam_trajectory_fs, T_imu_body);
+	write_trajectory_TUM_format( t.track.gt_poses, t.track.gt_timestamps, slam_trajectory_fs, T_body_to_imu);
 	slam_trajectory_fs.close();
 
 	write_timestamps( t.track.est_poses, t.track.est_timestamps, estimtated_timestamp_fs);

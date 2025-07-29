@@ -95,7 +95,7 @@ Tracker::Tracker(const string& id,
 
 	this->delta_t = delta_t;
 
-	this->T_imu_body = T_imu_body;
+	this->T_body_to_imu = T_imu_body;
     this->prior_imu_bias = prior_imu_bias;
 	// Instantiate IMU preintegration
 	this->imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
@@ -202,13 +202,21 @@ void Tracker::init_state(json mes) {
 	get_GT_HTM(mes, start_slam_pose);
 	get_V(mes, start_slam_velocity);
 
-	Pose3 prior_pose = start_slam_pose * T_imu_body.inverse();
+	// Pose3 prior_pose = start_slam_pose * T_imu_body.inverse();
+	Rot3 rot_imu_to_body = T_body_to_imu.rotation().inverse();
+	Rot3 rot_world_to_imu = start_slam_pose.rotation();
+	Rot3 rot_world_to_body = rot_imu_to_body * rot_world_to_imu;
+	Pose3 prior_pose(rot_world_to_body, start_slam_pose.translation());
+	// Pose3 prior_pose = T_body_to_imu.inverse() * start_slam_pose; // Transform pose to the body frame.
 	// Pose3 prior_pose = start_slam_pose;
 
 	// Velocity is computed using SLAM poses in the world frame.
 	// Therefore all we should need to do, is rotate the velocity vector into the body frame.
 	Pose3 pose_velocity(Rot3::Identity(), start_slam_velocity);
-	Vector3 prior_velocity = (pose_velocity * T_imu_body.inverse()).translation();
+	// Vector3 prior_velocity = (pose_velocity * T_imu_body.inverse()).translation();
+
+	// Vector3 prior_velocity(0,0,0);
+	Vector3 prior_velocity = rot_imu_to_body * start_slam_velocity;
 	// Note: Had problems here with rotation matrices, I trust the pose matrix here though.
 
 
@@ -298,6 +306,14 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		graph->saveGraph(debug_dir+"/graph.dot", result);
 		graph->print("");
 		cerr << "Graph dumped to factor_graph.dot" << endl;
+
+
+		write_trajectory_TUM_format( track.est_poses, track.est_timestamps, *estimated_trajectory_fs, T_body_to_imu);
+		estimated_trajectory_fs->close();
+
+		write_trajectory_TUM_format( track.gt_poses, track.gt_timestamps, *slam_trajectory_fs, T_body_to_imu);
+		slam_trajectory_fs->close();
+
 		throw; // rethrow
 	}
 }
@@ -361,6 +377,12 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 		graph->saveGraph(debug_dir+"/graph.dot", result);
 		graph->print("");
 		cerr << "Graph dumped to factor_graph.dot" << endl;
+
+		write_trajectory_TUM_format( track.est_poses, track.est_timestamps, *estimated_trajectory_fs, T_body_to_imu);
+		estimated_trajectory_fs->close();
+
+		write_trajectory_TUM_format( track.gt_poses, track.gt_timestamps, *slam_trajectory_fs, T_body_to_imu);
+		slam_trajectory_fs->close();
 		throw; // rethrow
 	}
 }
@@ -377,7 +399,11 @@ void Tracker::processSLAM(const json& mes)
 	Pose3 gt_pose_slam;
 	string usrname;
 	get_GT_HTM(mes,gt_pose_slam);
-	Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
+	// Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
+	Rot3 rot_imu_to_body = T_body_to_imu.rotation().inverse();
+	Rot3 rot_world_to_imu = gt_pose_slam.rotation();
+	Rot3 rot_world_to_body = rot_imu_to_body * rot_world_to_imu;
+	Pose3 gt_pose(rot_world_to_body, gt_pose_slam.translation());
 	// Pose3 gt_pose = gt_pose_slam;
 	track.gt_poses.push_back(gt_pose);
 	track.gt_timestamps.push_back(mes["t"]);
@@ -443,7 +469,7 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 	// Extract GT pose
 	Pose3 gt_pose_slam;
 	get_GT_HTM(mes, gt_pose_slam);
-	Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
+	Pose3 gt_pose = gt_pose_slam * T_body_to_imu.inverse(); // Transform pose to the body frame.
 	// Pose3 gt_pose = gt_pose_slam;
 
 	track.Ix++;
@@ -540,7 +566,8 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	// Extract GT pose
 	Pose3 gt_pose_slam;
 	get_GT_HTM(mes, gt_pose_slam);
-	Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // body pose in world frame
+	// Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
+	Pose3 gt_pose = T_body_to_imu.inverse() * gt_pose_slam; // Transform pose to the body frame.
 
 	track.Ix++;
 	track.Iv++;
@@ -557,7 +584,7 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 
 	string dst_user = to_string((int)mes["id"]);
 
-	Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1));
+	Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1)); // T body to decawave
 
 	tracking& dst = anchors[dst_user];
 	Point3 anchor_pos = (T_body_decawave * dst.gt_poses.back()).translation();
@@ -613,9 +640,6 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	bool nlos = nlos_score > min_nlos;
 	double corrected_range = measured_range;
 	double helmet_bias = 0.183; // 18.3cm
-
-	// We want more corrective power on measurements that are closer to the min
-
 	if (nlos) {
 		double scale_factor = 3 * (nlos_score-min_nlos) / (max_nlos-min_nlos);
 		cout << "scale factor: " << scale_factor << endl;

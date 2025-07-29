@@ -21,26 +21,3 @@ for delta = 1 (frames) using consecutive pairs
        sse	7.796401
        std	0.055035
 
-APE w.r.t. rotation angle in degrees (deg)
-(with SE(3) Umeyama alignment)
-
-       max	10.055788
-      mean	2.829990
-    median	2.743570
-       min	0.432749
-      rmse	2.992582
-       sse	19424.581913
-       std	0.972987
-
-RPE w.r.t. rotation angle in degrees (deg)
-for delta = 1 (frames) using consecutive pairs
-(with SE(3) Umeyama alignment)
-
-       max	7.765716
-      mean	0.233924
-    median	0.107671
-       min	0.002255
-      rmse	0.488484
-       sse	517.321206
-       std	0.428831
-
