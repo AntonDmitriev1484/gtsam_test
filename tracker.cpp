@@ -204,10 +204,13 @@ void Tracker::init_state(json mes) {
 
 	// Pose3 prior_pose = start_slam_pose * T_imu_body.inverse();
 	Rot3 rot_imu_to_body = T_body_to_imu.rotation().inverse();
-	Rot3 rot_world_to_imu = start_slam_pose.rotation();
-	Rot3 rot_world_to_body = rot_imu_to_body * rot_world_to_imu;
-	Pose3 prior_pose(rot_world_to_body, start_slam_pose.translation());
+	// Rot3 rot_world_to_imu = start_slam_pose.rotation();
+	// Rot3 rot_world_to_body = rot_imu_to_body * rot_world_to_imu;
+	// Pose3 prior_pose(rot_world_to_body, start_slam_pose.translation());
+
 	// Pose3 prior_pose = T_body_to_imu.inverse() * start_slam_pose; // Transform pose to the body frame.
+
+	Pose3 prior_pose = start_slam_pose.compose(T_body_to_imu.inverse());
 	// Pose3 prior_pose = start_slam_pose;
 
 	// Velocity is computed using SLAM poses in the world frame.
@@ -400,10 +403,14 @@ void Tracker::processSLAM(const json& mes)
 	string usrname;
 	get_GT_HTM(mes,gt_pose_slam);
 	// Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
-	Rot3 rot_imu_to_body = T_body_to_imu.rotation().inverse();
-	Rot3 rot_world_to_imu = gt_pose_slam.rotation();
-	Rot3 rot_world_to_body = rot_imu_to_body * rot_world_to_imu;
-	Pose3 gt_pose(rot_world_to_body, gt_pose_slam.translation());
+	// Rot3 rot_imu_to_body = T_body_to_imu.rotation().inverse();
+	// Rot3 rot_world_to_imu = gt_pose_slam.rotation();
+	// Rot3 rot_world_to_body = rot_imu_to_body * rot_world_to_imu;
+	// Pose3 gt_pose(rot_world_to_body, gt_pose_slam.translation());
+
+	// Equivalent of saying: T_world_to_body = T_imu_to_body * T_world_to_imu
+	Pose3 gt_pose = gt_pose_slam.compose(T_body_to_imu.inverse());
+
 	// Pose3 gt_pose = gt_pose_slam;
 	track.gt_poses.push_back(gt_pose);
 	track.gt_timestamps.push_back(mes["t"]);
@@ -445,13 +452,11 @@ void Tracker::processSLAM(const json& mes)
 	// postproc_velocity_vectors.push_back(pose_velocity); // Plot the velocity vector rotated into the body, into the world frame
 
 	// Predict current state
-	// NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
 	NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
 
 	// Insert initial values
 	vals.insert(X(track.Ix), proposed.pose());
 	vals.insert(V(track.Iv), proposed.v());
-	// vals.insert(B(track.Ib), track.constant_bias);
 	vals.insert(B(track.Ib), track.changing_bias);
 
     // Run iSAM
@@ -568,6 +573,7 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	get_GT_HTM(mes, gt_pose_slam);
 	// Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
 	Pose3 gt_pose = T_body_to_imu.inverse() * gt_pose_slam; // Transform pose to the body frame.
+	// Pose3 gt_pose = gt_pose_slam.compose(T_body_to_imu.inverse());
 
 	track.Ix++;
 	track.Iv++;

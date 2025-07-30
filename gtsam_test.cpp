@@ -240,11 +240,11 @@ int main(int argc, char* argv[]) {
 
 	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = get_imu_preintegration_params(1, 10);
 	imuBias::ConstantBias prior_imu_bias;
-	Matrix33 transform;
-	transform << 1, 0, 0,
-		0, 0, 1,
-		0, -1, 0;
-	Pose3 T_body_to_imu(Rot3(transform), Vector3(0, 0, 0)); // T body to imu
+	Matrix33 rot_body_to_imu;
+	rot_body_to_imu << 1, 0, 0,
+				0, 0, 1,
+				0, -1, 0;
+	Pose3 T_body_to_imu(Rot3(rot_body_to_imu), Vector3(0, 0, 0)); // T body to imu
 	// Pose3 T_imu_body = Pose3::Identity();
 	imu_preintegration_params->setBodyPSensor(T_body_to_imu);
 	// imu_preintegration_params->body_P_sensor = T_imu_body;
