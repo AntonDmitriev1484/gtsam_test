@@ -223,8 +223,8 @@ int main(int argc, char* argv[]) {
 
 	// UWB noise model
 
-	// double uwb_stdev = 1e-2;
-	double uwb_stdev = 0.05;
+	double uwb_stdev = 1e-2;
+	// double uwb_stdev = 0.05;
 	// double uwb_stdev = 0.2;
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
@@ -245,15 +245,13 @@ int main(int argc, char* argv[]) {
 				0, 0, 1,
 				0, -1, 0;
 	Pose3 T_body_to_imu(Rot3(rot_body_to_imu), Vector3(0, 0, 0)); // T body to imu
-	// Pose3 T_imu_body = Pose3::Identity();
 	imu_preintegration_params->setBodyPSensor(T_body_to_imu);
-	// imu_preintegration_params->body_P_sensor = T_imu_body;
 	
 
 	const string id = "1";
 	const int smoother_lag = 4;
 	const bool use_smoother = false;
-	const bool use_filter = false;
+	const bool use_filter = true;
 	Tracker t(
 		id, T_body_to_imu, dt, smoother_lag, use_smoother, use_filter, 
 		uwb_synth_stdev, GT_noise_model, UWB_noise_model, VIO_pose_noise_model, 
@@ -337,7 +335,6 @@ int main(int argc, char* argv[]) {
 		else if (!use_synthetic_uwb && use_uwb && mes["type"] == "assisted_uwb" && start_graph) {
 			// For the pilot4 case, where we aren't generating synthetic ranges, 
 			// but still need synthetic orientations from post processed interpolation
-			// TODO: Could explicitly rename the mes "type" to assisted_uwb but I'm to lazy to re-run postproc on all of these.
 			if (imu_counter == imu_count_at_last_correction) { continue; }
 			else {
 				t.processAssistedUWB(mes, uwb_counter);
@@ -346,14 +343,14 @@ int main(int argc, char* argv[]) {
 			imu_count_at_last_imu_factor = imu_counter;
 
 		}
-		// else if (use_synthetic_uwb && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
-		// 	if (imu_counter == imu_count_at_last_correction) { continue; }
-		// 	else {
-		// 		t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
-		// 	}
-		// 	imu_count_at_last_imu_factor = imu_counter;
-		// 	imu_count_at_last_imu_factor = imu_counter;
-		// }
+		else if (use_synthetic_uwb && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
+			if (imu_counter == imu_count_at_last_correction) { continue; }
+			else {
+				t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
+			}
+			imu_count_at_last_imu_factor = imu_counter;
+			imu_count_at_last_imu_factor = imu_counter;
+		}
 		// else if (use_uwb && mes["type"] == "uwb" && start_graph) {
 		// }
 
@@ -391,12 +388,14 @@ int main(int argc, char* argv[]) {
 	
 
 	// NOTE: THIS WILL CHANGE FOR EACH DATASET duration
-	cout << " Applied " << uwb_counter << " uwb measurements for 120 seconds of data " << endl;
-	double f_uwb = uwb_counter /120.0;
+
+	double duration_s = 45;
+	cout << " Applied " << uwb_counter << " uwb measurements for "<< duration_s<< " seconds of data " << endl;
+	double f_uwb = uwb_counter /duration_s;
 	cout << " UWB frequency in the graph is " << f_uwb << endl;
 
-	cout << " Applied " << gt_counter << " slam measurements for 120 seconds of data " << endl;
-	double f_gt = gt_counter /120.0;
+	cout << " Applied " << gt_counter << " slam measurements for "<< duration_s<< " seconds of data " << endl;
+	double f_gt = gt_counter /duration_s;
 	cout << " GT frequency in the graph is " << f_gt << endl;
 
 	return 0;

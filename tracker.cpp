@@ -459,7 +459,7 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 {
 	cout << "Processing synthetic range for : " << mes["t"] << endl;
 
-	// Extract GT pose
+		// Extract GT pose
 	Pose3 T_world_to_imu;
 	get_GT_HTM(mes, T_world_to_imu);
 	Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse()); // Transform pose to the body frame.
@@ -476,48 +476,48 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 		key_timestamps[AnchorKey(id)] = (double)mes["t"];
 	}
 
-	vector<string> ids = {"2", "3", "5"};
-	for (string dst_user: ids){ 
+	bool USE_TRILATERATION = false;
+
+	vector<string> ids = {"2", "3", "5"}; // Trilateration: Get a range to all anchors
+	vector<string> used_ids = {ids[uwb_counter % 3] }; // Default: Get a range to a single anchor, round robin
+	if (USE_TRILATERATION) used_ids = ids;
+
+	for (string dst_user: used_ids){ 
 		uwb_counter++;
-		// string dst_user = ids[uwb_counter % 3];
+
+		// Absoultely zero fucking clue why this is blowing up now
+		// I think it's after I added in the compose code for T_body_decawave?
+		// IDK man...
+		
 		tracking& dst = anchors[dst_user];
 		Point3 anchor_pos = dst.gt_poses.back().translation();
 		Point3 user_pos = gt_pose.translation();
 
+		Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1)); // NOTE: Correct for synthetic_1_5 but not for pilot4s
+		Point3 user_antenna_pos = (T_body_decawave.compose(gt_pose)).translation();
+
 		// Ground truth range from GT poses
-		double true_range = distance3(anchor_pos, user_pos); 
+		double true_range = distance3(anchor_pos, user_antenna_pos); 
 
 		std::normal_distribution<double> uwb_distribution(true_range, uwb_stdev);  // N(mean, stddev)
 		double noised_range = uwb_distribution(uwb_rng);
 
-		// Add UWB (range) factor
-		graph->add(RangeFactor<Pose3, Pose3, double>(
-			X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model));
-
-		// Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1));
-		// graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-		// 	X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model, T_body_decawave));
+		graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
+			X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model, T_body_decawave));
 
 		cout << "Added Range factor " << graph->size() - 1 << endl;
 		cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
 	}
 
-	// graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, GT_noise_model));
 
 	// Magnetometer Factor
-	// N_body_frame = T_world_to_body * N_world_frame
-	Pose3 N_world_frame(Rot3::Identity(), Vector3(0,1,0)); //Correct
-	Pose3 N_world_frame_adjusted( Rot3::Identity(), gt_pose.translation() + Vector3(0,1,0));
-
-	// Body -> Mag = World -> Mag * Inv(World -> Body)
-	// Pose3 N_body_frame =  N_world_frame_adjusted * gt_pose.inverse();
-	Vector3 N_body_frame = gt_pose.rotation().matrix().inverse() * Vector3(1, 0 ,0);
-			// WHY DO I NEED TO INVERT THIS ROTATION? TODO: Use pose for this.
+	Vector3 N_world_frame = Vector3(1,0,0);
+	Vector3 N_body_frame = gt_pose.rotation() * N_world_frame; // Seems inverse or not makes no difference here.
 	double scale = 1; // Magnitude is 55k nT, or 55 muT - I think this is just in case your raw measurement is not already normalized?
 
 	Point3 bias(1e-3, 1e-3, 1e-3);
 	noiseModel::Diagonal::shared_ptr MAG_noise_model = noiseModel::Isotropic::Sigma(3, 0.1);
-	graph->add(MagPoseFactor<Pose3>(X(track.Ix), N_body_frame, scale, N_world_frame.translation(), bias, MAG_noise_model));
+	graph->add(MagPoseFactor<Pose3>(X(track.Ix), N_body_frame, scale, N_world_frame, bias, MAG_noise_model));
 	// Should the world frame mag vector be aligned to 0,0,0?
 	
 	Vector3 measured = N_body_frame; // Normalize to see where the vector points relative to the GT pose.
