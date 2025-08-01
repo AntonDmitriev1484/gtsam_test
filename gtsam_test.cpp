@@ -252,7 +252,7 @@ int main(int argc, char* argv[]) {
 	const int smoother_lag = 1;
 	const bool use_smoother = true;
 	const bool use_filter = true;
-	
+
 	Tracker t(
 		id, T_body_to_imu, dt, smoother_lag, use_smoother, use_filter, 
 		uwb_synth_stdev, GT_noise_model, UWB_noise_model, VIO_pose_noise_model, 

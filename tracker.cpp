@@ -476,7 +476,7 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 		key_timestamps[AnchorKey(id)] = (double)mes["t"];
 	}
 
-	bool USE_TRILATERATION = true;
+	bool USE_TRILATERATION = false;
 
 	vector<string> ids = {"2", "3", "5"}; // Trilateration: Get a range to all anchors
 	vector<string> used_ids = {ids[uwb_counter % 3] }; // Default: Get a range to a single anchor, round robin
