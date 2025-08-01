@@ -476,7 +476,7 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 		key_timestamps[AnchorKey(id)] = (double)mes["t"];
 	}
 
-	bool USE_TRILATERATION = false;
+	bool USE_TRILATERATION = true;
 
 	vector<string> ids = {"2", "3", "5"}; // Trilateration: Get a range to all anchors
 	vector<string> used_ids = {ids[uwb_counter % 3] }; // Default: Get a range to a single anchor, round robin
@@ -485,16 +485,11 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 	for (string dst_user: used_ids){ 
 		uwb_counter++;
 
-		// Absoultely zero fucking clue why this is blowing up now
-		// I think it's after I added in the compose code for T_body_decawave?
-		// IDK man...
-		
 		tracking& dst = anchors[dst_user];
 		Point3 anchor_pos = dst.gt_poses.back().translation();
-		Point3 user_pos = gt_pose.translation();
 
 		Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1)); // NOTE: Correct for synthetic_1_5 but not for pilot4s
-		Point3 user_antenna_pos = (T_body_decawave.compose(gt_pose)).translation();
+		Point3 user_antenna_pos = (gt_pose.compose(T_body_decawave)).translation();
 
 		// Ground truth range from GT poses
 		double true_range = distance3(anchor_pos, user_antenna_pos); 
@@ -580,7 +575,7 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 
 	tracking& dst = anchors[dst_user];
 	Point3 anchor_pos = dst.gt_poses.back().translation();
-	Point3 user_antenna_pos = (T_body_decawave.compose(gt_pose)).translation();
+	Point3 user_antenna_pos = (gt_pose.compose(T_body_decawave)).translation();
 
 
 	double measured_range = (double)mes["range"];
