@@ -48,6 +48,12 @@ enable_testing()
 # add_test(NAME synthetic_20_60_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_20_60 no_uwb 0.2 true)
 # add_test(NAME synthetic_20_60_uwb COMMAND gtsam_test stereoi_circle2 synthetic_20_60 uwb 0.2 true)
 
+add_test(NAME uwb_calibration_rot/real_nouwb COMMAND gtsam_test uwb_calibration__rot synthetic_1_0 no_uwb 0.0 true)
+add_test(NAME uwb_calibration_rot/real_uwb COMMAND gtsam_test uwb_calibration__rot synthetic_1_0 uwb 0.0 true)
+
+add_test(NAME uwb_calibration_trans/real_nouwb COMMAND gtsam_test uwb_calibration_trans synthetic_1_0 no_uwb 0.0 true)
+add_test(NAME uwb_calibration_trans/real_uwb COMMAND gtsam_test uwb_calibration_trans synthetic_1_0 uwb 0.0 true)
+
 # Just going to pass synthetic noise model as 0 since I won't be generating synthetic ranges
 add_test(NAME pilot4_whiteboard2/real_nouwb COMMAND gtsam_test pilot4_whiteboard2 synthetic_1_0 no_uwb 0.0 true)
 add_test(NAME pilot4_whiteboard2/real_uwb COMMAND gtsam_test pilot4_whiteboard2 synthetic_1_0 uwb 0.0 true)

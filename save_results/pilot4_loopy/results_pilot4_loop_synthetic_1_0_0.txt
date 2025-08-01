@@ -1,0 +1,3 @@
+[ERROR] csv file /home/antond2/Desktop/Research/gtsam_test/out_results/pilot4_loop/synthetic_1_0/slam_interp.txt does not exist
+[ERROR] csv file /home/antond2/Desktop/Research/gtsam_test/out_results/pilot4_loop/synthetic_1_0/slam_interp.txt does not exist
+[ERROR] csv file /home/antond2/Desktop/Research/gtsam_test/out_results/pilot4_loop/synthetic_1_0/slam_interp.txt does not exist

@@ -399,23 +399,17 @@ void Tracker::processSLAM(const json& mes)
 	track.Ib++;
 
 	// Extract GT pose
-	Pose3 gt_pose_slam;
+	Pose3 T_world_to_imu;
 	string usrname;
-	get_GT_HTM(mes,gt_pose_slam);
-	// Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
-	// Rot3 rot_imu_to_body = T_body_to_imu.rotation().inverse();
-	// Rot3 rot_world_to_imu = gt_pose_slam.rotation();
-	// Rot3 rot_world_to_body = rot_imu_to_body * rot_world_to_imu;
-	// Pose3 gt_pose(rot_world_to_body, gt_pose_slam.translation());
+	get_GT_HTM(mes,T_world_to_imu);
 
 	// Equivalent of saying: T_world_to_body = T_imu_to_body * T_world_to_imu
-	Pose3 gt_pose = gt_pose_slam.compose(T_body_to_imu.inverse());
+	Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse());
 
-	// Pose3 gt_pose = gt_pose_slam;
+	// Pose3 gt_pose = T_world_to_imu;
 	track.gt_poses.push_back(gt_pose);
 	track.gt_timestamps.push_back(mes["t"]);
 	
-
 	Vector3 slam_velocity;
 	double timestamp = mes["t"];
 	get_V(mes, slam_velocity);
@@ -445,12 +439,6 @@ void Tracker::processSLAM(const json& mes)
 	graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, GT_noise_model));
 	cout << "Added Prior factor " << graph->size() - 1 << endl;
 
-	// Add velocity prior factor
-	// Pose3 pose_velocity(Rot3::Identity(), slam_velocity);
-	// Pose3 prior_velocity = (pose_velocity * T_imu_body.inverse());
-	// graph->add(PriorFactor<Vector3>(V(track.Iv), prior_velocity.translation(), Velocity_noise_model));
-	// postproc_velocity_vectors.push_back(pose_velocity); // Plot the velocity vector rotated into the body, into the world frame
-
 	// Predict current state
 	NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
 
@@ -472,10 +460,9 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 	cout << "Processing synthetic range for : " << mes["t"] << endl;
 
 	// Extract GT pose
-	Pose3 gt_pose_slam;
-	get_GT_HTM(mes, gt_pose_slam);
-	Pose3 gt_pose = gt_pose_slam * T_body_to_imu.inverse(); // Transform pose to the body frame.
-	// Pose3 gt_pose = gt_pose_slam;
+	Pose3 T_world_to_imu;
+	get_GT_HTM(mes, T_world_to_imu);
+	Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse()); // Transform pose to the body frame.
 
 	track.Ix++;
 	track.Iv++;
@@ -569,11 +556,9 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	cout << "Processing assisted range for t=" << mes["t"] << endl;
 
 	// Extract GT pose
-	Pose3 gt_pose_slam;
-	get_GT_HTM(mes, gt_pose_slam);
-	// Pose3 gt_pose = gt_pose_slam * T_imu_body.inverse(); // Transform pose to the body frame.
-	Pose3 gt_pose = T_body_to_imu.inverse() * gt_pose_slam; // Transform pose to the body frame.
-	// Pose3 gt_pose = gt_pose_slam.compose(T_body_to_imu.inverse());
+	Pose3 T_world_to_imu;
+	get_GT_HTM(mes, T_world_to_imu);
+	Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse()); // Transform pose to the body frame.
 
 	track.Ix++;
 	track.Iv++;
@@ -590,16 +575,17 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 
 	string dst_user = to_string((int)mes["id"]);
 
-	Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1)); // T body to decawave
+	// Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1)); // T body to decawave
+	Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.045, -0.15, -0.025));
 
 	tracking& dst = anchors[dst_user];
-	Point3 anchor_pos = (T_body_decawave * dst.gt_poses.back()).translation();
-	Point3 user_pos = gt_pose.translation();
+	Point3 anchor_pos = dst.gt_poses.back().translation();
+	Point3 user_antenna_pos = (T_body_decawave.compose(gt_pose)).translation();
 
 
 	double measured_range = (double)mes["range"];
 	// Ground truth range from GT poses
-	double true_range = distance3(anchor_pos, user_pos); 
+	double true_range = distance3(anchor_pos, user_antenna_pos); 
 
 	std::normal_distribution<double> uwb_distribution(true_range, uwb_stdev);  // N(mean, stddev)
 	double noised_range = uwb_distribution(uwb_rng);
@@ -641,17 +627,20 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	nlos_score = smoothed_nlos_score;
 
 
-	double min_nlos = 7.5;
+	double min_nlos = 10;
 	double max_nlos = 15;
 	bool nlos = nlos_score > min_nlos;
 	double corrected_range = measured_range;
 	double helmet_bias = 0.183; // 18.3cm
-	if (nlos) {
-		double scale_factor = 3 * (nlos_score-min_nlos) / (max_nlos-min_nlos);
-		cout << "scale factor: " << scale_factor << endl;
-		corrected_range =  (measured_range - ((scale_factor+1)*helmet_bias));
-	}
+	// if (nlos) {
+	// 	double scale_factor = 3 * (nlos_score-min_nlos) / (max_nlos-min_nlos);
+	// 	cout << "scale factor: " << scale_factor << endl;
+	// 	corrected_range =  (measured_range - ((scale_factor+1)*helmet_bias));
+	// }
 
+	if (mes["id"] == 3) { corrected_range -= 0.5; }
+	else if (mes["id"] == 2) { corrected_range -= 0.3; }
+	else if (mes["id"] == 5) { corrected_range -= 0.7; }
 
 
 	graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
@@ -664,18 +653,22 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 
 	// Magnetometer Factor
 	// N_body_frame = T_world_to_body * N_world_frame
-	Pose3 N_world_frame(Rot3::Identity(), Vector3(0,1,0)); //Correct
-	Pose3 N_world_frame_adjusted( Rot3::Identity(), gt_pose.translation() + Vector3(0,1,0));
+	// Pose3 N_world_frame(Rot3::Identity(), Vector3(0,1,0)); //Correct
+	// Pose3 N_world_frame_adjusted( Rot3::Identity(), gt_pose.translation() + Vector3(0,1,0));
 
 	// Body -> Mag = World -> Mag * Inv(World -> Body)
 	// Pose3 N_body_frame =  N_world_frame_adjusted * gt_pose.inverse();
-	Vector3 N_body_frame = gt_pose.rotation().matrix().inverse() * Vector3(1, 0 ,0);
-			// WHY DO I NEED TO INVERT THIS ROTATION? TODO: Use pose for this.
+
+	// gt_pose = T_world_to_body / why do I need to invert it? Vector3 is in world frame after all.
+	// Vector3 N_body_frame = gt_pose.rotation().matrix().inverse() * Vector3(1, 0 ,0);
+
+	Vector3 N_world_frame = Vector3(1,0,0);
+	Vector3 N_body_frame = gt_pose.rotation() * N_world_frame; // Seems inverse or not makes no difference here.
 	double scale = 1; // Magnitude is 55k nT, or 55 muT - I think this is just in case your raw measurement is not already normalized?
 
 	Point3 bias(1e-3, 1e-3, 1e-3);
 	noiseModel::Diagonal::shared_ptr MAG_noise_model = noiseModel::Isotropic::Sigma(3, 0.1);
-	graph->add(MagPoseFactor<Pose3>(X(track.Ix), N_body_frame, scale, N_world_frame.translation(), bias, MAG_noise_model));
+	graph->add(MagPoseFactor<Pose3>(X(track.Ix), N_body_frame, scale, N_world_frame, bias, MAG_noise_model));
 	// Should the world frame mag vector be aligned to 0,0,0?
 	
 	Vector3 measured = N_body_frame; // Normalize to see where the vector points relative to the GT pose.
