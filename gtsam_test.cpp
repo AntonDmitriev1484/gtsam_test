@@ -188,7 +188,7 @@ int main(int argc, char* argv[]) {
 
 	ofstream estimated_trajectory_fs(out_dir + "/est.txt");
 	ofstream slam_trajectory_fs(out_dir+"/slam.txt");
-	ofstream estimtated_timestamp_fs(out_dir+"/est_timestamps.txt");
+	ofstream estimated_timestamp_fs(out_dir+"/est_timestamps.txt");
 	ofstream log_dump_fs(out_dir + "/log_dump.txt");
 
 	vector<string> paths = {out_dir, debug_dir};
@@ -224,8 +224,8 @@ int main(int argc, char* argv[]) {
 
 	// UWB noise model
 
-	double uwb_stdev = 1e-2;
-	// double uwb_stdev = 0.05;
+	// double uwb_stdev = 1e-2;
+	double uwb_stdev = 0.05;
 	// double uwb_stdev = 0.2;
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
@@ -241,7 +241,7 @@ int main(int argc, char* argv[]) {
 
 	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = get_imu_preintegration_params(1, 10);
 	imuBias::ConstantBias prior_imu_bias;
-	
+
 	// Matrix33 rot_body_to_imu;
 	// rot_body_to_imu << 1, 0, 0,
 	// 			0, 0, 1,
@@ -259,11 +259,12 @@ int main(int argc, char* argv[]) {
 
 	const string id = "1";
 	const int smoother_lag = 1;
-	const bool use_smoother = true;
+	const bool use_smoother = false;
 	const bool use_filter = true;
 
 	Tracker t(
-		id, T_body_to_imu, dt, smoother_lag, use_smoother, use_filter, 
+		id, T_body_to_imu, T_body_to_decawave, 
+		dt, smoother_lag, use_smoother, use_filter, 
 		uwb_synth_stdev, GT_noise_model, UWB_noise_model, VIO_pose_noise_model, 
 		prior_velocity_noise_model, prior_bias_noise_model,
 		imu_preintegration_params, prior_imu_bias,
@@ -367,14 +368,24 @@ int main(int argc, char* argv[]) {
 		mes_idx ++;
 	}
 
-	write_trajectory_TUM_format( t.track.est_poses, t.track.est_timestamps, estimated_trajectory_fs, T_body_to_imu);
+	// Before writing files for evluation, need to be able to transform all
+	// estimated body poses in the world frame, to estimated slambody (cam1) poses in the slam frame
+	// or -> earlier I was doing body poses in world frame to IMU poses in world frame.
+
+	Pose3 T_imu_to_cam1;
+	get_pose_from_HTM(transforms["T_imu_to_cam1"], T_imu_to_cam1);
+
+	Pose3 T_body_to_sbody_in_world = T_body_to_imu.compose(T_imu_to_cam1);
+	Pose3& out_transform = T_body_to_sbody_in_world;
+
+	write_trajectory_TUM_format( t.track.est_poses, t.track.est_timestamps, estimated_trajectory_fs, out_transform);
 	estimated_trajectory_fs.close();
 
-	write_trajectory_TUM_format( t.track.gt_poses, t.track.gt_timestamps, slam_trajectory_fs, T_body_to_imu);
+	write_trajectory_TUM_format( t.track.gt_poses, t.track.gt_timestamps, slam_trajectory_fs, out_transform);
 	slam_trajectory_fs.close();
 
-	write_timestamps( t.track.est_poses, t.track.est_timestamps, estimtated_timestamp_fs);
-	estimtated_timestamp_fs.close();
+	write_timestamps( t.track.est_poses, t.track.est_timestamps, estimated_timestamp_fs);
+	estimated_timestamp_fs.close();
 
 
 	cout << "Dumping magnetometer and velocity vectors for visual debug" << endl;

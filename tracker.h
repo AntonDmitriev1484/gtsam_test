@@ -56,6 +56,7 @@ public:
     imuBias::ConstantBias prior_imu_bias;
 
     Pose3 T_body_to_imu;
+    Pose3 T_body_to_decawave;
     SharedNoiseModel GT_noise_model;
     SharedNoiseModel UWB_noise_model;
     SharedNoiseModel FakePrior_noise_model;

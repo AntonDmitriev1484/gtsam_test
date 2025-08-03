@@ -7,7 +7,7 @@
 void get_pose_matrix(json d, string& user, Matrix44& pose_matrix) {
 
 	//user = d["user"];
-	auto m_pose_matrix = d["T_body_world"];
+	auto m_pose_matrix = d;
 	int i = 0;
 	int j = 0;
 	for (const auto& row : m_pose_matrix) {

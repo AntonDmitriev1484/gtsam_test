@@ -64,6 +64,9 @@ add_test(NAME uwb_calibration_trans/real_uwb COMMAND gtsam_test uwb_calibration_
 add_test(NAME pilot4_loopy/real_nouwb COMMAND gtsam_test pilot4_loopy synthetic_1_0 no_uwb 0.0 true)
 add_test(NAME pilot4_loopy/real_uwb COMMAND gtsam_test pilot4_loopy synthetic_1_0 uwb 0.0 true)
 
+add_test(NAME loopy_test/real_nouwb COMMAND gtsam_test loopy_test synthetic_1_0 no_uwb 0.0 true)
+add_test(NAME loopy_test/real_uwb COMMAND gtsam_test loopy_test synthetic_1_0 uwb 0.0 true)
+
 # add_test(NAME pilot4_room/real_nouwb COMMAND gtsam_test pilot4_room synthetic_1_0 no_uwb 0.0 true)
 # add_test(NAME pilot4_room/real_uwb COMMAND gtsam_test pilot4_room synthetic_1_0 uwb 0.0 true)
 

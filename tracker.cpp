@@ -97,6 +97,8 @@ Tracker::Tracker(const string& id,
 	this->delta_t = delta_t;
 
 	this->T_body_to_imu = T_body_to_imu;
+	this->T_body_to_decawave = T_body_to_decawave;
+
     this->prior_imu_bias = prior_imu_bias;
 	// Instantiate IMU preintegration
 	this->imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
@@ -200,7 +202,7 @@ void Tracker::init_state(json mes) {
 	Vector3 start_slam_velocity;
 	double timestamp;
 
-	get_pose_from_HTM(mes, start_slam_pose);
+	get_pose_from_HTM(mes["T_body_world"], start_slam_pose);
 	get_V(mes, start_slam_velocity);
 
 	// Pose3 prior_pose = start_slam_pose * T_imu_body.inverse();
@@ -209,10 +211,8 @@ void Tracker::init_state(json mes) {
 	// Rot3 rot_world_to_body = rot_imu_to_body * rot_world_to_imu;
 	// Pose3 prior_pose(rot_world_to_body, start_slam_pose.translation());
 
-	// Pose3 prior_pose = T_body_to_imu.inverse() * start_slam_pose; // Transform pose to the body frame.
-
-	Pose3 prior_pose = start_slam_pose.compose(T_body_to_imu.inverse());
-	// Pose3 prior_pose = start_slam_pose;
+	// Pose3 prior_pose = start_slam_pose.compose(T_body_to_imu.inverse());
+	Pose3 prior_pose = start_slam_pose;
 
 	// Velocity is computed using SLAM poses in the world frame.
 	// Therefore all we should need to do, is rotate the velocity vector into the body frame.
@@ -220,7 +220,8 @@ void Tracker::init_state(json mes) {
 	// Vector3 prior_velocity = (pose_velocity * T_imu_body.inverse()).translation();
 
 	// Vector3 prior_velocity(0,0,0);
-	Vector3 prior_velocity = rot_imu_to_body * start_slam_velocity;
+	// Vector3 prior_velocity = rot_imu_to_body * start_slam_velocity;
+	Vector3 prior_velocity = start_slam_velocity;
 	// Note: Had problems here with rotation matrices, I trust the pose matrix here though.
 
 
@@ -400,20 +401,18 @@ void Tracker::processSLAM(const json& mes)
 	track.Ib++;
 
 	// Extract GT pose
-	Pose3 T_world_to_imu;
+	Pose3 T_world_to_body;
 	string usrname;
-	get_pose_from_HTM(mes,T_world_to_imu);
+	// Notation; T_body_world = T_world_to_body
+	get_pose_from_HTM(mes["T_body_world"],T_world_to_body);
 
 	// Equivalent of saying: T_world_to_body = T_imu_to_body * T_world_to_imu
-	Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse());
+	// Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse());
+	Pose3 gt_pose = T_world_to_body;
 
 	// Pose3 gt_pose = T_world_to_imu;
 	track.gt_poses.push_back(gt_pose);
 	track.gt_timestamps.push_back(mes["t"]);
-	
-	Vector3 slam_velocity;
-	double timestamp = mes["t"];
-	get_V(mes, slam_velocity);
 
 	// Add IMU factor
 	auto* current_imu_preintegration =
@@ -461,9 +460,10 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 	cout << "Processing synthetic range for : " << mes["t"] << endl;
 
 		// Extract GT pose
-	Pose3 T_world_to_imu;
-	get_pose_from_HTM(mes, T_world_to_imu);
-	Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse()); // Transform pose to the body frame.
+	Pose3 T_world_to_body;
+	get_pose_from_HTM(mes["T_body_world"], T_world_to_body);
+	// Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse()); // Transform pose to the body frame.
+	Pose3 gt_pose = T_world_to_body;
 
 	track.Ix++;
 	track.Iv++;
@@ -489,8 +489,8 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 		tracking& dst = anchors[dst_user];
 		Point3 anchor_pos = dst.gt_poses.back().translation();
 
-		Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1)); // NOTE: Correct for synthetic_1_5 but not for pilot4s
-		Point3 user_antenna_pos = (gt_pose.compose(T_body_decawave)).translation();
+		// Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1)); // NOTE: Correct for synthetic_1_5 but not for pilot4s
+		Point3 user_antenna_pos = (gt_pose.compose(T_body_to_decawave)).translation();
 
 		// Ground truth range from GT poses
 		double true_range = distance3(anchor_pos, user_antenna_pos); 
@@ -499,7 +499,7 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 		double noised_range = uwb_distribution(uwb_rng);
 
 		graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-			X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model, T_body_decawave));
+			X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model, T_body_to_decawave));
 
 		cout << "Added Range factor " << graph->size() - 1 << endl;
 		cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
@@ -552,9 +552,10 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	cout << "Processing assisted range for t=" << mes["t"] << endl;
 
 	// Extract GT pose
-	Pose3 T_world_to_imu;
-	get_pose_from_HTM(mes, T_world_to_imu);
-	Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse()); // Transform pose to the body frame.
+	Pose3 T_world_to_body;
+	get_pose_from_HTM(mes["T_body_world"], T_world_to_body);
+	// Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse()); // Transform pose to the body frame.
+	Pose3 gt_pose = T_world_to_body;
 
 	track.Ix++;
 	track.Iv++;
@@ -572,18 +573,19 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	string dst_user = to_string((int)mes["id"]);
 
 	// Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1)); // T body to decawave
-	Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.045, -0.15, -0.025));
+	// Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.045, -0.15, -0.025));
 
 	tracking& dst = anchors[dst_user];
 	Point3 anchor_pos = dst.gt_poses.back().translation();
-	Point3 user_antenna_pos = (gt_pose.compose(T_body_decawave)).translation();
+	Point3 user_antenna_pos = (gt_pose.compose(T_body_to_decawave)).translation();
 
 
 	double measured_range = (double)mes["range"];
 	// Ground truth range from GT poses
 	double true_range = distance3(anchor_pos, user_antenna_pos); 
 
-	std::normal_distribution<double> uwb_distribution(true_range, uwb_stdev);  // N(mean, stddev)
+	// std::normal_distribution<double> uwb_distribution(true_range, uwb_stdev);  // N(mean, stddev)
+		std::normal_distribution<double> uwb_distribution(true_range, 0.1);  // N(mean, stddev)
 	double noised_range = uwb_distribution(uwb_rng);
 
 	// Add UWB (range) factor
@@ -640,7 +642,7 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 
 
 	graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-		X(track.Ix), AnchorKey(dst_user), corrected_range, UWB_noise_model, T_body_decawave));
+		X(track.Ix), AnchorKey(dst_user), measured_range, UWB_noise_model, T_body_to_decawave));
 
 
 	cout << "Added Range factor " << graph->size() - 1 << endl;
