@@ -193,7 +193,6 @@ void Tracker::init_anchors(json anchor_json) {
 }
 
 void Tracker::init_state(json mes) {
-	 // Find first SLAM pose, and use it to set GT prior.
     track.Ix = 0;
     track.Iv = 0;
     track.Ib = 0;
@@ -202,27 +201,15 @@ void Tracker::init_state(json mes) {
 	Vector3 start_slam_velocity;
 	double timestamp;
 
+	// velocity and body pose are computed from body poses in the world frame
 	get_pose_from_HTM(mes["T_body_world"], start_slam_pose);
-	get_V(mes, start_slam_velocity);
+	get_V(mes, start_slam_velocity); // velocity
 
-	// Pose3 prior_pose = start_slam_pose * T_imu_body.inverse();
 	Rot3 rot_imu_to_body = T_body_to_imu.rotation().inverse();
-	// Rot3 rot_world_to_imu = start_slam_pose.rotation();
-	// Rot3 rot_world_to_body = rot_imu_to_body * rot_world_to_imu;
-	// Pose3 prior_pose(rot_world_to_body, start_slam_pose.translation());
-
-	// Pose3 prior_pose = start_slam_pose.compose(T_body_to_imu.inverse());
 	Pose3 prior_pose = start_slam_pose;
 
-	// Velocity is computed using SLAM poses in the world frame.
-	// Therefore all we should need to do, is rotate the velocity vector into the body frame.
 	Pose3 pose_velocity(Rot3::Identity(), start_slam_velocity);
-	// Vector3 prior_velocity = (pose_velocity * T_imu_body.inverse()).translation();
-
-	// Vector3 prior_velocity(0,0,0);
-	// Vector3 prior_velocity = rot_imu_to_body * start_slam_velocity;
 	Vector3 prior_velocity = start_slam_velocity;
-	// Note: Had problems here with rotation matrices, I trust the pose matrix here though.
 
 
     vals.insert(X(track.Ix), prior_pose);
@@ -290,7 +277,6 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		result = isam->calculateEstimate();
 		END_TIMER("Ended iSAM "+msg, isam_t);
 
-		// report_estimate(proposed.pose(), mes_timestamp); // NOTE: CHANGE HERE
 		report_estimate(result.at<Pose3>(X(track.Ix)), mes_timestamp);
 
 		track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
@@ -352,9 +338,6 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 		smoother->update(*graph, vals, key_timestamps); // Crashes on this line specifically
 		result = smoother->calculateEstimate();
 		END_TIMER("Ended iSAM "+msg, isam_t);
-
-		// track.est_poses.push_back(result.at<Pose3>(X(track.Ix)));
-		// track.est_timestamps.push_back(mes_timestamp);
 
 		report_estimate(result.at<Pose3>(X(track.Ix)), mes_timestamp);
 
@@ -462,7 +445,6 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 		// Extract GT pose
 	Pose3 T_world_to_body;
 	get_pose_from_HTM(mes["T_body_world"], T_world_to_body);
-	// Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse()); // Transform pose to the body frame.
 	Pose3 gt_pose = T_world_to_body;
 
 	track.Ix++;
@@ -489,7 +471,6 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 		tracking& dst = anchors[dst_user];
 		Point3 anchor_pos = dst.gt_poses.back().translation();
 
-		// Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1)); // NOTE: Correct for synthetic_1_5 but not for pilot4s
 		Point3 user_antenna_pos = (gt_pose.compose(T_body_to_decawave)).translation();
 
 		// Ground truth range from GT poses
@@ -554,7 +535,6 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	// Extract GT pose
 	Pose3 T_world_to_body;
 	get_pose_from_HTM(mes["T_body_world"], T_world_to_body);
-	// Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse()); // Transform pose to the body frame.
 	Pose3 gt_pose = T_world_to_body;
 
 	track.Ix++;
@@ -572,25 +552,16 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 
 	string dst_user = to_string((int)mes["id"]);
 
-	// Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.12, 0.015, -0.1)); // T body to decawave
-	// Pose3 T_body_decawave(Rot3::Identity(), Vector3(-0.045, -0.15, -0.025));
-
 	tracking& dst = anchors[dst_user];
 	Point3 anchor_pos = dst.gt_poses.back().translation();
 	Point3 user_antenna_pos = (gt_pose.compose(T_body_to_decawave)).translation();
-
 
 	double measured_range = (double)mes["range"];
 	// Ground truth range from GT poses
 	double true_range = distance3(anchor_pos, user_antenna_pos); 
 
-	// std::normal_distribution<double> uwb_distribution(true_range, uwb_stdev);  // N(mean, stddev)
-		std::normal_distribution<double> uwb_distribution(true_range, 0.1);  // N(mean, stddev)
+	std::normal_distribution<double> uwb_distribution(true_range, uwb_stdev);  // N(mean, stddev)
 	double noised_range = uwb_distribution(uwb_rng);
-
-	// Add UWB (range) factor
-	// graph->add(RangeFactor<Pose3, Pose3, double>(
-	// 	X(track.Ix), AnchorKey(dst_user), measured_range, UWB_noise_model));
 
 	// Math Source: https://www.sunnywale.com/uploadfile/2021/1230/DW1000%20User%20Manual_Awin.pdf sec 4.7.1
 	double A = 121.74; // Source: https://github.com/AntonDmitriev1484/DecawaveMDEK1001-SNR-Firmware-Mod/blob/master/Decawave_firmware_mod/examples/ss_twr_init/ss_init_main.c
@@ -624,7 +595,6 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 
 	nlos_score = smoothed_nlos_score;
 
-
 	double min_nlos = 10;
 	double max_nlos = 15;
 	bool nlos = nlos_score > min_nlos;
@@ -636,10 +606,6 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	// 	corrected_range =  (measured_range - ((scale_factor+1)*helmet_bias));
 	// }
 
-	if (mes["id"] == 3) { corrected_range -= 0.5; }
-	else if (mes["id"] == 2) { corrected_range -= 0.3; }
-	else if (mes["id"] == 5) { corrected_range -= 0.7; }
-
 
 	graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
 		X(track.Ix), AnchorKey(dst_user), measured_range, UWB_noise_model, T_body_to_decawave));
@@ -649,16 +615,7 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	cout << "UWB "<<mes["id"]<<". Synthetic Range " << true_range << ", Real Range " << measured_range << ", Corrected Range " << corrected_range << endl;
 	cout << "UWB "<<mes["id"]<<". NLOS " << nlos_score << ", SNR " << snr << endl;
 
-	// Magnetometer Factor
-	// N_body_frame = T_world_to_body * N_world_frame
-	// Pose3 N_world_frame(Rot3::Identity(), Vector3(0,1,0)); //Correct
-	// Pose3 N_world_frame_adjusted( Rot3::Identity(), gt_pose.translation() + Vector3(0,1,0));
-
-	// Body -> Mag = World -> Mag * Inv(World -> Body)
-	// Pose3 N_body_frame =  N_world_frame_adjusted * gt_pose.inverse();
-
-	// gt_pose = T_world_to_body / why do I need to invert it? Vector3 is in world frame after all.
-	// Vector3 N_body_frame = gt_pose.rotation().matrix().inverse() * Vector3(1, 0 ,0);
+	// Synthetic Magnetometer Factor
 
 	Vector3 N_world_frame = Vector3(1,0,0);
 	Vector3 N_body_frame = gt_pose.rotation() * N_world_frame; // Seems inverse or not makes no difference here.
@@ -674,7 +631,6 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	suwb_base_poses.push_back(gt_pose);
 	mag_vectors.push_back(Pose3(Rot3::Identity(), N_body_frame));
 
-	
 	// Add IMU factor
 	auto* current_imu_preintegration =
 		dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);

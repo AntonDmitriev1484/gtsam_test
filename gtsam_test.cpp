@@ -18,138 +18,9 @@ using symbol_shorthand::V;  // Vel   (xdot,ydot,zdot)
 using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 
 
-#define PLOT_ANCHORS(INFO) {\
-	for (const auto& [user_name, user_info] : INFO) {                        \
-        if (user_info.is_beacon) {                                          \
-			hold(on);														\
-            draw_points(user_info.gt_poses, "red");                      \
-        }                                                                    \
-    }																		\
-}
-
-// #define PLOT_ESTIMATED_FOR_USERS(INFO, SHOW_LIST) {                          \
-//     for (const auto& [user_name, user_info] : INFO) {                        \
-//         if (!user_info.is_beacon) {                                          \
-//             if (std::find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
-//                 hold(on);                                                    \
-//                 draw_trajectory(user_info.est_poses, "blue");                \
-//                 hold(on);                                                  \
-//                 draw_trajectory(user_info.gt_poses, "green");              \
-//                 hold(on);   \
-//                 xlabel("X (m)");                                             \
-//                 ylabel("Y (m)");                                             \
-//                 zlabel("Z (m)");                                             \
-// 				xlim({ -5,5 }); \
-// 				ylim({ -1,9 }); \
-// 				zlim({ 0,5 }); \
-//             }                                                                \
-//         }                                                                    \
-//     }                                                                        \
-// }
-
-#define PLOT_ESTIMATED_FOR_USER(TRACK) {                          \
-        if (!TRACK.is_beacon) {                                          \
-                hold(on);                                                    \
-                draw_trajectory(TRACK.est_poses, "blue");                \
-                hold(on);                                                  \
-                draw_trajectory(TRACK.gt_poses, "green");              \
-                hold(on);   \
-                xlabel("X (m)");                                             \
-                ylabel("Y (m)");                                             \
-                zlabel("Z (m)");                                             \
-				xlim({ -5,5 }); \
-				ylim({ -1,9 }); \
-				zlim({ 0,2 }); \
-        }                                                                    \
-}
-
-
-// Function to draw a coordinate frame at a Pose3
-void draw_pose_axes(Gnuplot& gp, const Pose3& pose, double axis_len, const std::string& color) {
-    Point3 origin = pose.translation();
-    Rot3 R = pose.rotation();
-
-    // Axis endpoints in world frame
-    Point3 x_axis = origin + R.column(1) * axis_len;
-    Point3 y_axis = origin + R.column(2) * axis_len;
-    Point3 z_axis = origin + R.column(3) * axis_len;
-
-    // Plot 3 line segments: x (red), y (green), z (blue) or override with 'color'
-    std::vector<std::pair<Point3, Point3>> segments = {
-        {origin, x_axis},
-        {origin, y_axis},
-        {origin, z_axis}
-    };
-
-    std::string colors[3] = {color, color, color};
-
-    for (int i = 0; i < 3; ++i) {
-        std::vector<std::tuple<double, double, double>> line = {
-            {segments[i].first.x(), segments[i].first.y(), segments[i].first.z()},
-            {segments[i].second.x(), segments[i].second.y(), segments[i].second.z()}
-        };
-        gp << "splot '-' with lines linecolor rgb '" << colors[i] << "' notitle\n";
-        gp.send1d(line);
-    }
-}
-
-
-
-#define PLOT_FOR_USERS(INFO, SHOW_LIST) {						           \
-    for (const auto& [user_name, user_info] : INFO) {                      \
-        if (!user_info.is_beacon) {                                        \
-            if (find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
-                auto fig = figure();                                       \
-                fig->name(user_name + " trajectory");                      \
-                title(user_name);                                          \
-                                                                           \
-                hold(on);                                                  \
-                draw_trajectory(user_info.vio_poses, "red");               \
-                hold(on);                                                  \
-                draw_trajectory(user_info.gt_poses, "green");              \
-                hold(on);                                                  \
-				draw_points(user_info.gt_poses, "green"); \
-				hold(on); \
-                draw_trajectory(user_info.est_poses, "blue");              \
-                hold(on);                                                           \
-                xlabel("X (m)");                                           \
-                ylabel("Y (m)");                                           \
-                zlabel("Z (m)");                                           \
-                                                                           \
-            }                                                              \
-        }                                                                  \
-    }                                                                      \
-}
-
-#define PLOT_W_OPTIMIZER_PARAMS_FOR_USERS(INFO, SHOW_LIST, LAMBDA, LAMBDA_FACTOR) {			   \
-	 for (const auto& [user_name, user_info] : INFO) {                      \
-			if (!user_info.is_beacon) {                                        \
-				if (find(SHOW_LIST.begin(), SHOW_LIST.end(), user_name) != SHOW_LIST.end()) { \
-					auto fig = figure();                                       \
-					fig->name("Trajectory");                      \
-					title(user_name+" L="+to_string(LAMBDA)+" LF="+to_string(LAMBDA_FACTOR));                                          \
-																			   \
-					hold(on);                                                  \
-					draw_trajectory(user_info.vio_poses, "red");               \
-					hold(on);													\
-					draw_trajectory(user_info.gt_poses, "green");                      \
-					hold(on);                                                  \
-					draw_trajectory(user_info.est_poses, "blue");              \
-																			   \
-					xlabel("X (m)");                                           \
-					ylabel("Y (m)");                                           \
-					zlabel("Z (m)");                                           \
-																			   \
-				} \
-			} \
-	 } \
-}
-
-
 int main(int argc, char* argv[]) {
 
 	if (argc != 6) {
-		// ex. stereoi_circle2 synthetic_20_60 uwb true
         std::cerr << "Usage: " << argv[0] << " <trial_name> <synthetic_trial_name or 'none'> <'uwb' or 'no_uwb'> <uwb_noise> <dump (true|false)>" << std::endl;
         return 1;
     }
@@ -201,7 +72,7 @@ int main(int argc, char* argv[]) {
 
 	// If log_dump. Redirect stdout output to a text file.
 	if (log_dump) {
-		std::cout.rdbuf(log_dump_fs.rdbuf()); // redirect cout to file
+		std::cout.rdbuf(log_dump_fs.rdbuf());
 	}
 
 	cout << "In path " << data_dir << endl;
@@ -241,12 +112,6 @@ int main(int argc, char* argv[]) {
 
 	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = get_imu_preintegration_params(1, 10);
 	imuBias::ConstantBias prior_imu_bias;
-
-	// Matrix33 rot_body_to_imu;
-	// rot_body_to_imu << 1, 0, 0,
-	// 			0, 0, 1,
-	// 			0, -1, 0;
-	// Pose3 T_body_to_imu(Rot3(rot_body_to_imu), Vector3(0, 0, 0)); // T body to imu
 
 	Pose3 T_body_to_imu;
 	get_pose_from_HTM(transforms["T_body_to_imu"], T_body_to_imu);
@@ -369,8 +234,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	// Before writing files for evluation, need to be able to transform all
-	// estimated body poses in the world frame, to estimated slambody (cam1) poses in the slam frame
-	// or -> earlier I was doing body poses in world frame to IMU poses in world frame.
+	// body poses in world frame to slambody (cam1) poses in world frame.
 
 	Pose3 T_imu_to_cam1;
 	get_pose_from_HTM(transforms["T_imu_to_cam1"], T_imu_to_cam1);
