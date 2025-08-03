@@ -24,11 +24,11 @@ void get_pose_matrix(json d, string& user, Matrix44& pose_matrix) {
 
 }
 
-void get_GT_HTM(json d, Pose3& gt_pose) {
+void get_pose_from_HTM(json d, Pose3& pose) {
 	Matrix44 pose_mat;
 	string usr;
 	get_pose_matrix(d, usr, pose_mat);
-	gt_pose = Pose3(pose_mat);
+	pose = Pose3(pose_mat);
 }
 
 void get_GT(json d, Pose3& gt_pose) {

@@ -68,7 +68,8 @@ void get_beacon_info(map<string, tracking>& info, json beacon_data) {
 }
 
 Tracker::Tracker(const string& id,
-            const Pose3 T_imu_body,
+            const Pose3 T_body_to_imu,
+			const Pose3 T_body_to_decawave,
             const double delta_t,
 			const double smoother_lag,
 			const bool use_smoother,
@@ -95,7 +96,7 @@ Tracker::Tracker(const string& id,
 
 	this->delta_t = delta_t;
 
-	this->T_body_to_imu = T_imu_body;
+	this->T_body_to_imu = T_body_to_imu;
     this->prior_imu_bias = prior_imu_bias;
 	// Instantiate IMU preintegration
 	this->imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
@@ -199,7 +200,7 @@ void Tracker::init_state(json mes) {
 	Vector3 start_slam_velocity;
 	double timestamp;
 
-	get_GT_HTM(mes, start_slam_pose);
+	get_pose_from_HTM(mes, start_slam_pose);
 	get_V(mes, start_slam_velocity);
 
 	// Pose3 prior_pose = start_slam_pose * T_imu_body.inverse();
@@ -401,7 +402,7 @@ void Tracker::processSLAM(const json& mes)
 	// Extract GT pose
 	Pose3 T_world_to_imu;
 	string usrname;
-	get_GT_HTM(mes,T_world_to_imu);
+	get_pose_from_HTM(mes,T_world_to_imu);
 
 	// Equivalent of saying: T_world_to_body = T_imu_to_body * T_world_to_imu
 	Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse());
@@ -461,7 +462,7 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 
 		// Extract GT pose
 	Pose3 T_world_to_imu;
-	get_GT_HTM(mes, T_world_to_imu);
+	get_pose_from_HTM(mes, T_world_to_imu);
 	Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse()); // Transform pose to the body frame.
 
 	track.Ix++;
@@ -552,7 +553,7 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 
 	// Extract GT pose
 	Pose3 T_world_to_imu;
-	get_GT_HTM(mes, T_world_to_imu);
+	get_pose_from_HTM(mes, T_world_to_imu);
 	Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse()); // Transform pose to the body frame.
 
 	track.Ix++;

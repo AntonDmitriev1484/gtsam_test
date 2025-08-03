@@ -209,6 +209,7 @@ int main(int argc, char* argv[]) {
 
 
 	json sensor_stream = json::parse(raw_fs);
+	json transforms = json::parse(transform_fs);
 	map<string, tracking> info; // Map of username to tracking information
 
 	double dt = 1.0 / 200.0; // IMU gyro and accelerometer operate at 200Hz
@@ -240,11 +241,19 @@ int main(int argc, char* argv[]) {
 
 	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = get_imu_preintegration_params(1, 10);
 	imuBias::ConstantBias prior_imu_bias;
-	Matrix33 rot_body_to_imu;
-	rot_body_to_imu << 1, 0, 0,
-				0, 0, 1,
-				0, -1, 0;
-	Pose3 T_body_to_imu(Rot3(rot_body_to_imu), Vector3(0, 0, 0)); // T body to imu
+	
+	// Matrix33 rot_body_to_imu;
+	// rot_body_to_imu << 1, 0, 0,
+	// 			0, 0, 1,
+	// 			0, -1, 0;
+	// Pose3 T_body_to_imu(Rot3(rot_body_to_imu), Vector3(0, 0, 0)); // T body to imu
+
+	Pose3 T_body_to_imu;
+	get_pose_from_HTM(transforms["T_body_to_imu"], T_body_to_imu);
+
+	Pose3 T_body_to_decawave;
+	get_pose_from_HTM(transforms["T_body_to_decawave"], T_body_to_decawave);
+
 	imu_preintegration_params->setBodyPSensor(T_body_to_imu);
 	
 

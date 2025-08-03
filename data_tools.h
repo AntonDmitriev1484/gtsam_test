@@ -20,7 +20,7 @@ using json = nlohmann::json;
 void get_pose_matrix(json d, string& user, Matrix44& pose_matrix);
 //void get_GT(json d, vector<string>& users, vector<Matrix44>& pose_matrices);
 void get_GT(json d, Pose3& gt_pose);
-void get_GT_HTM(json d, Pose3& gt_pose);
+void get_pose_from_HTM(json d, Pose3& gt_pose);
 void get_V(json d, Vector3& velocity);
 void get_UWB(json d, string& src_user, string& dst_user, double& range);
 void get_IMU(json d, Vector3& accel, Vector3& gyro);

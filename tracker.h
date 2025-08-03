@@ -90,7 +90,8 @@ public:
     // OneEuroFilter<3> translation_filt;
 
     Tracker(const string& id,
-            const Pose3 T_imu_body,
+            const Pose3 T_body_to_imu,
+            const Pose3 T_body_to_decawave,
             const double delta_t,
             const double smoother_lag,
             const bool use_smoother,
