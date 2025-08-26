@@ -77,7 +77,7 @@ Tracker::Tracker(const string& id,
 			const double uwb_stdev,
             const SharedNoiseModel& GT_noise_model,
             const SharedNoiseModel& UWB_noise_model,
-            const SharedNoiseModel& FakePrior_noise_model,
+            const SharedNoiseModel& DeltaGT_noise_model,
             const SharedNoiseModel& Velocity_noise_model,
             const SharedNoiseModel& Bias_noise_model,
 			std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params,
@@ -113,7 +113,7 @@ Tracker::Tracker(const string& id,
     // Initialize noise models
     this->GT_noise_model = GT_noise_model;
     this->UWB_noise_model = UWB_noise_model;
-    this->FakePrior_noise_model = FakePrior_noise_model;
+    this->DeltaGT_noise_model = DeltaGT_noise_model;
     this->Velocity_noise_model = Velocity_noise_model;
     this->Bias_noise_model = Bias_noise_model;
 
@@ -213,39 +213,10 @@ void Tracker::init_state(json mes) {
 
 
     vals.insert(X(track.Ix), prior_pose);
-    vals.insert(V(track.Iv), prior_velocity);
-    vals.insert(B(track.Ib), prior_imu_bias);
 
-    graph->addPrior(X(track.Ix), prior_pose, GT_noise_model);
-    graph->addPrior(V(track.Iv), prior_velocity, Velocity_noise_model);
-    graph->addPrior(B(track.Ib), prior_imu_bias, Bias_noise_model);
+    graph->addPrior(X(track.Ix), prior_pose, DeltaGT_noise_model);
 
-    track.est_poses.push_back(prior_pose); // We'll take the estimate out of values and put it here.
     track.gt_poses.push_back(prior_pose);
-	track.est_timestamps.push_back(timestamp);
-    track.est_velocities.push_back(prior_velocity);
-    track.constant_bias = prior_imu_bias;
-	track.changing_bias = prior_imu_bias;
-
-		// Add this key -> timestamp mapping to our map
-	key_timestamps[X(track.Ix)] = (double)mes["t"];
-	key_timestamps[V(track.Iv)] = (double)mes["t"];
-	key_timestamps[B(track.Ib)] = (double)mes["t"];
-
-    // Once priors have been inserted into graph and vals,
-    // initialize isam with these estimates.
-	if (use_smoother) {
-		smoother->update(*graph, vals, key_timestamps);
-	}
-	else {
-		isam->update(*graph, vals);
-	}
-	graph->resize(0);
-	vals.clear();
-
-
-    // Initialize our NavState
-    prev_state = NavState(track.est_poses.back(), track.est_velocities.back());
 }
 
 void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp, 
@@ -392,48 +363,26 @@ void Tracker::processSLAM(const json& mes)
 	// Equivalent of saying: T_world_to_body = T_imu_to_body * T_world_to_imu
 	// Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse());
 	Pose3 gt_pose = T_world_to_body;
+	Pose3 last_gt_pose = track.gt_poses.back();
+	Pose3 delta = last_gt_pose.between(gt_pose);
+
+
+	graph->add(BetweenFactor<Pose3>(X(track.Ix-1), X(track.Ix), delta, DeltaGT_noise_model));
 
 	// Pose3 gt_pose = T_world_to_imu;
 	track.gt_poses.push_back(gt_pose);
 	track.gt_timestamps.push_back(mes["t"]);
 
-	// Add IMU factor
-	auto* current_imu_preintegration =
-		dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-
-	// Add this key -> timestamp mapping to our map
-	key_timestamps[X(track.Ix)] = (double)mes["t"];
-	key_timestamps[V(track.Iv)] = (double)mes["t"];
-	key_timestamps[B(track.Ib)] = (double)mes["t"];
-	for (auto const &[id, tracking_] : anchors) {
-		key_timestamps[AnchorKey(id)] = (double)mes["t"];
+	if (mes["April_T_body_world"] != NULL){
+		Pose3 april_gt_pose;
+		// Add Apriltag body pose as a strong prior factor
+		graph->add(PriorFactor<Pose3>(X(track.Ix), april_gt_pose, GT_noise_model));
+		cout << "Added Prior factor " << graph->size() - 1 << endl;
 	}
 
-	CombinedImuFactor imu_factor(
-		X(track.Ix - 1), V(track.Iv - 1),
-		X(track.Ix), V(track.Iv),
-		B(track.Ib - 1), B(track.Ib),
-		*current_imu_preintegration);
-
-	graph->add(imu_factor);
-	cout << "Added IMU factor " << graph->size() - 1 << endl;
-
-	// Add GT prior factor
-	graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, GT_noise_model));
-	cout << "Added Prior factor " << graph->size() - 1 << endl;
-
-	// Predict current state
-	NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
 
 	// Insert initial values
-	vals.insert(X(track.Ix), proposed.pose());
-	vals.insert(V(track.Iv), proposed.v());
-	vals.insert(B(track.Ib), track.changing_bias);
-
-    // Run iSAM
-	if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "GT", true); }
-	else { exec_iSAM(proposed, (double)mes["t"], "GT", true); }
-	
+	vals.insert(X(track.Ix), gt_pose);
 
 	// translation_filt.clear(); // clear filter
 }

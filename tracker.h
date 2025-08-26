@@ -59,7 +59,7 @@ public:
     Pose3 T_body_to_decawave;
     SharedNoiseModel GT_noise_model;
     SharedNoiseModel UWB_noise_model;
-    SharedNoiseModel FakePrior_noise_model;
+    SharedNoiseModel DeltaGT_noise_model;
     SharedNoiseModel Velocity_noise_model;
     SharedNoiseModel Bias_noise_model;
 
