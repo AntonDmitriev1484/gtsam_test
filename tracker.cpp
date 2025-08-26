@@ -372,6 +372,7 @@ void Tracker::processSLAM(const json& mes)
 	// Pose3 gt_pose = T_world_to_imu;
 	track.gt_poses.push_back(gt_pose);
 	track.gt_timestamps.push_back(mes["t"]);
+	track.est_timestamps.push_back(mes["t"]);
 
 	if (mes["April_T_body_world"] != NULL){
 		Pose3 april_gt_pose;

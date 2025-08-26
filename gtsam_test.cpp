@@ -20,42 +20,22 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 
 int main(int argc, char* argv[]) {
 
-	if (argc != 6) {
+	if (argc != 3) {
         std::cerr << "Usage: " << argv[0] << " <trial_name> <synthetic_trial_name or 'none'> <'uwb' or 'no_uwb'> <uwb_noise> <dump (true|false)>" << std::endl;
         return 1;
     }
 	std::string trial_name = argv[1];
-    std::string synthetic_trial_name = argv[2];
-	std::string uwb_str = argv[3];
-	std::string uwb_noise_str = argv[4];
 	std::string dump_str = argv[5];
 
     bool log_dump = (dump_str == "true");
-	bool use_uwb = (uwb_str == "uwb");
-	bool use_gt = true;
-	bool synthetic = synthetic_trial_name != "none";
-	double uwb_synth_stdev = stod(uwb_noise_str);
-	bool use_synthetic_uwb = uwb_synth_stdev > 1e-5;
 
 	string data_dir = "/home/antond2/ws/post/out/"+trial_name+"_post";
 	string out_dir = "/home/antond2/Desktop/Research/gtsam_test/out_results/"+trial_name;
-	if (synthetic) {
-		data_dir += "/synthetic";
-		out_dir += "/"+synthetic_trial_name;
-		if (use_uwb) { out_dir += "_uwb";}
-	}
 	string debug_dir = out_dir+"/debug";
 
 	ifstream raw_fs;
-	if (synthetic) {
-		raw_fs = ifstream(data_dir + "/all_" + synthetic_trial_name +".json");
-	}
-	else {
-		raw_fs = ifstream(data_dir + "/all.json");
-	}
+	raw_fs = ifstream(data_dir + "/all.json");
 
-	ifstream beacon_fs("/home/antond2/ws/post/out/"+trial_name+"_post" + "/anchors.json");
-	ifstream transform_fs("/home/antond2/ws/post/out/"+trial_name+"_post" + "/transforms.json");
 
 	ofstream estimated_trajectory_fs(out_dir + "/est.txt");
 	ofstream slam_trajectory_fs(out_dir+"/slam.txt");
@@ -80,7 +60,6 @@ int main(int argc, char* argv[]) {
 
 
 	json sensor_stream = json::parse(raw_fs);
-	json transforms = json::parse(transform_fs);
 	map<string, tracking> info; // Map of username to tracking information
 
 	double dt = 1.0 / 200.0; // IMU gyro and accelerometer operate at 200Hz
@@ -114,10 +93,8 @@ int main(int argc, char* argv[]) {
 	imuBias::ConstantBias prior_imu_bias;
 
 	Pose3 T_body_to_imu;
-	get_pose_from_HTM(transforms["T_body_to_imu"], T_body_to_imu);
 
 	Pose3 T_body_to_decawave;
-	get_pose_from_HTM(transforms["T_body_to_decawave"], T_body_to_decawave);
 
 	imu_preintegration_params->setBodyPSensor(T_body_to_imu);
 	
@@ -130,7 +107,7 @@ int main(int argc, char* argv[]) {
 	Tracker t(
 		id, T_body_to_imu, T_body_to_decawave, 
 		dt, smoother_lag, use_smoother, use_filter, 
-		uwb_synth_stdev, GT_noise_model, UWB_noise_model, DeltaGT_noise_model, 
+		0, GT_noise_model, UWB_noise_model, DeltaGT_noise_model, 
 		prior_velocity_noise_model, prior_bias_noise_model,
 		imu_preintegration_params, prior_imu_bias,
 		debug_dir);
@@ -138,7 +115,7 @@ int main(int argc, char* argv[]) {
 	t.estimated_trajectory_fs = &estimated_trajectory_fs;
 	t.slam_trajectory_fs = &slam_trajectory_fs;
 
-	t.init_anchors(json::parse(beacon_fs));
+	// t.init_anchors(json::parse(beacon_fs));
 
 
 	bool start_graph = false;
@@ -154,12 +131,12 @@ int main(int argc, char* argv[]) {
 
 	for (json mes : sensor_stream) {
 
-		if (use_gt && mes["type"] == "slam_pose" && !start_graph) {
+		if (mes["type"] == "slam_pose" && !start_graph) {
 			// Skip all measurements until we find a slam pose and velocity that we can use to set up priors
 			t.init_state(mes); // TODO: Modify this to only involve gt pose no IMU nonsense
 			start_graph = true;
 		}
-		else if (use_gt && mes["type"] == "slam_pose" && start_graph) {
+		else if (mes["type"] == "slam_pose" && start_graph) {
 
 			t.processSLAM(mes);
 			imu_count_at_last_correction = imu_counter;
@@ -179,7 +156,7 @@ int main(int argc, char* argv[]) {
 	// void unpack_results(Values results, const function<Key(string, int)>& MK, map<string, tracking_info>& info) {
 
 	for (int i = 0 ; i < t.track.Ix; i++){
-		Pose3 estimated_pose = results.at<Pose3>(i);
+		Pose3 estimated_pose = results.at<Pose3>(X(i));
 		t.track.est_poses.push_back(estimated_pose);
 	}
 
