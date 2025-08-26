@@ -377,11 +377,13 @@ void Tracker::processSLAM(const json& mes)
 	track.est_timestamps.push_back(mes["t"]);
 
 	if (!mes["April_T_body_world"].is_null()){
-		Pose3 april_gt_pose;
-		get_pose_from_HTM(mes["April_T_body_world"],april_gt_pose);
+		vector<Pose3> april_gt_poses;
+		get_pose_from_multi_HTM(mes["April_T_body_world"],april_gt_poses);
 		// Add Apriltag body pose as a strong prior factor
-		graph->add(PriorFactor<Pose3>(X(track.Ix), april_gt_pose, GT_noise_model));
-		cout << "Added Prior factor " << graph->size() - 1 << endl;
+		for (Pose3 april_gt_pose: april_gt_poses) {
+			graph->add(PriorFactor<Pose3>(X(track.Ix), april_gt_pose, GT_noise_model));
+			cout << "Added Prior factor " << graph->size() - 1 << endl;
+		}
 	}
 
 

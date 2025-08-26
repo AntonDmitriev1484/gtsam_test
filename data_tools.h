@@ -16,7 +16,7 @@ using json = nlohmann::json;
 // struct tracking;
 
 
-
+void get_pose_from_multi_HTM(const json& d, std::vector<gtsam::Pose3>& poses);
 void get_pose_matrix(json d, string& user, Matrix44& pose_matrix);
 //void get_GT(json d, vector<string>& users, vector<Matrix44>& pose_matrices);
 void get_GT(json d, Pose3& gt_pose);

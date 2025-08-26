@@ -80,8 +80,8 @@ int main(int argc, char* argv[]) {
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
 	// GT noise model - (use to define pose prior)
-	double gt_pos_stdev = 1e-2;
-	double gt_ori_stdev = 1e-2;
+	double gt_pos_stdev = 1e-3;
+	double gt_ori_stdev = 1e-3;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
 	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 1e-2);
 	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-2);

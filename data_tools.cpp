@@ -29,6 +29,16 @@ void get_pose_from_HTM(json d, Pose3& pose) {
 	pose = Pose3(pose_mat);
 }
 
+void get_pose_from_multi_HTM(const json& d, std::vector<gtsam::Pose3>& poses) {
+    for (const auto& mat : d) {
+        if (mat.is_array() && mat.size() == 4) {
+            gtsam::Pose3 pose;
+            get_pose_from_HTM(mat, pose);
+            poses.push_back(pose);
+        }
+    }
+}
+
 void get_GT(json d, Pose3& gt_pose) {
 	// Create rotation from quaternion format
 	gt_pose = Pose3(Rot3(d["qx"], d["qy"], d["qz"], d["qw"]), Point3(d["x"], d["y"], d["z"]));
