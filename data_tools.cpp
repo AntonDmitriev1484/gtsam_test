@@ -6,14 +6,12 @@
 
 void get_pose_matrix(json d, string& user, Matrix44& pose_matrix) {
 
-	//user = d["user"];
 	auto m_pose_matrix = d;
 	int i = 0;
 	int j = 0;
 	for (const auto& row : m_pose_matrix) {
 		if (row.is_array()) {
 			for (const double& element : row) {
-				//HTM_L_G(i, j) = static_cast<double>(element.get<float>());
 				pose_matrix(i, j) = element;
 				j++;
 			}
