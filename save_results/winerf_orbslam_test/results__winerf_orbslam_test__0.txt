@@ -1,0 +1,4 @@
+./eval_trajectory.sh: line 59: evo_ape: command not found
+./eval_trajectory.sh: line 61: evo_rpe: command not found
+./eval_trajectory.sh: line 64: evo_ape: command not found
+./eval_trajectory.sh: line 66: evo_rpe: command not found

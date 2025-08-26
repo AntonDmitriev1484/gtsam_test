@@ -349,7 +349,7 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 
 void Tracker::processSLAM(const json& mes)
 {
-	cout << "Used GT" << endl;
+	// cout << "Used GT" << endl;
 	track.Ix++;
 	track.Iv++;
 	track.Ib++;
@@ -367,6 +367,8 @@ void Tracker::processSLAM(const json& mes)
 	Pose3 delta = last_gt_pose.between(gt_pose);
 
 
+	// Insert initial values
+	vals.insert(X(track.Ix), gt_pose);
 	graph->add(BetweenFactor<Pose3>(X(track.Ix-1), X(track.Ix), delta, DeltaGT_noise_model));
 
 	// Pose3 gt_pose = T_world_to_imu;
@@ -374,16 +376,15 @@ void Tracker::processSLAM(const json& mes)
 	track.gt_timestamps.push_back(mes["t"]);
 	track.est_timestamps.push_back(mes["t"]);
 
-	if (mes["April_T_body_world"] != NULL){
+	if (!mes["April_T_body_world"].is_null()){
 		Pose3 april_gt_pose;
+		get_pose_from_HTM(mes["April_T_body_world"],april_gt_pose);
 		// Add Apriltag body pose as a strong prior factor
 		graph->add(PriorFactor<Pose3>(X(track.Ix), april_gt_pose, GT_noise_model));
 		cout << "Added Prior factor " << graph->size() - 1 << endl;
 	}
 
 
-	// Insert initial values
-	vals.insert(X(track.Ix), gt_pose);
 
 	// translation_filt.clear(); // clear filter
 }
