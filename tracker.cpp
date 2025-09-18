@@ -205,11 +205,11 @@ void Tracker::init_state(json mes) {
 	get_pose_from_HTM(mes["T_body_world"], start_slam_pose);
 	get_V(mes, start_slam_velocity); // velocity
 
-	Rot3 rot_imu_to_body = T_body_to_imu.rotation().inverse();
 	Pose3 prior_pose = start_slam_pose;
 
 	Pose3 pose_velocity(Rot3::Identity(), start_slam_velocity);
-	Vector3 prior_velocity = start_slam_velocity;
+	// Vector3 prior_velocity = start_slam_velocity;
+	Vector3 prior_velocity(0,0,0);
 
 
     vals.insert(X(track.Ix), prior_pose);
@@ -659,36 +659,63 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 
 std::shared_ptr<PreintegratedCombinedMeasurements::Params> get_imu_preintegration_params(int ASCALE, int GSCALE) {
 
+	// IMU0:
+	// ----------------------------
+	// Model: calibrated
+	// Update rate: 200.0
+	// Accelerometer:
+	// 	Noise density: 0.02064189891192468 
+	// 	Noise density (discrete): 0.29192053394378314 
+	// 	Random walk: 0.0022919238444020808
+	// Gyroscope:
+	// 	Noise density: 0.002049600985797649
+	// 	Noise density (discrete): 0.02898573511568301 
+	// 	Random walk: 3.199855545594742e-05
 
-	double GYRO_NOISE_DENSITY = 0.0002049600985797649; 
-	double ACCEL_NOISE_DENSITY = 0.002064189891192468;
+	// standard deviation representing the white noise in acceleration. 
+	// Units: (m/s^2)(1/sqrt(Hz)) = (m/s^1.5)
+	double accel_noise_density = 0.02064189891192468;  
+	double gyro_noise_density = 0.002049600985797649;
 
-	Matrix33 continuous_time_accel_noise_cov = I_3x3 * pow(ACCEL_NOISE_DENSITY, 2) * ASCALE;
-	Matrix33 continuous_time_gyro_noise_cov = I_3x3 * pow(GYRO_NOISE_DENSITY, 2) * GSCALE;
+	Matrix33 accel_covariance = I_3x3 * pow(accel_noise_density, 2); // Squaring noise density gives you variance, apply this to X,Y,Z
+	Matrix33 gyro_covariance = I_3x3 * pow(gyro_noise_density, 2);
 
+	// stdev representing the white noise in how bias evolves over time. 
+	// Brownian Random Walk: White noise causes changes in bias over time
+	// Units: (m/s^3)(1/sqrt(Hz)) = (m/s^2.5)
+	// Rule of thumb is to multiply only these by 10 sometimes.
+	double gyro_bias_random_walk_noise_density = 3.1998555455947417e-05 * GSCALE; 
+	double accel_bias_random_walk_noise_density = 0.0022919238444020807 * ASCALE;
 
-	double GYRO_BIAS_RW = 3.1998555455947417e-06;
-	double ACCEL_BIAS_RW = 0.00022919238444020807;
+	Matrix33 accel_bias_evolution_covariance = I_3x3 * pow(accel_bias_random_walk_noise_density, 2);
+	Matrix33 gyro_bias_evolution_covariance = I_3x3 * pow(gyro_bias_random_walk_noise_density, 2);
 
-	Matrix33 continuous_time_accel_bias_rw = I_3x3 * pow(ACCEL_BIAS_RW, 2) * ASCALE;
-	Matrix33 continuous_time_gyro_bias_rw = I_3x3 * pow(GYRO_BIAS_RW, 2) * GSCALE;
+	Matrix66 initial_bias_cov = I_6x6 * 1e-5;
+	Matrix33 integration_cov = I_3x3 * 1e-5;
 
-	Matrix66 initial_bias_cov = I_6x6 * 1e-5 * ASCALE;
-	Matrix33 integration_cov = I_3x3 * 1e-5 * ASCALE;
+	//Source: http://git.autolabor.com.cn/12345qiupeng/orb_slam3_details/raw/commit/e6e28a86a5e35de35fb3022c881328b88f2bacd2/Calibration_Tutorial.pdf
+	// AND LOOK AT THE NOTES IN YOUR NOTEBOOK!
 
+	// This is assuming Z-up in IMU FRAME, not in BODY FRAME?
+	// https://gtbook.github.io/gtsam-examples/ImuFactorExample101.html
+	// std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
+	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params 
+		= std::make_shared<PreintegrationCombinedParams>(Vector3(0,-9.81, 0));
 
-	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
+	// imu_preintegration_params->n_gravity
 	// std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = std::make_shared<PreintegratedCombinedMeasurements::Params>(Vector3(0, -9.81, 0));
-	imu_preintegration_params->accelerometerCovariance = continuous_time_accel_noise_cov;
-	imu_preintegration_params->gyroscopeCovariance = continuous_time_gyro_noise_cov;
+	imu_preintegration_params->accelerometerCovariance = accel_covariance;
+	imu_preintegration_params->gyroscopeCovariance = gyro_covariance;
 
-	imu_preintegration_params->biasAccCovariance = continuous_time_accel_bias_rw;
-	imu_preintegration_params->biasOmegaCovariance = continuous_time_gyro_bias_rw;
+	imu_preintegration_params->biasAccCovariance = accel_bias_evolution_covariance;
+	imu_preintegration_params->biasOmegaCovariance = gyro_bias_evolution_covariance;
 
 	imu_preintegration_params->integrationCovariance = integration_cov;
 	imu_preintegration_params->biasAccOmegaInt = initial_bias_cov;
 
 	imu_preintegration_params->use2ndOrderCoriolis = false;
+
+
 
 	return imu_preintegration_params;
 }
