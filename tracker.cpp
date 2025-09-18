@@ -692,18 +692,12 @@ std::shared_ptr<PreintegratedCombinedMeasurements::Params> get_imu_preintegratio
 
 	Matrix66 initial_bias_cov = I_6x6 * 1e-5;
 	Matrix33 integration_cov = I_3x3 * 1e-5;
-
 	//Source: http://git.autolabor.com.cn/12345qiupeng/orb_slam3_details/raw/commit/e6e28a86a5e35de35fb3022c881328b88f2bacd2/Calibration_Tutorial.pdf
 	// AND LOOK AT THE NOTES IN YOUR NOTEBOOK!
 
-	// This is assuming Z-up in IMU FRAME, not in BODY FRAME?
-	// https://gtbook.github.io/gtsam-examples/ImuFactorExample101.html
-	// std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
-	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params 
-		= std::make_shared<PreintegrationCombinedParams>(Vector3(0,-9.81, 0));
-
-	// imu_preintegration_params->n_gravity
-	// std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = std::make_shared<PreintegratedCombinedMeasurements::Params>(Vector3(0, -9.81, 0));
+	//https://groups.google.com/g/gtsam-users/c/tatJxcclMWI/m/r9A_vmGfAAAJ
+	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
+	
 	imu_preintegration_params->accelerometerCovariance = accel_covariance;
 	imu_preintegration_params->gyroscopeCovariance = gyro_covariance;
 

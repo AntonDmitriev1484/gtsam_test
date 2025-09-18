@@ -37,8 +37,12 @@ int main(int argc, char* argv[]) {
 	double uwb_synth_stdev = stod(uwb_noise_str);
 	bool use_synthetic_uwb = uwb_synth_stdev > 1e-5;
 
-	string data_dir = "/home/antond2/ws/post/out/"+trial_name+"_post";
-	string out_dir = "/home/antond2/Desktop/Research/gtsam_test/out_results/"+trial_name;
+	string DATA_INPUT_DIR = "/home/antond2/ws/post/out/";
+	string GRAPH_REPO_DIR = "/home/antond2/Desktop/Research/";
+
+	string data_dir = DATA_INPUT_DIR+trial_name+"_post";
+	string out_dir = GRAPH_REPO_DIR+"/out_results/out/"+trial_name;
+
 	if (synthetic) {
 		data_dir += "/synthetic";
 		out_dir += "/"+synthetic_trial_name;
@@ -54,8 +58,8 @@ int main(int argc, char* argv[]) {
 		raw_fs = ifstream(data_dir + "/all.json");
 	}
 
-	ifstream beacon_fs("/home/antond2/ws/post/out/"+trial_name+"_post" + "/anchors.json");
-	ifstream transform_fs("/home/antond2/ws/post/out/"+trial_name+"_post" + "/transforms.json");
+	ifstream beacon_fs(DATA_INPUT_DIR+trial_name+"_post" + "/anchors.json");
+	ifstream transform_fs(DATA_INPUT_DIR+trial_name+"_post" + "/transforms.json");
 
 	ofstream estimated_trajectory_fs(out_dir + "/est.txt");
 	ofstream slam_trajectory_fs(out_dir+"/slam.txt");
@@ -121,7 +125,7 @@ int main(int argc, char* argv[]) {
 	get_pose_from_HTM(transforms["T_body_to_decawave"], T_body_to_decawave);
 
 	// "pose of sensor in body frame"
-	// imu_preintegration_params->setBodyPSensor(T_body_to_imu);
+	imu_preintegration_params->setBodyPSensor(T_body_to_imu);
 	
 
 	const string id = "1";
@@ -140,8 +144,6 @@ int main(int argc, char* argv[]) {
 	t.estimated_trajectory_fs = &estimated_trajectory_fs;
 	t.slam_trajectory_fs = &slam_trajectory_fs;
 
-	// t.init_anchors(json::parse(beacon_fs));
-
 
 	bool start_graph = false;
 
@@ -154,8 +156,6 @@ int main(int argc, char* argv[]) {
 
 	int mes_idx = 0;
 
-	int N_skip = 250;
-	int skipped = 0;
 
 	for (json mes : sensor_stream) {
 
@@ -166,9 +166,6 @@ int main(int argc, char* argv[]) {
 			Vector3 gyro;
 			get_IMU(mes, accel, gyro);
 
-			// accel = accel * -1
-			// gyro = gyro * (-1);
-
 			t.imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 			imu_counter++;
 
@@ -177,85 +174,31 @@ int main(int argc, char* argv[]) {
 
 			// Just for plotting at IMU frequency
 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(t.imu_preintegrated);
-			auto proposed = current_imu_preintegration->predict(t.prev_state, t.track.changing_bias);
+			NavState proposed = current_imu_preintegration->predict(t.prev_state, t.track.changing_bias);
 			t.report_estimate(proposed.pose(), mes["t"]);
 
-			// for (json mes : gt_pose_buffer) {
-			// 	t.processSLAM(mes);
-			// 	imu_count_at_last_correction = imu_counter;
-			// 	imu_count_at_last_imu_factor = imu_counter;
-			// 	gt_counter++;
-			// }
-			// gt_pose_buffer.clear();
-
-			// for (json mes : range_buffer) {
-			// 	if (use_synthetic_uwb) {
-			// 		t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
-			// 	}
-			// 	else {
-			// 		t.processAssistedUWB(mes, uwb_counter);
-			// 	}
-			// }
-			// range_buffer.clear();
 		}
 
-
 		else if (use_gt && mes["type"] == "vicon_pose" && !start_graph) {
-			if (N_skip > skipped) { skipped ++; continue;}
 			// Skip all measurements until we find a slam pose and velocity that we can use to set up priors
 			t.init_state(mes);
 			start_graph = true;
 		}
 
-		else if (use_gt && mes["type"] == "vicon_pose" && start_graph) { // Note: Not making any periodic corrections in this graph
+		else if (use_gt && mes["type"] == "vicon_pose" && start_graph) { 
+			// Doesn't contribute to the estimated trajectory at all on this branch
 
-			// if (imu_counter == imu_count_at_last_imu_factor) {
-			// 	// Pass this measurement and buffer it until the next IMU becomes available
-			// 	cout << " Skipped SLAM pose " << endl;
-			// 	gt_pose_buffer.push_back(mes);
-			// 	continue;
-			// }
-			// t.processSLAM(mes);
-			// Extract GT pose
 			Pose3 T_world_to_body;
 			string usrname;
-			// Notation; T_body_world = T_world_to_body
+
+			// Notation; T_body_world = T_world_to_body (as tracked by Vicon)
 			get_pose_from_HTM(mes["T_body_world"],T_world_to_body);
 
-			// Equivalent of saying: T_world_to_body = T_imu_to_body * T_world_to_imu
-			// Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse());
 			Pose3 gt_pose = T_world_to_body;
-
-			// Pose3 gt_pose = T_world_to_imu;
 			t.track.gt_poses.push_back(gt_pose);
 			t.track.gt_timestamps.push_back(mes["t"]);
-
-			// imu_count_at_last_correction = imu_counter;
-			// imu_count_at_last_imu_factor = imu_counter;
 			gt_counter++;
 		}
-
-		// else if (!use_synthetic_uwb && use_uwb && mes["type"] == "assisted_uwb" && start_graph) {
-		// 	// For the pilot4 case, where we aren't generating synthetic ranges, 
-		// 	// but still need synthetic orientations from post processed interpolation
-		// 	if (imu_counter == imu_count_at_last_correction) { continue; }
-		// 	else {
-		// 		t.processAssistedUWB(mes, uwb_counter);
-		// 	}
-		// 	imu_count_at_last_imu_factor = imu_counter;
-		// 	imu_count_at_last_imu_factor = imu_counter;
-
-		// }
-		// else if (use_synthetic_uwb && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
-		// 	if (imu_counter == imu_count_at_last_correction) { continue; }
-		// 	else {
-		// 		t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
-		// 	}
-		// 	imu_count_at_last_imu_factor = imu_counter;
-		// 	imu_count_at_last_imu_factor = imu_counter;
-		// }
-		// // else if (use_uwb && mes["type"] == "uwb" && start_graph) {
-		// // }
 
 		mes_idx ++;
 	}
