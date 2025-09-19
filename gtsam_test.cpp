@@ -118,13 +118,14 @@ int main(int argc, char* argv[]) {
 	imuBias::ConstantBias prior_imu_bias(Vector3(-0.03, -0.05, 0.23), Vector3(-0.0048, -0.00445, -0.0015)); 
 	// First accelerometer bias, then gyro bias.
 	
-	// Pose3 T_body_to_imu;
-	// get_pose_from_HTM(transforms["T_body_to_imu"], T_body_to_imu);
-	Matrix33 rot_body_to_imu;
-	rot_body_to_imu <<  0,1,0,
-						-1,0,0,
-						0,0,1;
-	Pose3 T_body_to_imu(Rot3(rot_body_to_imu), Vector3::Zero());
+	Pose3 T_body_to_imu;
+	get_pose_from_HTM(transforms["T_body_to_imu"], T_body_to_imu);
+	
+	// Matrix33 rot_body_to_imu; // Alternative frame that looks "more reasonable" but is incorrect
+	// rot_body_to_imu <<  0,1,0,
+	// 					0,0,1,
+	// 					1,0,0;
+	// Pose3 T_body_to_imu(Rot3(rot_body_to_imu), Vector3::Zero());
 
 
 	Pose3 T_body_to_decawave;
@@ -248,18 +249,6 @@ int main(int argc, char* argv[]) {
 	write_trajectory_KITTI_format( t.postproc_velocity_vectors, postproc_velocity_fs);
 	postproc_velocity_fs.close();
 
-	
-
-	// NOTE: THIS WILL CHANGE FOR EACH DATASET duration
-
-	// double duration_s = 45;
-	// cout << " Applied " << uwb_counter << " uwb measurements for "<< duration_s<< " seconds of data " << endl;
-	// double f_uwb = uwb_counter /duration_s;
-	// cout << " UWB frequency in the graph is " << f_uwb << endl;
-
-	// cout << " Applied " << gt_counter << " slam measurements for "<< duration_s<< " seconds of data " << endl;
-	// double f_gt = gt_counter /duration_s;
-	// cout << " GT frequency in the graph is " << f_gt << endl;
 
 	return 0;
 }
