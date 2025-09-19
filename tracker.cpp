@@ -696,7 +696,7 @@ std::shared_ptr<PreintegratedCombinedMeasurements::Params> get_imu_preintegratio
 	// AND LOOK AT THE NOTES IN YOUR NOTEBOOK!
 
 	//https://groups.google.com/g/gtsam-users/c/tatJxcclMWI/m/r9A_vmGfAAAJ
-	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
+	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedD();
 	
 	imu_preintegration_params->accelerometerCovariance = accel_covariance;
 	imu_preintegration_params->gyroscopeCovariance = gyro_covariance;
