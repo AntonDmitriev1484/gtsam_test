@@ -27,7 +27,7 @@ set(MATPLOTPLUSPLUS_LIB_PATH "/usr/local/lib/libmatplot.a")
 
 # Add source to this project's executable.
 add_executable (gtsam_test "gtsam_test.cpp" "gtsam_test.h" "data_tools.h" "data_tools.cpp" 
-"utils.h" "utils.cpp" "tracker.h" "tracker.cpp" "1euro.h")
+"utils.h" "utils.cpp" "tracker.h" "tracker.cpp" "1euro.h" "central_tracker.h" "central_tracker.cpp")
 
 # Need to manually link with gtsam, apparently find_package doesn't work'
 target_link_libraries(gtsam_test 

@@ -1,6 +1,6 @@
 #pragma once
 #include "gtsam_test.h"
-#include "nlohmann/json.hpp"
+#include <nlohmann/json.hpp>
 #include "data_tools.h"
 #include "utils.h"
 #include "cmath"
@@ -54,6 +54,12 @@ public:
     
     PreintegrationType* imu_preintegrated;
     imuBias::ConstantBias prior_imu_bias;
+
+    vector<json> pose_buffer;
+    vector<json> range_buffer;
+
+    int imu_counter=0, uwb_counter = 0, gt_counter=0,
+	imu_count_at_last_correction = 0, imu_count_at_last_imu_factor = 0;
 
     Pose3 T_body_to_imu;
     Pose3 T_body_to_decawave;
@@ -122,7 +128,10 @@ public:
 
     void processSLAM(const json& mes);
     void processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_stdev);
-    void processAssistedUWB(const json& mes, int& uwb_counter);
+    void processAssistedUWB(const json& mes);
+    void processIMU(const json& mes);
+
+    void write_results();
 };
 
 // Moved in here because circular includes confuse me
