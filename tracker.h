@@ -1,6 +1,7 @@
 #pragma once
 #include "gtsam_test.h"
-#include <nlohmann/json.hpp>
+// #include <nlohmann/json.hpp>
+#include "json.hpp"
 #include "data_tools.h"
 #include "utils.h"
 #include "cmath"
@@ -120,6 +121,7 @@ public:
 
     Pose3 report_estimate(Pose3 initial, double timestamp); // take in a GTSAM pose, apply 1-euro filter, and append output to est
 
+    // TODO: Remove
     void exec_iSAM(NavState& proposed, double mes_timestamp, 
         string msg="", bool print=false);
 

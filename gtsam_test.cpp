@@ -5,10 +5,9 @@
 #include "tracker.h"
 #include "central_tracker.h"
 #include <regex>
-#include "/home/antond2/gnuplot-iostream/gnuplot-iostream.h"
 #include <boost/iostreams/stream.hpp>
 #include <boost/iostreams/device/file_descriptor.hpp>
-
+#include <fstream>
 
 using PreintegrationType = gtsam::PreintegrationBase;
 using namespace gtsam;
@@ -88,12 +87,12 @@ int main(int argc, char* argv[]) {
 
 
 	const string id = "1";
-	const int smoother_lag = 1;
+	const double smoother_lag = 1;
 	const bool use_smoother = false;
 	const bool use_filter = true;
 
 
-	CentralTracker c(use_smoother, data_dir, out_dir, uwb_synth_stdev);
+	CentralTracker c(use_smoother, smoother_lag, data_dir, out_dir, uwb_synth_stdev);
 
 	bool start_graph = false;
 

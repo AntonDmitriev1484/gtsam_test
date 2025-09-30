@@ -36,11 +36,12 @@ public:
     
     //Debug
 
-    CentralTracker(
+    CentralTracker::CentralTracker(
         const bool use_smoother,
+        const double smoother_lag,
         const string data_dir,
         const string out_dir,
-        double uwb_synth_stdev
+        double uwb_synth_stdev,
         );
 
     void exec_iSAM(NavState& proposed, double mes_timestamp, 

@@ -1,6 +1,6 @@
 #pragma once
 #include "gtsam_test.h"
-#include "nlohmann/json.hpp"
+#include "json.hpp"
 
 #include <cstring>
 #include <fstream>
@@ -9,12 +9,9 @@
 
 using namespace std;
 using namespace gtsam;
-
 using json = nlohmann::json;
 
 #include "tracker.h"
-// struct tracking;
-
 
 
 void get_pose_matrix(json d, string& user, Matrix44& pose_matrix);

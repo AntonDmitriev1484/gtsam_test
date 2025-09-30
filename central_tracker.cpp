@@ -53,7 +53,7 @@ vector<string> get_users(string data_dir) {
     std::regex nuc_pattern("^nuc(\\d+)$");
     vector<string> nuc_ids;
 
-    for (const auto& entry : fs::directory_iterator(parent_dir)) {
+    for (const auto& entry : std::filesystem::directory_iterator(data_dir)) {
             if (entry.is_directory()) {
                 std::string dirname = entry.path().filename().string();
                 std::smatch match;
@@ -67,19 +67,21 @@ vector<string> get_users(string data_dir) {
     return nuc_ids;
 }
 
-std::map<string, json> get_imu_params(const vector<string>& users, string data_dir) {
+std::map<string, json> get_imu_params(const vector<string>& user_ids, string data_dir) {
     const std::map<string, json> imu_parameters;
     for (string id : user_ids) {
-        fs::path imu_param_path = fs::path(data_dir) / ("nuc" + id) / "imu.json";
-        std::ifstream f(imu_path);
+        std::filesystem::path imu_param_path = std::filesystem::path(data_dir) / ("nuc" + id) / "imu.json";
+        std::ifstream f(imu_param_path);
         json imu_json;
         f >> imu_json;  // load JSON
         imu_parameters[id] = imu_json;
     }
+    return imu_parameters;
 }
 
 CentralTracker::CentralTracker(
     const bool use_smoother,
+    const double smoother_lag,
     const string data_dir,
     const string out_dir,
     double uwb_synth_stdev,
@@ -89,7 +91,6 @@ CentralTracker::CentralTracker(
     // Instantiate graph
     this->graph = new NonlinearFactorGraph();
     // Values initialized in class
-	this->use_filter = use_filter;
 	this->use_smoother = use_smoother;
 	if (use_smoother) {
 		ISAM2Params isam_params;
