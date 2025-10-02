@@ -26,7 +26,6 @@
 void get_beacon_info(map<string, tracking>& info, json beacon_data) {
 	// Beacon position will 
 	for (json beacon : beacon_data) {
-		Rot3 rot();
 		Vector3 v;
 		auto raw_position = beacon["position"];
 		int i = 0;
@@ -68,9 +67,10 @@ vector<string> get_users(string data_dir) {
 }
 
 std::map<string, json> get_imu_params(const vector<string>& user_ids, string data_dir) {
-    const std::map<string, json> imu_parameters;
+    std::map<string, json> imu_parameters;
     for (string id : user_ids) {
-        std::filesystem::path imu_param_path = std::filesystem::path(data_dir) / ("nuc" + id) / "imu.json";
+		string imu_param_path = data_dir +"/nuc" + id +"/imu.json";
+        //std::filesystem::path imu_param_path = std::filesystem::path(data_dir) / ("nuc" + id) / "imu.json";
         std::ifstream f(imu_param_path);
         json imu_json;
         f >> imu_json;  // load JSON
@@ -79,12 +79,30 @@ std::map<string, json> get_imu_params(const vector<string>& user_ids, string dat
     return imu_parameters;
 }
 
+
+// Assuming we have already called
+// get_beacon_info(tracker.anchors, json::parse(beacon_fs));
+void CentralTracker::init_anchor(string id){
+    Pose3 prior_beacon_pose(anchors[id].gt_poses[0]);
+    vals.insert(AnchorKey(id), prior_beacon_pose);
+    graph->add(NonlinearEquality<Pose3>(AnchorKey(id), prior_beacon_pose));
+}
+
+void CentralTracker::init_anchors(json anchor_json) {
+	get_beacon_info(anchors, anchor_json); // Reads raw pose data into map
+	for (auto& [id, anchor_track]: anchors){
+		init_anchor(id); // Uses anchor pose to set pose prior, and inserts into values.
+	}
+}
+
 CentralTracker::CentralTracker(
     const bool use_smoother,
     const double smoother_lag,
     const string data_dir,
     const string out_dir,
     double uwb_synth_stdev,
+	json transform_json,
+	json anchor_json
     ) 
     {
 
@@ -116,7 +134,7 @@ CentralTracker::CentralTracker(
 
     // Read in data
     vector<string> user_ids = get_users(data_dir);
-    std::map<string, json> imu_params = get_imu_params(user_ids, data_dir):
+    std::map<string, json> imu_params = get_imu_params(user_ids, data_dir);
 
 
     // Initializing Trackers
@@ -146,6 +164,7 @@ CentralTracker::CentralTracker(
     Pose3 T_body_to_decawave;
 	get_pose_from_HTM(transform_json["T_body_to_decawave"], T_body_to_decawave);
 
+	bool use_filter = false;
 
     // Initialize every user
     for (string id: user_ids) {
@@ -172,7 +191,6 @@ CentralTracker::CentralTracker(
 
             // TODO: Modify tracker so that you pass a graph and optimizer pointer.
         Tracker t(
-            graph, this,
             id, T_body_to_imu, T_body_to_decawave, 
             dt, use_filter, uwb_synth_stdev, 
             GT_noise_model, UWB_noise_model, VIO_pose_noise_model, 

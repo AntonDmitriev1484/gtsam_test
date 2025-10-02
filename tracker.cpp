@@ -23,37 +23,10 @@
 		} \
 	} while (false)
 
-void get_beacon_info(map<string, tracking>& info, json beacon_data) {
-	// Beacon position will 
-	for (json beacon : beacon_data) {
-		Rot3 rot();
-		Vector3 v;
-		auto raw_position = beacon["position"];
-		int i = 0;
-		for (const auto& row : raw_position) {
-			v(i) = row;
-			i++;
-		}
-
-		string user = to_string(beacon["ID"]);
-		Pose3 beacon_pos(Rot3::Identity(), v);
-
-			//If beacon hasn't been added yet
-			if (info.find(user) == info.end()) {
-				tracking t;
-				t.gt_poses.push_back(beacon_pos); // Only need to push back once
-				t.is_beacon = true;
-				info.insert(make_pair(user, t));
-			}
-	}
-}
-
 Tracker::Tracker(const std::string& id,
                  const Pose3 T_body_to_imu,
                  const Pose3 T_body_to_decawave,
                  const double delta_t,
-                 const double smoother_lag,
-                 const bool use_smoother,
                  const bool use_filter,
                  const double uwb_stdev,
                  const SharedNoiseModel& GT_noise_model,
@@ -69,7 +42,6 @@ Tracker::Tracker(const std::string& id,
       T_body_to_decawave(T_body_to_decawave),
       prior_imu_bias(prior_imu_bias),
       imu_preintegrated(new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias)),
-      uwb_rng(std::mt19937(std::random_device{}())),
       uwb_stdev(uwb_stdev),
       GT_noise_model(GT_noise_model),
       UWB_noise_model(UWB_noise_model),
@@ -90,6 +62,10 @@ Tracker::Tracker(const std::string& id,
       ) 
 {
 
+		// Initialize UWB RNG
+	std::random_device rd; 
+	std::mt19937 gen(rd());    
+	this->uwb_rng = gen; 
 }
 
 
@@ -114,23 +90,10 @@ Pose3 Tracker::report_estimate(Pose3 initial, double timestamp){
 	return reported_pose;
 }
 
-Key AnchorKey(string name) {return symbol('s', stoi(name));}
+
+// Key AnchorKey(string name) {return symbol('s', stoi(name));}
 
 
-// Assuming we have already called
-// get_beacon_info(tracker.anchors, json::parse(beacon_fs));
-void Tracker::init_anchor(string id){
-    Pose3 prior_beacon_pose(anchors[id].gt_poses[0]);
-    vals.insert(AnchorKey(id), prior_beacon_pose);
-    graph->add(NonlinearEquality<Pose3>(AnchorKey(id), prior_beacon_pose));
-}
-
-void Tracker::init_anchors(json anchor_json) {
-	get_beacon_info(anchors, anchor_json); // Reads raw pose data into map
-	for (auto& [id, anchor_track]: anchors){
-		init_anchor(id); // Uses anchor pose to set pose prior, and inserts into values.
-	}
-}
 
 void Tracker::init_state(json mes) {
     track.Ix = 0;

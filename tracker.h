@@ -101,8 +101,6 @@ public:
             const Pose3 T_body_to_imu,
             const Pose3 T_body_to_decawave,
             const double delta_t,
-            const double smoother_lag,
-            const bool use_smoother,
             const bool use_filter,
             const double uwb_stdev,
             const SharedNoiseModel& GT_noise_model,
@@ -138,5 +136,6 @@ public:
 
 // Moved in here because circular includes confuse me
 void get_gt_info(map<string, tracking>& info, json gt_data);
-void get_beacon_info(map<string, tracking>& info, json beacon_data);
 std::shared_ptr<PreintegratedCombinedMeasurements::Params> get_imu_preintegration_params(int ASCALE, int GSCALE);
+
+inline Key AnchorKey(string name) {return symbol('s', stoi(name));}

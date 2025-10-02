@@ -92,7 +92,7 @@ int main(int argc, char* argv[]) {
 	const bool use_filter = true;
 
 
-	CentralTracker c(use_smoother, smoother_lag, data_dir, out_dir, uwb_synth_stdev);
+	CentralTracker c(use_smoother, smoother_lag, data_dir, out_dir, uwb_synth_stdev, transform_json, anchor_json);
 
 	bool start_graph = false;
 
