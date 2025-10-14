@@ -35,6 +35,7 @@ endif()
 enable_testing()
 
 add_test(NAME irl3_los_walking COMMAND gtsam_test irl3_los_walking none no_uwb 0.0 true)
+add_test(NAME irl4_los_walking COMMAND gtsam_test irl4_los_walking none no_uwb 0.0 true)
 
 add_test(NAME stereoi_circle2/synthetic_1_5_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_1_5 no_uwb 0.02 true)
 add_test(NAME stereoi_circle2/synthetic_1_5_uwb COMMAND gtsam_test stereoi_circle2 synthetic_1_5 uwb 0.02 true)
