@@ -7,7 +7,7 @@
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/out/build/linux-debug/gtsam_test",
-      "args": ["irl3_los_walking", "none", "no_uwb", "0.0", "false"],
+      "args": ["5hr_imu", "none", "no_uwb", "0.0", "false"],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
       "environment": [],

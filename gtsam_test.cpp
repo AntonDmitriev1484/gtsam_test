@@ -125,7 +125,7 @@ int main(int argc, char* argv[]) {
 
 	// Pose3 T_body_to_imu = T_imu_to_body.inverse();
 	Pose3 T_imu_to_body = Pose3::Identity(); // We're assuming IMU is body frame for now
-	Pose3 T_body_to_imu = T_imu_to_body.inverse();
+	Pose3 T_body_to_imu = Pose3::Identity();
 	
 	//https://gtsam.org/doxygen/4.0.0/a03531.html
 	// "Pose of the sensor in the body frame" - this should be T IMU to body.
@@ -134,8 +134,12 @@ int main(int argc, char* argv[]) {
 
 
 	Matrix33 R_world_to_imu;
-	R_world_to_imu << 1, 0, 0, 0, 1, 0, 0, 0, -1;
+	R_world_to_imu << 1, 0, 0,
+					0, 1, 0,
+					0, 0, -1;
 	Pose3 T_world_to_body (Rot3(R_world_to_imu), Vector3(0,0,0));
+	// T_world_to_body = T_world_to_body.inverse();
+	// The frame being plotted is not Z-down?
 
 	Pose3 T_body_to_decawave;
 	get_pose_from_HTM(transforms["T_body_to_decawave"], T_body_to_decawave);
@@ -170,12 +174,12 @@ int main(int argc, char* argv[]) {
 	vector<json> range_buffer;
 
 	int mes_idx = 0;
-
 	t.init_state(T_world_to_body, Vector3(0,0,0), prior_imu_bias);
 	start_graph = true;
 
 
 	int end_mes_idx = 200 * 20; //20s of data
+	int stop_fusion_idx = 200 * 10;
 
 
 	for (json mes : sensor_stream) {
@@ -201,6 +205,11 @@ int main(int argc, char* argv[]) {
 
 		}
 
+		if (mes_idx % 2 == 0 and mes_idx <= stop_fusion_idx) {
+			// Set our stationary pose as the prior 10x, and hope that we learn the bias
+			t.processSLAM(mes, T_world_to_body);
+		}
+
 		if (mes_idx > end_mes_idx) break;
 
 		mes_idx ++;
@@ -209,8 +218,8 @@ int main(int argc, char* argv[]) {
 	// Before writing files for evluation, need to be able to transform all
 	// body poses in world frame to slambody (cam1) poses in world frame.
 
-	Pose3 T_imu_to_cam1;
-	get_pose_from_HTM(transforms["T_imu_to_cam1"], T_imu_to_cam1);
+	// Pose3 T_imu_to_cam1;
+	// get_pose_from_HTM(transforms["T_imu_to_cam1"], T_imu_to_cam1);
 
 	// Pose3 T_body_to_sbody_in_world = T_body_to_imu.compose(T_imu_to_cam1);
 	// Pose3& out_transform = T_body_to_sbody_in_world;

@@ -192,7 +192,7 @@ void Tracker::init_anchors(json anchor_json) {
 	}
 }
 
-void Tracker::init_state(Pose3 prior_pose, imuBias::ConstantBias prior_velocity, Vector3 prior_bias) {
+void Tracker::init_state(Pose3 prior_pose, Vector3 prior_velocity, imuBias::ConstantBias prior_bias) {
     track.Ix = 0;
     track.Iv = 0;
     track.Ib = 0;
@@ -208,15 +208,16 @@ void Tracker::init_state(Pose3 prior_pose, imuBias::ConstantBias prior_velocity,
 
     track.est_poses.push_back(prior_pose); // We'll take the estimate out of values and put it here.
     track.gt_poses.push_back(prior_pose);
-	track.est_timestamps.push_back(timestamp);
+	track.est_timestamps.push_back(0);
+		track.gt_timestamps.push_back(0);
     track.est_velocities.push_back(prior_velocity);
     track.constant_bias = prior_imu_bias;
 	track.changing_bias = prior_imu_bias;
 
 		// Add this key -> timestamp mapping to our map
-	key_timestamps[X(track.Ix)] = (double)mes["t"];
-	key_timestamps[V(track.Iv)] = (double)mes["t"];
-	key_timestamps[B(track.Ib)] = (double)mes["t"];
+	// key_timestamps[X(track.Ix)] = (double)mes["t"];
+	// key_timestamps[V(track.Iv)] = (double)mes["t"];
+	// key_timestamps[B(track.Ib)] = (double)mes["t"];
 
     // Once priors have been inserted into graph and vals,
     // initialize isam with these estimates.
@@ -362,18 +363,13 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 }
 
 
-void Tracker::processSLAM(const json& mes)
+void Tracker::processSLAM(const json& mes, Pose3 T_world_to_body)
 {
 	cout << "Used GT" << endl;
 	track.Ix++;
 	track.Iv++;
 	track.Ib++;
 
-	// Extract GT pose
-	Pose3 T_world_to_body;
-	string usrname;
-	// Notation; T_body_world = T_world_to_body
-	get_pose_from_HTM(mes["T_body_world"],T_world_to_body);
 
 	// Equivalent of saying: T_world_to_body = T_imu_to_body * T_world_to_imu
 	// Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse());
@@ -682,7 +678,7 @@ std::shared_ptr<PreintegratedCombinedMeasurements::Params> get_imu_preintegratio
 	// AND LOOK AT THE NOTES IN YOUR NOTEBOOK!
 
 	//https://groups.google.com/g/gtsam-users/c/tatJxcclMWI/m/r9A_vmGfAAAJ
-	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedD();
+	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
 	
 	imu_preintegration_params->accelerometerCovariance = accel_covariance;
 	imu_preintegration_params->gyroscopeCovariance = gyro_covariance;

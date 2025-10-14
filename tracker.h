@@ -119,7 +119,7 @@ public:
     void exec_smoother(NavState& proposed, double mes_timestamp, 
         string msg="", bool print=false);
 
-    void processSLAM(const json& mes);
+    void processSLAM(const json& mes, Pose3 T_world_to_body);
     void processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_stdev);
     void processAssistedUWB(const json& mes, int& uwb_counter);
 };
