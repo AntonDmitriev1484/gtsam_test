@@ -1,6 +1,7 @@
 #pragma once
 #include "gtsam_test.h"
-#include "nlohmann/json.hpp"
+// #include "nlohmann/json.hpp"
+#include "json.hpp"
 
 #include <cstring>
 #include <fstream>

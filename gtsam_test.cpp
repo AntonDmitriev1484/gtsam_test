@@ -116,30 +116,26 @@ int main(int argc, char* argv[]) {
 	// IMU initialization code
 
 	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = get_imu_preintegration_params(10, 10);
-	imuBias::ConstantBias prior_imu_bias(Vector3(-0.03, -0.05, 0.23), Vector3(-0.0048, -0.00445, -0.0015)); 
+	// imuBias::ConstantBias prior_imu_bias(Vector3(-0.03, -0.05, 0.23), Vector3(-0.0048, -0.00445, -0.0015)); 
+	imuBias::ConstantBias prior_imu_bias(Vector3(0,0,0), Vector3(0,0,0));
 	// First accelerometer bias, then gyro bias.
 	
-	Pose3 T_imu_to_body;
-	get_pose_from_HTM(transforms["T_imu_to_body"], T_imu_to_body);
+	// Pose3 T_imu_to_body;
+	// get_pose_from_HTM(transforms["T_imu_to_body"], T_imu_to_body);
 
-	// // Judging from this transform from earlier
-	// Matrix33 transform;
-	// transform << 1, 0, 0,
-	// 			0, 0, 1,
-	// 			0, -1, 0;
-	// // we're dealing with a y-forward, x-right body frame.
-	// Pose3 T_imu_to_body(Rot3(transform), Vector3::Zero());
 	// Pose3 T_body_to_imu = T_imu_to_body.inverse();
-
+	Pose3 T_imu_to_body = Pose3::Identity(); // We're assuming IMU is body frame for now
 	Pose3 T_body_to_imu = T_imu_to_body.inverse();
-
+	
 	//https://gtsam.org/doxygen/4.0.0/a03531.html
 	// "Pose of the sensor in the body frame" - this should be T IMU to body.
 	// but T_body_to_imu seems to give a more reasonable looking (but still incorrect) result
-	imu_preintegration_params->setBodyPSensor(T_body_to_imu);
+	imu_preintegration_params->setBodyPSensor(T_imu_to_body);
 
 
-
+	Matrix33 R_world_to_imu;
+	R_world_to_imu << 1, 0, 0, 0, 1, 0, 0, 0, -1;
+	Pose3 T_world_to_body (Rot3(R_world_to_imu), Vector3(0,0,0));
 
 	Pose3 T_body_to_decawave;
 	get_pose_from_HTM(transforms["T_body_to_decawave"], T_body_to_decawave);
@@ -175,6 +171,12 @@ int main(int argc, char* argv[]) {
 
 	int mes_idx = 0;
 
+	t.init_state(T_world_to_body, Vector3(0,0,0), prior_imu_bias);
+	start_graph = true;
+
+
+	int end_mes_idx = 200 * 20; //20s of data
+
 
 	for (json mes : sensor_stream) {
 
@@ -199,26 +201,7 @@ int main(int argc, char* argv[]) {
 
 		}
 
-		else if (use_gt && mes["type"] == "vicon_pose" && !start_graph) {
-			// Skip all measurements until we find a slam pose and velocity that we can use to set up priors
-			t.init_state(mes);
-			start_graph = true;
-		}
-
-		else if (use_gt && mes["type"] == "vicon_pose" && start_graph) { 
-			// Doesn't contribute to the estimated trajectory at all on this branch
-
-			Pose3 T_world_to_body;
-			string usrname;
-
-			// Notation; T_body_world = T_world_to_body (as tracked by Vicon)
-			get_pose_from_HTM(mes["T_body_world"],T_world_to_body);
-
-			Pose3 gt_pose = T_world_to_body;
-			t.track.gt_poses.push_back(gt_pose);
-			t.track.gt_timestamps.push_back(mes["t"]);
-			gt_counter++;
-		}
+		if (mes_idx > end_mes_idx) break;
 
 		mes_idx ++;
 	}

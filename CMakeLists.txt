@@ -6,7 +6,7 @@ project ("gtsam_test")
 # You should only need to customize these 4 filepaths, probably just the json, single_include
 include_directories("/usr/local/include/gtsam")
 include_directories("/usr/include/eigen3/")
-include_directories("/home/antond2/json/single_include")
+# include_directories("/home/antond2/json/single_include")
 set(GTSAM_LIB_PATH "/usr/local/lib/libgtsam.so")
 
 find_package(GTSAMCMakeTools)
@@ -34,8 +34,9 @@ endif()
 # <trial_name> <synthetic_trial_name or 'none'> <'uwb' or 'no_uwb'> <dump (true|false)>"
 enable_testing()
 
-add_test(NAME irl3_los_walking COMMAND gtsam_test irl3_los_walking none no_uwb 0.0 true)
-add_test(NAME irl4_los_walking COMMAND gtsam_test irl4_los_walking none no_uwb 0.0 true)
+# add_test(NAME irl3_los_walking COMMAND gtsam_test irl3_los_walking none no_uwb 0.0 true)
+# add_test(NAME irl4_los_walking COMMAND gtsam_test irl4_los_walking none no_uwb 0.0 true)
+add_test(NAME 5hr_imu COMMAND gtsam_test 5hr_imu none no_uwb 0.0 true)
 
-add_test(NAME stereoi_circle2/synthetic_1_5_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_1_5 no_uwb 0.02 true)
-add_test(NAME stereoi_circle2/synthetic_1_5_uwb COMMAND gtsam_test stereoi_circle2 synthetic_1_5 uwb 0.02 true)
+# add_test(NAME stereoi_circle2/synthetic_1_5_nouwb COMMAND gtsam_test stereoi_circle2 synthetic_1_5 no_uwb 0.02 true)
+# add_test(NAME stereoi_circle2/synthetic_1_5_uwb COMMAND gtsam_test stereoi_circle2 synthetic_1_5 uwb 0.02 true)

@@ -192,24 +192,10 @@ void Tracker::init_anchors(json anchor_json) {
 	}
 }
 
-void Tracker::init_state(json mes) {
+void Tracker::init_state(Pose3 prior_pose, imuBias::ConstantBias prior_velocity, Vector3 prior_bias) {
     track.Ix = 0;
     track.Iv = 0;
     track.Ib = 0;
-
-	Pose3 start_slam_pose; 
-	Vector3 start_slam_velocity;
-	double timestamp;
-
-	// velocity and body pose are computed from body poses in the world frame
-	get_pose_from_HTM(mes["T_body_world"], start_slam_pose);
-	get_V(mes, start_slam_velocity); // velocity
-
-	Pose3 prior_pose = start_slam_pose;
-
-	Pose3 pose_velocity(Rot3::Identity(), start_slam_velocity);
-	// Vector3 prior_velocity = start_slam_velocity;
-	Vector3 prior_velocity(0,0,0);
 
 
     vals.insert(X(track.Ix), prior_pose);

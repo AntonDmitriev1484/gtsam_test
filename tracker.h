@@ -108,8 +108,9 @@ public:
     void init(json sensor_stream);
     void init_anchors(json anchor_json);
     void init_anchor(string id);
-    void init_state(json mes);
-
+    // void init_state(json mes);
+    void init_state(Pose3 prior_pose, Vector3 prior_velocity, imuBias::ConstantBias prior_bias);
+    
     Pose3 report_estimate(Pose3 initial, double timestamp); // take in a GTSAM pose, apply 1-euro filter, and append output to est
 
     void exec_iSAM(NavState& proposed, double mes_timestamp, 
