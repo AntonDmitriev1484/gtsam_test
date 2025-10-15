@@ -208,6 +208,7 @@ int main(int argc, char* argv[]) {
 		if (mes_idx % 2 == 0 and mes_idx <= stop_fusion_idx) {
 			// Set our stationary pose as the prior 10x, and hope that we learn the bias
 			t.processSLAM(mes, T_world_to_body);
+
 		}
 
 		if (mes_idx > end_mes_idx) break;

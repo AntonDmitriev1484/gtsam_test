@@ -272,6 +272,9 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
 		track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
 
+		cout << " Bias estimate " << endl;
+		track.changing_bias.print();
+		
 		// Clear for next iteration
 		graph->resize(0);
 		vals.clear();
