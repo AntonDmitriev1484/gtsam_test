@@ -106,18 +106,21 @@ int main(int argc, char* argv[]) {
 	// GT noise model - (use to define pose prior)
 	double gt_pos_stdev = 1e-2;
 	double gt_ori_stdev = 1e-2;
+	// noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, 1,1,1)); //John suggestion
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
 	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 1e-2);
-	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-3);
+	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-1);
+	// bias we're getting is 2e-2, but our original value is 1e-3
+	// Also do a separate value for the gyro bias
 
 
 	//// IMU noise model
 
 	// IMU initialization code
 
-	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = get_imu_preintegration_params(10, 10);
-	// imuBias::ConstantBias prior_imu_bias(Vector3(-0.03, -0.05, 0.23), Vector3(-0.0048, -0.00445, -0.0015)); 
-	imuBias::ConstantBias prior_imu_bias(Vector3(0,0,0), Vector3(0,0,0));
+	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = get_imu_preintegration_params(1, 1);
+	imuBias::ConstantBias prior_imu_bias(Vector3(0,0, 0), Vector3(0,0,0));
+	// imuBias::ConstantBias prior_imu_bias(Vector3(0,0,0), Vector3(0,0,0));
 	// First accelerometer bias, then gyro bias.
 	
 	// Pose3 T_imu_to_body;
@@ -134,10 +137,16 @@ int main(int argc, char* argv[]) {
 
 
 	Matrix33 R_world_to_imu;
-	R_world_to_imu << 1, 0, 0,
-					0, 1, 0,
-					0, 0, -1;
+	// For 5hr_imu
+	// R_world_to_imu << 1, 0, 0,
+	// 				0, 1, 0,
+	// 				0, 0, -1;
+	// For imu_bias_forward
+
+	// TODO: CHange all notation to be T_body_to_world
+	R_world_to_imu << 1, 0, 0, 0, 0, -1, 0, 1, 0;
 	Pose3 T_world_to_body (Rot3(R_world_to_imu), Vector3(0,0,0));
+	Pose3 T_body_to_world = T_world_to_body.inverse();
 	// T_world_to_body = T_world_to_body.inverse();
 	// The frame being plotted is not Z-down?
 
@@ -173,15 +182,20 @@ int main(int argc, char* argv[]) {
 	vector<json> gt_pose_buffer;
 	vector<json> range_buffer;
 
+
+	int imu_idx = 0;
 	int mes_idx = 0;
-	t.init_state(T_world_to_body, Vector3(0,0,0), prior_imu_bias);
+	t.init_state(T_body_to_world, Vector3(0,0,0), prior_imu_bias);
 	start_graph = true;
 
+	bool last_mes_was_pose = true;
 
-	int end_mes_idx = 200 * 20; //20s of data
-	int stop_fusion_idx = 200 * 10;
+	// int end_mes_idx = 200 * 40; //40s of data
+	int stop_fusion_idx = 200 * 28; //30s of bias calibration
 
+	int start_idx = 200 * 30;
 
+	Vector3 avg_accel(0,0,0);
 	for (json mes : sensor_stream) {
 
 		if (start_graph && mes["type"] == "imu") {
@@ -194,36 +208,37 @@ int main(int argc, char* argv[]) {
 			t.imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 			imu_counter++;
 
+			avg_accel += accel;
+
 
 			cout << "Preintegration at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
-
+			cout << "Norm of accel " << accel.norm() << endl;
 			// Just for plotting at IMU frequency
 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(t.imu_preintegrated);
 			NavState proposed = current_imu_preintegration->predict(t.prev_state, t.track.changing_bias);
 
 			t.report_estimate(proposed.pose(), mes["t"]);
+			last_mes_was_pose = false;
 
+			imu_idx ++;
 		}
 
-		if (mes_idx % 2 == 0 and mes_idx <= stop_fusion_idx) {
+		if (imu_idx % 10 == 0 && imu_idx <= stop_fusion_idx && !last_mes_was_pose) {
 			// Set our stationary pose as the prior 10x, and hope that we learn the bias
-			t.processSLAM(mes, T_world_to_body);
+			t.processSLAM(mes, T_body_to_world);
 
+			cout << "Manual bias "<< " a: " << avg_accel.x() / imu_idx << " " << (avg_accel.y() / imu_idx)+9.81 << " " << (avg_accel.z()/imu_idx) << endl;
+			last_mes_was_pose = true;
 		}
 
-		if (mes_idx > end_mes_idx) break;
-
+		if (mes["t"] > 1760545516-10) start_graph = true;
+		// if (mes_idx > end_mes_idx) break;
 		mes_idx ++;
 	}
 
 	// Before writing files for evluation, need to be able to transform all
 	// body poses in world frame to slambody (cam1) poses in world frame.
 
-	// Pose3 T_imu_to_cam1;
-	// get_pose_from_HTM(transforms["T_imu_to_cam1"], T_imu_to_cam1);
-
-	// Pose3 T_body_to_sbody_in_world = T_body_to_imu.compose(T_imu_to_cam1);
-	// Pose3& out_transform = T_body_to_sbody_in_world;
 	Pose3 iden = Pose3::Identity();
 	Pose3& out_transform = iden;
 

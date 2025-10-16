@@ -34,7 +34,15 @@ endif()
 # <trial_name> <synthetic_trial_name or 'none'> <'uwb' or 'no_uwb'> <dump (true|false)>"
 enable_testing()
 
-add_test(NAME irl3_los_walking COMMAND gtsam_test irl3_los_walking none no_uwb 0.0 true)
+add_test(NAME imu_bias_sideways COMMAND gtsam_test imu_bias_sideways none no_uwb 0.0 true)
+add_test(NAME imu_bias_square2 COMMAND gtsam_test imu_bias_square2 none no_uwb 0.0 true)
+add_test(NAME imu_bias_square COMMAND gtsam_test imu_bias_square none no_uwb 0.0 true)
+add_test(NAME imu_bias_arch2 COMMAND gtsam_test imu_bias_arch2 none no_uwb 0.0 true)
+add_test(NAME imu_bias_forward2 COMMAND gtsam_test imu_bias_forward2 none no_uwb 0.0 true)
+add_test(NAME imu_bias_forward COMMAND gtsam_test imu_bias_forward none no_uwb 0.0 true)
+add_test(NAME imu_bias_arch COMMAND gtsam_test imu_bias_arch none no_uwb 0.0 true)
+add_test(NAME imu_bias_squiggle COMMAND gtsam_test imu_bias_squiggle none no_uwb 0.0 true)
+# add_test(NAME irl3_los_walking COMMAND gtsam_test irl3_los_walking none no_uwb 0.0 true)
 # add_test(NAME irl4_los_walking COMMAND gtsam_test irl4_los_walking none no_uwb 0.0 true)
 add_test(NAME 5hr_imu COMMAND gtsam_test 5hr_imu none no_uwb 0.0 true)
 

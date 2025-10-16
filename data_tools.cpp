@@ -106,7 +106,7 @@ void write_trajectory_TUM_format(vector<Pose3> trajectory, vector<double> timest
 	fs << std::fixed << std::setprecision(8);  // Set once before the loop
 
     for (size_t i = 0; i < trajectory.size(); i++) {
-        const Pose3& T_world_to_body = trajectory[i];
+        const Pose3& T_world_to_body = trajectory[i].inverse();
 
 		//Pose is T_world_to_body
 		// We want T_world_to_imu = T_body_to_imu x T_world_to_body
