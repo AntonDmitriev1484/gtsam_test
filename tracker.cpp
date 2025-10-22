@@ -202,7 +202,10 @@ void Tracker::init_state(json mes) {
 	double timestamp;
 
 	// velocity and body pose are computed from body poses in the world frame
-	get_pose_from_HTM(mes["T_body_world"], start_slam_pose);
+	get_pose_from_HTM(mes["T_body_world"],T_world_to_body);
+	Pose3 T_body_to_world = T_world_to_body.inverse();
+	Pose3 start_slam_pose = T_body_to_world;
+	
 	get_V(mes, start_slam_velocity); // velocity
 
 	Rot3 rot_imu_to_body = T_body_to_imu.rotation().inverse();
@@ -386,12 +389,12 @@ void Tracker::processSLAM(const json& mes)
 	// Extract GT pose
 	Pose3 T_world_to_body;
 	string usrname;
-	// Notation; T_body_world = T_world_to_body
+	// Notation; T_body_world in the file is = T_world_to_body
+	// For proper gravity compensation, GTSAM needs T_body_to_world
+	// But I plot everything and output data from post process using T_world_to_body
 	get_pose_from_HTM(mes["T_body_world"],T_world_to_body);
-
-	// Equivalent of saying: T_world_to_body = T_imu_to_body * T_world_to_imu
-	// Pose3 gt_pose = T_world_to_imu.compose(T_body_to_imu.inverse());
-	Pose3 gt_pose = T_world_to_body;
+	Pose3 T_body_to_world = T_world_to_body.inverse();
+	Pose3 gt_pose = T_body_to_world;
 
 	// Pose3 gt_pose = T_world_to_imu;
 	track.gt_poses.push_back(gt_pose);
@@ -444,8 +447,9 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 
 		// Extract GT pose
 	Pose3 T_world_to_body;
-	get_pose_from_HTM(mes["T_body_world"], T_world_to_body);
-	Pose3 gt_pose = T_world_to_body;
+	get_pose_from_HTM(mes["T_body_world"],T_world_to_body);
+	Pose3 T_body_to_world = T_world_to_body.inverse();
+	Pose3 gt_pose = T_body_to_world;
 
 	track.Ix++;
 	track.Iv++;
@@ -535,7 +539,8 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	// Extract GT pose
 	Pose3 T_world_to_body;
 	get_pose_from_HTM(mes["T_body_world"], T_world_to_body);
-	Pose3 gt_pose = T_world_to_body;
+	Pose3 T_body_to_world = T_world_to_body.inverse();
+	Pose3 gt_pose = T_body_to_world;
 
 	track.Ix++;
 	track.Iv++;

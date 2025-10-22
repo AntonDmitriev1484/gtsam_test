@@ -54,6 +54,7 @@ int main(int argc, char* argv[]) {
 		raw_fs = ifstream(data_dir + "/all.json");
 	}
 
+	ifstream priors_fs("/home/antond2/ws/post/out/"+trial_name+"_post" + "/priors.json")
 	ifstream beacon_fs("/home/antond2/ws/post/out/"+trial_name+"_post" + "/anchors.json");
 	ifstream transform_fs("/home/antond2/ws/post/out/"+trial_name+"_post" + "/transforms.json");
 
@@ -81,6 +82,7 @@ int main(int argc, char* argv[]) {
 
 	json sensor_stream = json::parse(raw_fs);
 	json transforms = json::parse(transform_fs);
+	json priors = json::parse(priors_fs);
 	map<string, tracking> info; // Map of username to tracking information
 
 	double dt = 1.0 / 200.0; // IMU gyro and accelerometer operate at 200Hz
@@ -104,8 +106,13 @@ int main(int argc, char* argv[]) {
 	double gt_pos_stdev = 1e-2;
 	double gt_ori_stdev = 1e-2;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
-	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 1e-2);
-	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-2);
+	auto velocity_prior_ = priors["velocity"];
+	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigmas(
+		Vector3(priors["velocity"][0], priors["velocity"][1], priors["velocity"][2]));
+	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(
+		Vector6(priors["accel_bias"][0], priors["accel_bias"][1], priors["accel_bias"][2],
+		priors["gyro_bias"][0], priors["gyro_bias"][1], priors["gyro_bias"][2])
+	);
 
 
 	//// IMU noise model

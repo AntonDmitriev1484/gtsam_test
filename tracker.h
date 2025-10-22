@@ -8,7 +8,7 @@
 
 using PreintegrationType = gtsam::PreintegrationBase;
 using PreintegrationParams = gtsam::PreintegratedCombinedMeasurements::Params;
-// using namespace gtsam;
+using namespace gtsam;
 // using namespace std;
 using json = nlohmann::json;
 
