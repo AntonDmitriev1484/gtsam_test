@@ -109,7 +109,7 @@ int main(int argc, char* argv[]) {
 	// noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, 1,1,1)); //John suggestion
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
 	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 1e-2);
-	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-1);
+	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-3);
 	// bias we're getting is 2e-2, but our original value is 1e-3
 	// Also do a separate value for the gyro bias
 
@@ -119,7 +119,9 @@ int main(int argc, char* argv[]) {
 	// IMU initialization code
 
 	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = get_imu_preintegration_params(1, 1);
-	imuBias::ConstantBias prior_imu_bias(Vector3(0,0, 0), Vector3(0,0,0));
+	// imuBias::ConstantBias prior_imu_bias(Vector3(0,0, 0), Vector3(0,0,0));
+
+
 	// imuBias::ConstantBias prior_imu_bias(Vector3(0,0,0), Vector3(0,0,0));
 	// First accelerometer bias, then gyro bias.
 	
@@ -134,17 +136,29 @@ int main(int argc, char* argv[]) {
 	// "Pose of the sensor in the body frame" - this should be T IMU to body.
 	// but T_body_to_imu seems to give a more reasonable looking (but still incorrect) result
 	imu_preintegration_params->setBodyPSensor(T_imu_to_body);
-
-
 	Matrix33 R_world_to_imu;
-	// For 5hr_imu
-	// R_world_to_imu << 1, 0, 0,
-	// 				0, 1, 0,
-	// 				0, 0, -1;
-	// For imu_bias_forward
 
-	// TODO: CHange all notation to be T_body_to_world
+
+// 	R_world_to_imu <<  9.99692713e-01, -1.10933278e-16, -2.47887082e-02,
+//  -2.47765819e-02,  3.12750783e-02, -9.99203678e-01,
+//  7.75268790e-04,  9.99510815e-01,  3.12654679e-02;
+
+//  	imuBias::ConstantBias prior_imu_bias(Vector3(  -0.0022506522811582275,
+//   -0.09072114694638245,
+//   0.0028386996257414032), Vector3(  -0.005023035741605273,
+//   -0.0032579750732104912,
+//   -0.0015341371222888718));
+
+// In box, 1
+	// Avg reported [-0.41389319 -0.13318152  0.63027706]
+		// imuBias::ConstantBias prior_imu_bias(Vector3(-0.41389319, -0.13318152,  0.63027706), Vector3(0,0,0));
+	// R_world_to_imu << 1, 0, 0, 0, 0, -1, 0, 1, 0;
+
+// In box 2
+	imuBias::ConstantBias prior_imu_bias(Vector3(0,0,0), Vector3(0,0,0));
+	// imuBias::ConstantBias prior_imu_bias(Vector3(-0.0192032 ,  0.15603612,  0.27231011), Vector3(0,0,0));
 	R_world_to_imu << 1, 0, 0, 0, 0, -1, 0, 1, 0;
+
 	Pose3 T_world_to_body (Rot3(R_world_to_imu), Vector3(0,0,0));
 	Pose3 T_body_to_world = T_world_to_body.inverse();
 	// T_world_to_body = T_world_to_body.inverse();
@@ -188,52 +202,105 @@ int main(int argc, char* argv[]) {
 	t.init_state(T_body_to_world, Vector3(0,0,0), prior_imu_bias);
 	start_graph = true;
 
+	bool graph_estimate = true;
+
 	bool last_mes_was_pose = true;
+	bool start_dead_reckon = false;
 
 	// int end_mes_idx = 200 * 40; //40s of data
-	int stop_fusion_idx = 200 * 28; //30s of bias calibration
-
+	int stop_fusion_idx = 200 * 30; //30s of bias calibration
 	int start_idx = 200 * 30;
 
 	Vector3 avg_accel(0,0,0);
 	for (json mes : sensor_stream) {
 
-		if (start_graph && mes["type"] == "imu") {
+		if (graph_estimate) {
+			if (mes["type"] == "imu") imu_idx++;
 
-			// Add IMU measurement
-			Vector3 accel;
-			Vector3 gyro;
-			get_IMU(mes, accel, gyro);
+					// if (imu_idx > stop_fusion_idx) start_graph = true;
 
-			t.imu_preintegrated->integrateMeasurement(accel, gyro, dt);
-			imu_counter++;
+					if (start_graph && mes["type"] == "imu") {
 
-			avg_accel += accel;
+						// Add IMU measurement
+						Vector3 accel;
+						Vector3 gyro;
+						get_IMU(mes, accel, gyro);
+
+						t.imu_preintegrated->integrateMeasurement(accel, gyro, dt);
+						imu_counter++;
+
+						avg_accel += accel;
 
 
-			cout << "Preintegration at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
-			cout << "Norm of accel " << accel.norm() << endl;
-			// Just for plotting at IMU frequency
-			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(t.imu_preintegrated);
-			NavState proposed = current_imu_preintegration->predict(t.prev_state, t.track.changing_bias);
+						cout << "Preintegration at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
+						cout << "Norm of accel " << accel.norm() << endl;
+						// Just for plotting at IMU frequency
+						PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(t.imu_preintegrated);
+						NavState proposed = current_imu_preintegration->predict(t.prev_state, t.track.changing_bias);
 
-			t.report_estimate(proposed.pose(), mes["t"]);
-			last_mes_was_pose = false;
+						t.report_estimate(proposed.pose(), mes["t"]);
+						last_mes_was_pose = false;
 
-			imu_idx ++;
+						// imu_idx++;
+					}
+
+					if (imu_idx % 10 == 0 && imu_idx <= stop_fusion_idx && !last_mes_was_pose) {
+
+						cout << " IN " << endl;
+						// Set our stationary pose as the prior 10x, and hope that we learn the bias
+						t.processSLAM(mes, T_body_to_world);
+						last_mes_was_pose = true;
+						
+						if (imu_idx + 1 > stop_fusion_idx) {
+							// Dump the final values
+
+							cout << "Manual bias "<< " a: " << avg_accel.x() / imu_idx << " " << (avg_accel.y() / imu_idx)+9.81 << " " << (avg_accel.z()/imu_idx) << endl;
+
+							Rot3 est_rot_body_to_world = t.track.est_poses.back().rotation().inverse();
+	
+							std::cout << "Rotation matrix (Body → World):\n"
+									<< est_rot_body_to_world.matrix() << std::endl;
+
+							std::cout << "Velocity:\n"
+									<< t.track.est_velocities.back() << std::endl;
+						}
+					}
+					// if (mes["t"] > 1760545516-10) start_graph = true;
+					// if (mes_idx > end_mes_idx) break;
+					mes_idx ++;
+		}
+		else {
+			if (mes["type"] == "imu") imu_idx++;
+
+					if (imu_idx > stop_fusion_idx && mes["type"] == "imu") {
+
+						// Add IMU measurement
+						Vector3 accel;
+						Vector3 gyro;
+						get_IMU(mes, accel, gyro);
+
+						t.imu_preintegrated->integrateMeasurement(accel, gyro, dt);
+						imu_counter++;
+
+						avg_accel += accel;
+
+
+						cout << "Preintegration at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
+						cout << "Norm of accel " << accel.norm() << endl;
+						// Just for plotting at IMU frequency
+						PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(t.imu_preintegrated);
+						NavState proposed = current_imu_preintegration->predict(t.prev_state, t.track.changing_bias);
+
+						t.report_estimate(proposed.pose(), mes["t"]);
+						last_mes_was_pose = false;
+
+						// imu_idx++;
+					}
+
+					mes_idx ++;
 		}
 
-		if (imu_idx % 10 == 0 && imu_idx <= stop_fusion_idx && !last_mes_was_pose) {
-			// Set our stationary pose as the prior 10x, and hope that we learn the bias
-			t.processSLAM(mes, T_body_to_world);
-
-			cout << "Manual bias "<< " a: " << avg_accel.x() / imu_idx << " " << (avg_accel.y() / imu_idx)+9.81 << " " << (avg_accel.z()/imu_idx) << endl;
-			last_mes_was_pose = true;
-		}
-
-		if (mes["t"] > 1760545516-10) start_graph = true;
-		// if (mes_idx > end_mes_idx) break;
-		mes_idx ++;
+		
 	}
 
 	// Before writing files for evluation, need to be able to transform all

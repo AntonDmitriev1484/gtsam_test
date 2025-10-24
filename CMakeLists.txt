@@ -34,6 +34,10 @@ endif()
 # <trial_name> <synthetic_trial_name or 'none'> <'uwb' or 'no_uwb'> <dump (true|false)>"
 enable_testing()
 
+add_test(NAME irl5_imu_bias_straight2 COMMAND gtsam_test irl5_imu_bias_straight2 none no_uwb 0.0 true)
+add_test(NAME irl5_imu_bias_straight_box2 COMMAND gtsam_test irl5_imu_bias_straight_box2 none no_uwb 0.0 true)
+add_test(NAME irl5_imu_bias_straight_box COMMAND gtsam_test irl5_imu_bias_straight_box none no_uwb 0.0 true)
+add_test(NAME irl5_imu_bias_straight COMMAND gtsam_test irl5_imu_bias_straight none no_uwb 0.0 true)
 add_test(NAME imu_bias_sideways COMMAND gtsam_test imu_bias_sideways none no_uwb 0.0 true)
 add_test(NAME imu_bias_square2 COMMAND gtsam_test imu_bias_square2 none no_uwb 0.0 true)
 add_test(NAME imu_bias_square COMMAND gtsam_test imu_bias_square none no_uwb 0.0 true)
