@@ -5,6 +5,7 @@
         "GIO_MODULE_DIR": "",
         "Test": "test"
     },
+    "cmake.deleteBuildDirOnCleanConfigure": true,
     "files.associations": {
         "array": "cpp",
         "bitset": "cpp",

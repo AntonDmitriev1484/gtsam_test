@@ -201,10 +201,11 @@ void Tracker::init_state(json mes) {
 	Vector3 start_slam_velocity;
 	double timestamp;
 
+	Pose3 T_world_to_body;
 	// velocity and body pose are computed from body poses in the world frame
 	get_pose_from_HTM(mes["T_body_world"],T_world_to_body);
 	Pose3 T_body_to_world = T_world_to_body.inverse();
-	Pose3 start_slam_pose = T_body_to_world;
+	start_slam_pose = T_body_to_world;
 	
 	get_V(mes, start_slam_velocity); // velocity
 
