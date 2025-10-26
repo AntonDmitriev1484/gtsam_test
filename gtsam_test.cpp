@@ -139,6 +139,8 @@ int main(int argc, char* argv[]) {
 	Matrix33 R_world_to_imu;
 
 
+	// irl5_imu_bias_straight. Gram Schmidt
+
 // 	R_world_to_imu <<  9.99692713e-01, -1.10933278e-16, -2.47887082e-02,
 //  -2.47765819e-02,  3.12750783e-02, -9.99203678e-01,
 //  7.75268790e-04,  9.99510815e-01,  3.12654679e-02;
@@ -149,15 +151,42 @@ int main(int argc, char* argv[]) {
 //   -0.0032579750732104912,
 //   -0.0015341371222888718));
 
-// In box, 1
-	// Avg reported [-0.41389319 -0.13318152  0.63027706]
-		// imuBias::ConstantBias prior_imu_bias(Vector3(-0.41389319, -0.13318152,  0.63027706), Vector3(0,0,0));
+  // Average assuming perfect rotation.
+
 	// R_world_to_imu << 1, 0, 0, 0, 0, -1, 0, 1, 0;
+	//   imuBias::ConstantBias prior_imu_bias(Vector3(
+	// 0,0,0
+	// ),
+	// Vector3(
+	// 0,0,0
+	// ));
+
+//   imuBias::ConstantBias prior_imu_bias(Vector3(
+// 	-0.2471593263391039,
+// 	-0.08173819168920105,
+// 	0.31269236887075696
+// 	),
+// 	Vector3(
+// 	-0.00505572105752118,
+// 	-0.0019385825993356695,
+// 	-0.0017246973496346733
+// 	));
+
+// irl5_imu_bias_box. Gram Schmidt
+
+	R_world_to_imu << 9.99138345e-01, -1.09698957e-16, -4.15038269e-02,
+       -4.14207140e-02,  6.32539640e-02, -9.97137533e-01,
+       2.62528157e-03,  9.97997463e-01,  6.31994609e-02;
+
+	imuBias::ConstantBias prior_imu_bias(Vector3( -0.00671149, -0.16124475,  0.01021984), 
+	Vector3(  -0.00467625, -0.00331618 ,-0.00134599));
+// 		imuBias::ConstantBias prior_imu_bias(Vector3( 0,0,0), 
+// 	Vector3( 0,0,0));
+// R_world_to_imu << 1, 0, 0, 0, 0, -1, 0, 1, 0;
 
 // In box 2
-	imuBias::ConstantBias prior_imu_bias(Vector3(0,0,0), Vector3(0,0,0));
-	// imuBias::ConstantBias prior_imu_bias(Vector3(-0.0192032 ,  0.15603612,  0.27231011), Vector3(0,0,0));
-	R_world_to_imu << 1, 0, 0, 0, 0, -1, 0, 1, 0;
+	// imuBias::ConstantBias prior_imu_bias(Vector3(0,0,0), Vector3(0,0,0));
+	// R_world_to_imu << 1, 0, 0, 0, 0, -1, 0, 1, 0;
 
 	Pose3 T_world_to_body (Rot3(R_world_to_imu), Vector3(0,0,0));
 	Pose3 T_body_to_world = T_world_to_body.inverse();
@@ -200,6 +229,8 @@ int main(int argc, char* argv[]) {
 	int imu_idx = 0;
 	int mes_idx = 0;
 	t.init_state(T_body_to_world, Vector3(0,0,0), prior_imu_bias);
+	t.imu_preintegrated->resetIntegrationAndSetBias(prior_imu_bias); 
+
 	start_graph = true;
 
 	bool graph_estimate = true;
@@ -220,6 +251,7 @@ int main(int argc, char* argv[]) {
 					// if (imu_idx > stop_fusion_idx) start_graph = true;
 
 					if (start_graph && mes["type"] == "imu") {
+						cout << " GRAPH ESTIMATE " << std::endl;
 
 						// Add IMU measurement
 						Vector3 accel;
@@ -246,7 +278,6 @@ int main(int argc, char* argv[]) {
 
 					if (imu_idx % 10 == 0 && imu_idx <= stop_fusion_idx && !last_mes_was_pose) {
 
-						cout << " IN " << endl;
 						// Set our stationary pose as the prior 10x, and hope that we learn the bias
 						t.processSLAM(mes, T_body_to_world);
 						last_mes_was_pose = true;
@@ -263,6 +294,9 @@ int main(int argc, char* argv[]) {
 
 							std::cout << "Velocity:\n"
 									<< t.track.est_velocities.back() << std::endl;
+
+							cout << "Learned bias applied to preintegrator" << std::endl;
+							t.imu_preintegrated->print();
 						}
 					}
 					// if (mes["t"] > 1760545516-10) start_graph = true;
@@ -270,6 +304,10 @@ int main(int argc, char* argv[]) {
 					mes_idx ++;
 		}
 		else {
+			// I don't set any bias on the imu_preintegration, OUTSIDE OF calling exec_iSAM
+			// init_state does not call exec_isam. So it doesn't set a bias on imu_preintegration
+			// Therefore I need to manually set the bias on imu_preintegration.
+
 			if (mes["type"] == "imu") imu_idx++;
 
 					if (imu_idx > stop_fusion_idx && mes["type"] == "imu") {
@@ -277,8 +315,7 @@ int main(int argc, char* argv[]) {
 						// Add IMU measurement
 						Vector3 accel;
 						Vector3 gyro;
-						get_IMU(mes, accel, gyro);
-
+						get_IMU(mes, accel, gyro); 
 						t.imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 						imu_counter++;
 
@@ -287,6 +324,8 @@ int main(int argc, char* argv[]) {
 
 						cout << "Preintegration at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
 						cout << "Norm of accel " << accel.norm() << endl;
+
+						t.imu_preintegrated->print();
 						// Just for plotting at IMU frequency
 						PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(t.imu_preintegrated);
 						NavState proposed = current_imu_preintegration->predict(t.prev_state, t.track.changing_bias);
