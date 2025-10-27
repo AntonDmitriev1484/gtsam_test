@@ -192,64 +192,143 @@ void Tracker::init_anchors(json anchor_json) {
 	}
 }
 
-void Tracker::init_state(json mes) {
+void Tracker::init_state(json sensor_stream, json priors) {
     track.Ix = 0;
     track.Iv = 0;
     track.Ib = 0;
 
-	Pose3 start_slam_pose; 
-	Vector3 start_slam_velocity;
-	double timestamp;
 
-	Pose3 T_world_to_body;
-	// velocity and body pose are computed from body poses in the world frame
-	get_pose_from_HTM(mes["T_body_world"],T_world_to_body);
-	Pose3 T_body_to_world = T_world_to_body.inverse();
-	start_slam_pose = T_body_to_world;
-	
-	get_V(mes, start_slam_velocity); // velocity
+	// prior_pose needs to come from the first pose in the sensor stream.
 
-	Rot3 rot_imu_to_body = T_body_to_imu.rotation().inverse();
-	Pose3 prior_pose = start_slam_pose;
+	bool set_pose_prior = false;
+	bool last_was_pose = false;
+	double latest_pose_timestamp = 0;
 
-	Pose3 pose_velocity(Rot3::Identity(), start_slam_velocity);
-	Vector3 prior_velocity = start_slam_velocity;
+	for (json mes: sensor_stream) {
+		// First set all priors
+		if (mes["t"] && !set_pose_prior) {
+			Pose3 start_slam_pose; 
+			Vector3 start_slam_velocity;
+			double timestamp;
 
+			Pose3 T_world_to_body;
+			// velocity and body pose are computed from body poses in the world frame
+			get_pose_from_HTM(mes["T_body_world"],T_world_to_body);
+			Pose3 T_body_to_world = T_world_to_body.inverse();
+			start_slam_pose = T_body_to_world;
+			
+			get_V(mes, start_slam_velocity); // velocity
 
-    vals.insert(X(track.Ix), prior_pose);
-    vals.insert(V(track.Iv), prior_velocity);
-    vals.insert(B(track.Ib), prior_imu_bias);
+			Rot3 rot_imu_to_body = T_body_to_imu.rotation().inverse();
+			Pose3 prior_pose = start_slam_pose;
 
-    graph->addPrior(X(track.Ix), prior_pose, GT_noise_model);
-    graph->addPrior(V(track.Iv), prior_velocity, Velocity_noise_model);
-    graph->addPrior(B(track.Ib), prior_imu_bias, Bias_noise_model);
+			Pose3 pose_velocity(Rot3::Identity(), start_slam_velocity);
+			Vector3 prior_velocity = start_slam_velocity;
 
-    track.est_poses.push_back(prior_pose); // We'll take the estimate out of values and put it here.
-    track.gt_poses.push_back(prior_pose);
-	track.est_timestamps.push_back(timestamp);
-    track.est_velocities.push_back(prior_velocity);
-    track.constant_bias = prior_imu_bias;
-	track.changing_bias = prior_imu_bias;
+			vals.insert(X(track.Ix), prior_pose);
+			vals.insert(V(track.Iv), prior_velocity);
+			vals.insert(B(track.Ib), prior_imu_bias);
 
-		// Add this key -> timestamp mapping to our map
-	key_timestamps[X(track.Ix)] = (double)mes["t"];
-	key_timestamps[V(track.Iv)] = (double)mes["t"];
-	key_timestamps[B(track.Ib)] = (double)mes["t"];
+			graph->addPrior(X(track.Ix), prior_pose, GT_noise_model);
+			graph->addPrior(V(track.Iv), prior_velocity, Velocity_noise_model);
+			graph->addPrior(B(track.Ib), prior_imu_bias, Bias_noise_model);
 
-    // Once priors have been inserted into graph and vals,
-    // initialize isam with these estimates.
-	if (use_smoother) {
-		smoother->update(*graph, vals, key_timestamps);
+			last_was_pose = true;
+			set_pose_prior = true;
+		}
+
+		// Then calibrate the IMU bias
+		if (mes["t"] < priors["t_end_calibration"] && set_pose_prior) {
+			if (mes["type"] == "imu") {
+
+				// Add IMU measurement
+				Vector3 accel;
+				Vector3 gyro;
+				get_IMU(mes, accel, gyro);
+
+				imu_preintegrated->integrateMeasurement(accel, gyro, delta_t);
+
+				cout << "Calibration phase: preintegration at " 
+				<< mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
+				cout << "Norm of accel " << accel.norm() << endl;
+
+				last_was_pose = false;
+			}
+
+			if (mes["type"] == "vicon_pose" && !last_was_pose) {
+				cout << "Used Vicon in calibration" << endl;
+				track.Ix++;
+				track.Iv++;
+				track.Ib++;
+
+				Pose3 T_world_to_body;
+				string usrname;
+				get_pose_from_HTM(mes["T_body_world"],T_world_to_body);
+				Pose3 T_body_to_world = T_world_to_body.inverse();
+				Pose3 gt_pose = T_body_to_world;
+
+				// Add IMU factor
+				auto* current_imu_preintegration =
+					dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+
+				CombinedImuFactor imu_factor(
+					X(track.Ix - 1), V(track.Iv - 1),
+					X(track.Ix), V(track.Iv),
+					B(track.Ib - 1), B(track.Ib),
+					*current_imu_preintegration);
+
+				graph->add(imu_factor);
+				cout << "Calibration Added IMU factor " << graph->size() - 1 << endl;
+
+				// Add GT prior factor
+				graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, GT_noise_model));
+				cout << "Calibration Added Prior factor " << graph->size() - 1 << endl;
+
+				// Predict current state
+				NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
+
+				// Insert initial values
+				vals.insert(X(track.Ix), proposed.pose());
+				vals.insert(V(track.Iv), proposed.v());
+				vals.insert(B(track.Ib), track.changing_bias);
+
+				last_was_pose = true;
+				latest_pose_timestamp = mes["t"];
+			}
+		}
 	}
-	else {
-		isam->update(*graph, vals);
-	}
-	graph->resize(0);
-	vals.clear();
 
+	// Note: There is a pretty significant difference in code structure using LM now
+	// With iSAM we update track.changing bias with each pose estimate.
+	// With LM we only set track.changing_bias once.
+
+	Values result;
+	LevenbergMarquardtParams params;
+	LevenbergMarquardtOptimizer lm(*graph, vals, params);
+	result = lm.optimize();
+
+	PreintegrationBase::Bias optimized_bias = result.at<gtsam::PreintegrationBase::Bias>(B(track.Ib));
+	Pose3 latest_pose = result.at<Pose3>(X(track.Ix));
+	Vector3 latest_velocity = result.at<Vector3>(V(track.Iv));
+
+	cout << "Prior bias estimate" << std::endl;
+	prior_imu_bias.print();
+
+	cout << "Optimized bias applied to preintegrator" << std::endl;
+	imu_preintegrated->print();
+
+
+    track.est_poses.push_back(latest_pose); // We'll take the estimate out of values and put it here.
+    track.gt_poses.push_back(latest_pose);
+	track.est_timestamps.push_back(latest_pose_timestamp);
+    track.est_velocities.push_back(latest_velocity);
+    track.constant_bias = optimized_bias;
+	track.changing_bias = optimized_bias;
+
+	vals.clear(); // TODO: Do we need to clear here? if we're using LM
 
     // Initialize our NavState
-    prev_state = NavState(track.est_poses.back(), track.est_velocities.back());
+    prev_state = NavState(latest_pose, latest_velocity);
 }
 
 void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp, 

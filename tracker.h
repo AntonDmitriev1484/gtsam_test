@@ -110,7 +110,7 @@ public:
     void init(json sensor_stream);
     void init_anchors(json anchor_json);
     void init_anchor(string id);
-    void init_state(json mes);
+    void init_state(json sensor_stream, json priors);
 
     Pose3 report_estimate(Pose3 initial, double timestamp); // take in a GTSAM pose, apply 1-euro filter, and append output to est
 

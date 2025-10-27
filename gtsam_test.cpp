@@ -145,9 +145,10 @@ int main(int argc, char* argv[]) {
 	t.slam_trajectory_fs = &slam_trajectory_fs;
 
 	t.init_anchors(json::parse(beacon_fs));
+	t.init_state(sensor_stream, priors);
 
 
-	bool start_graph = false;
+	bool start_graph = true;
 
 	// TODO: Counters can all be internal to tracker.
 	int imu_counter=0, uwb_counter = 0, gt_counter=0,
@@ -195,11 +196,6 @@ int main(int argc, char* argv[]) {
 				}
 			}
 			range_buffer.clear();
-		}
-		else if (use_gt && mes["type"] == "slam_pose" && !start_graph) {
-			// Skip all measurements until we find a slam pose and velocity that we can use to set up priors
-			t.init_state(mes);
-			start_graph = true;
 		}
 		else if (use_gt && mes["type"] == "slam_pose" && start_graph) {
 
