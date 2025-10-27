@@ -54,6 +54,7 @@ public:
     
     PreintegrationType* imu_preintegrated;
     imuBias::ConstantBias prior_imu_bias;
+    Vector3 prior_velocity;
 
     Pose3 T_body_to_imu;
     Pose3 T_body_to_decawave;
@@ -104,7 +105,8 @@ public:
             const SharedNoiseModel& Velocity_noise_model,
             const SharedNoiseModel& Bias_noise_model,
 			std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params,
-            const imuBias::ConstantBias prior_imu_bias,
+            const Vector6 prior_imu_bias,
+            const Vector3 prior_velocity,
             const string& debug_dir);
 
     void init(json sensor_stream);

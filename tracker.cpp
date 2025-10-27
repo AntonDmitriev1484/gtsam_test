@@ -81,7 +81,8 @@ Tracker::Tracker(const string& id,
             const SharedNoiseModel& Velocity_noise_model,
             const SharedNoiseModel& Bias_noise_model,
 			std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params,
-            const imuBias::ConstantBias prior_imu_bias,
+            const Vector6 prior_imu_bias,
+			const Vector3 prior_velocity,
             const string& debug_dir) : 
             
             translation_filt(
@@ -99,9 +100,11 @@ Tracker::Tracker(const string& id,
 	this->T_body_to_imu = T_body_to_imu;
 	this->T_body_to_decawave = T_body_to_decawave;
 
-    this->prior_imu_bias = prior_imu_bias;
+    this->prior_imu_bias = imuBias::ConstantBias(prior_imu_bias);
+	this->prior_velocity = prior_velocity;
+
 	// Instantiate IMU preintegration
-	this->imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, prior_imu_bias);
+	this->imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, this->prior_imu_bias);
 
 	// Initialize UWB RNG
 	std::random_device rd; 
@@ -203,16 +206,19 @@ void Tracker::init_state(json sensor_stream, json priors) {
 	bool set_pose_prior = false;
 	bool last_was_pose = false;
 	double latest_pose_timestamp = 0;
+	Values result;
+
+	int imu_counter = 0;
 
 	for (json mes: sensor_stream) {
 		// First set all priors
-		if (mes["t"] && !set_pose_prior) {
+		if ( mes["type"]=="vicon_pose" && !set_pose_prior) {
 			Pose3 start_slam_pose; 
 			Vector3 start_slam_velocity;
 			double timestamp;
 
 			Pose3 T_world_to_body;
-			// velocity and body pose are computed from body poses in the world frame
+			// velocity and body pose an no_uwb 0.0 re computed from body poses in the world frame
 			get_pose_from_HTM(mes["T_body_world"],T_world_to_body);
 			Pose3 T_body_to_world = T_world_to_body.inverse();
 			start_slam_pose = T_body_to_world;
@@ -222,8 +228,8 @@ void Tracker::init_state(json sensor_stream, json priors) {
 			Rot3 rot_imu_to_body = T_body_to_imu.rotation().inverse();
 			Pose3 prior_pose = start_slam_pose;
 
-			Pose3 pose_velocity(Rot3::Identity(), start_slam_velocity);
-			Vector3 prior_velocity = start_slam_velocity;
+			// Pose3 pose_velocity(Rot3::Identity(), start_slam_velocity);
+			// Vector3 prior_velocity = start_slam_velocity;
 
 			vals.insert(X(track.Ix), prior_pose);
 			vals.insert(V(track.Iv), prior_velocity);
@@ -235,6 +241,13 @@ void Tracker::init_state(json sensor_stream, json priors) {
 
 			last_was_pose = true;
 			set_pose_prior = true;
+
+			isam->update(*graph, vals);
+			graph->resize(0);
+			vals.clear();
+
+			prev_state = NavState(prior_pose, prior_velocity);
+			imu_preintegrated->resetIntegrationAndSetBias(prior_imu_bias);
 		}
 
 		// Then calibrate the IMU bias
@@ -253,9 +266,10 @@ void Tracker::init_state(json sensor_stream, json priors) {
 				cout << "Norm of accel " << accel.norm() << endl;
 
 				last_was_pose = false;
+				imu_counter ++;
 			}
 
-			if (mes["type"] == "vicon_pose" && !last_was_pose) {
+			if (mes["type"] == "vicon_pose" && !last_was_pose && (imu_counter % 10 == 0)) {
 				cout << "Used Vicon in calibration" << endl;
 				track.Ix++;
 				track.Iv++;
@@ -285,7 +299,10 @@ void Tracker::init_state(json sensor_stream, json priors) {
 				cout << "Calibration Added Prior factor " << graph->size() - 1 << endl;
 
 				// Predict current state
+				// So I think gravity compensation is performed implicitly within predict.
 				NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
+				cout << "Using imu preintegration " << endl;
+				current_imu_preintegration->print();
 
 				// Insert initial values
 				vals.insert(X(track.Ix), proposed.pose());
@@ -294,18 +311,21 @@ void Tracker::init_state(json sensor_stream, json priors) {
 
 				last_was_pose = true;
 				latest_pose_timestamp = mes["t"];
+
+				isam->update(*graph, vals);
+				result = isam->calculateEstimate();
+
+				prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
+				track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
+
+				// Clear for next iteration
+				graph->resize(0);
+				vals.clear();
+
+				imu_preintegrated->resetIntegrationAndSetBias(track.changing_bias);
 			}
 		}
 	}
-
-	// Note: There is a pretty significant difference in code structure using LM now
-	// With iSAM we update track.changing bias with each pose estimate.
-	// With LM we only set track.changing_bias once.
-
-	Values result;
-	LevenbergMarquardtParams params;
-	LevenbergMarquardtOptimizer lm(*graph, vals, params);
-	result = lm.optimize();
 
 	PreintegrationBase::Bias optimized_bias = result.at<gtsam::PreintegrationBase::Bias>(B(track.Ib));
 	Pose3 latest_pose = result.at<Pose3>(X(track.Ix));
@@ -321,6 +341,7 @@ void Tracker::init_state(json sensor_stream, json priors) {
     track.est_poses.push_back(latest_pose); // We'll take the estimate out of values and put it here.
     track.gt_poses.push_back(latest_pose);
 	track.est_timestamps.push_back(latest_pose_timestamp);
+	track.gt_timestamps.push_back(latest_pose_timestamp);
     track.est_velocities.push_back(latest_velocity);
     track.constant_bias = optimized_bias;
 	track.changing_bias = optimized_bias;

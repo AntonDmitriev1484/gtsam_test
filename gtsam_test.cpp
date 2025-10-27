@@ -38,7 +38,7 @@ int main(int argc, char* argv[]) {
 	bool use_synthetic_uwb = uwb_synth_stdev > 1e-5;
 
 	string data_dir = "/home/antond2/ws/post/out/"+trial_name+"_post";
-	string out_dir = "/home/antond2/Desktop/Research/gtsam_test/out_results/"+trial_name;
+	string out_dir = "/home/antond2/Desktop/Research/gtsam_test/results/out/"+trial_name;
 	if (synthetic) {
 		data_dir += "/synthetic";
 		out_dir += "/"+synthetic_trial_name;
@@ -106,18 +106,18 @@ int main(int argc, char* argv[]) {
 	double gt_pos_stdev = 1e-2;
 	double gt_ori_stdev = 1e-2;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
-	auto velocity_prior_ = priors["velocity"];
-	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigmas(
-		Vector3(priors["velocity"][0], priors["velocity"][1], priors["velocity"][2]));
-	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigmas(
-		Vector6(priors["accel_bias"][0], priors["accel_bias"][1], priors["accel_bias"][2], priors["gyro_bias"][0], priors["gyro_bias"][1], priors["gyro_bias"][2])
-	);
-
 
 	//// IMU noise model
 
+
+	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 1e-2);
+	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-3);
+
+	Vector3 prior_velocity((double)priors["velocity"][0], (double)priors["velocity"][1], (double)priors["velocity"][2]);
+	Vector6 prior_imu_bias((double)priors["accel_bias"][0], (double)priors["accel_bias"][1], (double)priors["accel_bias"][2], 
+			(double)priors["gyro_bias"][0], (double)priors["gyro_bias"][1], (double)priors["gyro_bias"][2]);
+
 	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = get_imu_preintegration_params(1, 10);
-	imuBias::ConstantBias prior_imu_bias;
 
 	Pose3 T_body_to_imu;
 	get_pose_from_HTM(transforms["T_body_to_imu"], T_body_to_imu);
@@ -131,14 +131,14 @@ int main(int argc, char* argv[]) {
 	const string id = "1";
 	const int smoother_lag = 1;
 	const bool use_smoother = false;
-	const bool use_filter = true;
+	const bool use_filter = false;
 
 	Tracker t(
 		id, T_body_to_imu, T_body_to_decawave, 
 		dt, smoother_lag, use_smoother, use_filter, 
 		uwb_synth_stdev, GT_noise_model, UWB_noise_model, VIO_pose_noise_model, 
 		prior_velocity_noise_model, prior_bias_noise_model,
-		imu_preintegration_params, prior_imu_bias,
+		imu_preintegration_params, prior_imu_bias, prior_velocity,
 		debug_dir);
 	
 	t.estimated_trajectory_fs = &estimated_trajectory_fs;
@@ -160,6 +160,8 @@ int main(int argc, char* argv[]) {
 	int mes_idx = 0;
 
 	for (json mes : sensor_stream) {
+
+		start_graph = (double)mes["t"] > (double)priors["t_end_calibration"];
 
 		if (start_graph && mes["type"] == "imu") {
 
@@ -218,7 +220,6 @@ int main(int argc, char* argv[]) {
 				t.processAssistedUWB(mes, uwb_counter);
 			}
 			imu_count_at_last_imu_factor = imu_counter;
-			imu_count_at_last_imu_factor = imu_counter;
 
 		}
 		else if (use_synthetic_uwb && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
@@ -226,7 +227,6 @@ int main(int argc, char* argv[]) {
 			else {
 				t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
 			}
-			imu_count_at_last_imu_factor = imu_counter;
 			imu_count_at_last_imu_factor = imu_counter;
 		}
 		// else if (use_uwb && mes["type"] == "uwb" && start_graph) {
