@@ -105,11 +105,11 @@ int main(int argc, char* argv[]) {
 
 	// GT noise model - (use to define pose prior)
 	double gt_pos_stdev = 1e-2;
-	double gt_ori_stdev = 1e-2;
+	double gt_ori_stdev = 1e-1;
 	// noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, 1,1,1)); //John suggestion
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
 	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 1e-2);
-	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-3);
+	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-1);
 	// bias we're getting is 2e-2, but our original value is 1e-3
 	// Also do a separate value for the gyro bias
 
