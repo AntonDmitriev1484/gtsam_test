@@ -104,20 +104,22 @@ int main(int argc, char* argv[]) {
 
 	// GT noise model - (use to define pose prior)
 	double gt_pos_stdev = 1e-2;
-	double gt_ori_stdev = 1e-2;
+	double gt_ori_stdev = 1e-1;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
 
 	//// IMU noise model
 
 
 	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 1e-2);
-	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-3);
+	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-1);
 
 	Vector3 prior_velocity((double)priors["velocity"][0], (double)priors["velocity"][1], (double)priors["velocity"][2]);
 	Vector6 prior_imu_bias((double)priors["accel_bias"][0], (double)priors["accel_bias"][1], (double)priors["accel_bias"][2], 
 			(double)priors["gyro_bias"][0], (double)priors["gyro_bias"][1], (double)priors["gyro_bias"][2]);
+	// Vector6 prior_imu_bias(0,0,0, 
+	// 		(double)priors["gyro_bias"][0], (double)priors["gyro_bias"][1], (double)priors["gyro_bias"][2]);
 
-	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = get_imu_preintegration_params(1, 10);
+	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = get_imu_preintegration_params(10, 1);
 
 	Pose3 T_body_to_imu;
 	get_pose_from_HTM(transforms["T_body_to_imu"], T_body_to_imu);
@@ -126,7 +128,6 @@ int main(int argc, char* argv[]) {
 	get_pose_from_HTM(transforms["T_body_to_decawave"], T_body_to_decawave);
 
 	imu_preintegration_params->setBodyPSensor(T_body_to_imu);
-	
 
 	const string id = "1";
 	const int smoother_lag = 1;
@@ -156,6 +157,7 @@ int main(int argc, char* argv[]) {
 
 	vector<json> gt_pose_buffer;
 	vector<json> range_buffer;
+
 
 	int mes_idx = 0;
 

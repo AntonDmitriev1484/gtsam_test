@@ -251,7 +251,7 @@ void Tracker::init_state(json sensor_stream, json priors) {
 		}
 
 		// Then calibrate the IMU bias
-		if (mes["t"] < priors["t_end_calibration"] && set_pose_prior) {
+		if ((double)mes["t"] < (double)priors["t_end_calibration"] && set_pose_prior) {
 			if (mes["type"] == "imu") {
 
 				// Add IMU measurement
