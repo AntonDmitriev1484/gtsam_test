@@ -47,11 +47,14 @@ int main(int argc, char* argv[]) {
 	string debug_dir = out_dir+"/debug";
 
 	ifstream raw_fs;
+	ifstream calibration_fs;
 	if (synthetic) {
 		raw_fs = ifstream(data_dir + "/all_" + synthetic_trial_name +".json");
+		calibration_fs = ifstream(data_dir + "/calibration_" + synthetic_trial_name +".json");
 	}
 	else {
 		raw_fs = ifstream(data_dir + "/all.json");
+		calibration_fs = ifstream(data_dir + "/calibration.json");
 	}
 
 	ifstream priors_fs("/home/antond2/ws/post/out/"+trial_name+"_post" + "/priors.json");
@@ -81,6 +84,7 @@ int main(int argc, char* argv[]) {
 
 
 	json sensor_stream = json::parse(raw_fs);
+	json calibration_stream = json::parse(calibration_fs);
 	json transforms = json::parse(transform_fs);
 	json priors = json::parse(priors_fs);
 	map<string, tracking> info; // Map of username to tracking information
@@ -104,7 +108,7 @@ int main(int argc, char* argv[]) {
 
 	// GT noise model - (use to define pose prior)
 	double gt_pos_stdev = 1e-2;
-	double gt_ori_stdev = 1e-1;
+	double gt_ori_stdev = 1e-2;
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
 
 	//// IMU noise model
@@ -146,7 +150,7 @@ int main(int argc, char* argv[]) {
 	t.slam_trajectory_fs = &slam_trajectory_fs;
 
 	t.init_anchors(json::parse(beacon_fs));
-	t.init_state(sensor_stream, priors);
+	t.init_state(calibration_stream, priors);
 
 
 	bool start_graph = true;
@@ -162,10 +166,7 @@ int main(int argc, char* argv[]) {
 	int mes_idx = 0;
 
 	for (json mes : sensor_stream) {
-
-		start_graph = (double)mes["t"] > (double)priors["t_end_calibration"];
-
-		if (start_graph && mes["type"] == "imu") {
+		if (mes["type"] == "imu") {
 
 			// Add IMU measurement
 			Vector3 accel;
@@ -174,7 +175,6 @@ int main(int argc, char* argv[]) {
 
 			t.imu_preintegrated->integrateMeasurement(accel, gyro, dt);
 			imu_counter++;
-
 
 			cout << "Preintegration on at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
 
@@ -201,7 +201,7 @@ int main(int argc, char* argv[]) {
 			}
 			range_buffer.clear();
 		}
-		else if (use_gt && mes["type"] == "slam_pose" && start_graph) {
+		else if (use_gt && mes["type"] == "synth_slam_pose") {
 
 			if (imu_counter == imu_count_at_last_imu_factor) {
 				// Pass this measurement and buffer it until the next IMU becomes available
@@ -209,10 +209,12 @@ int main(int argc, char* argv[]) {
 				gt_pose_buffer.push_back(mes);
 				continue;
 			}
+			t.imu_preintegrated->print();
 			t.processSLAM(mes);
 			imu_count_at_last_correction = imu_counter;
 			imu_count_at_last_imu_factor = imu_counter;
 			gt_counter++;
+
 		}
 		else if (!use_synthetic_uwb && use_uwb && mes["type"] == "assisted_uwb" && start_graph) {
 			// For the pilot4 case, where we aren't generating synthetic ranges, 

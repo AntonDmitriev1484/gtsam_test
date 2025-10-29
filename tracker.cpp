@@ -195,7 +195,7 @@ void Tracker::init_anchors(json anchor_json) {
 	}
 }
 
-void Tracker::init_state(json sensor_stream, json priors) {
+void Tracker::init_state(json calibration_stream, json priors) {
     track.Ix = 0;
     track.Iv = 0;
     track.Ib = 0;
@@ -210,7 +210,7 @@ void Tracker::init_state(json sensor_stream, json priors) {
 
 	int imu_counter = 0;
 
-	for (json mes: sensor_stream) {
+	for (json mes: calibration_stream) {
 		// First set all priors
 		if ( mes["type"]=="vicon_pose" && !set_pose_prior) {
 			Pose3 start_slam_pose; 
@@ -225,7 +225,7 @@ void Tracker::init_state(json sensor_stream, json priors) {
 			
 			get_V(mes, start_slam_velocity); // velocity
 
-			Rot3 rot_imu_to_body = T_body_to_imu.rotation().inverse();
+			Rot3 rot_imu_to_body = T_body_to_imu.rotation();
 			Pose3 prior_pose = start_slam_pose;
 
 			// Pose3 pose_velocity(Rot3::Identity(), start_slam_velocity);
@@ -251,7 +251,7 @@ void Tracker::init_state(json sensor_stream, json priors) {
 		}
 
 		// Then calibrate the IMU bias
-		if ((double)mes["t"] < (double)priors["t_end_calibration"] && set_pose_prior) {
+		if (set_pose_prior) {
 			if (mes["type"] == "imu") {
 
 				// Add IMU measurement
