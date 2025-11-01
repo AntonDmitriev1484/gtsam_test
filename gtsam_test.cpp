@@ -118,7 +118,7 @@ int main(int argc, char* argv[]) {
 	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-1);
 
 	Vector3 prior_velocity((double)priors["velocity"][0], (double)priors["velocity"][1], (double)priors["velocity"][2]);
-	Vector6 prior_imu_bias((double)priors["accel_bias"][0], (double)priors["accel_bias"][1], (double)priors["accel_bias"][2], 
+	Vector6 prior_imu_bias(-1*(double)priors["accel_bias"][0], -1*(double)priors["accel_bias"][1], -1*(double)priors["accel_bias"][2], 
 			(double)priors["gyro_bias"][0], (double)priors["gyro_bias"][1], (double)priors["gyro_bias"][2]);
 	// Vector6 prior_imu_bias(0,0,0, 
 	// 		(double)priors["gyro_bias"][0], (double)priors["gyro_bias"][1], (double)priors["gyro_bias"][2]);

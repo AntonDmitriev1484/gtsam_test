@@ -209,6 +209,7 @@ void Tracker::init_state(json calibration_stream, json priors) {
 	Values result;
 
 	int imu_counter = 0;
+	int vicon_counter = 0;
 
 	for (json mes: calibration_stream) {
 		// First set all priors
@@ -269,7 +270,8 @@ void Tracker::init_state(json calibration_stream, json priors) {
 				imu_counter ++;
 			}
 
-			if (mes["type"] == "vicon_pose" && !last_was_pose && (imu_counter % 10 == 0)) {
+			if (mes["type"] == "vicon_pose") vicon_counter++;
+			if (mes["type"] == "vicon_pose" && !last_was_pose && (vicon_counter % 10 == 0)) {
 				cout << "Used Vicon in calibration" << endl;
 				track.Ix++;
 				track.Iv++;
