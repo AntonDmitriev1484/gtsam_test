@@ -130,4 +130,4 @@ public:
 // Moved in here because circular includes confuse me
 void get_gt_info(map<string, tracking>& info, json gt_data);
 void get_beacon_info(map<string, tracking>& info, json beacon_data);
-std::shared_ptr<PreintegratedCombinedMeasurements::Params> get_imu_preintegration_params(int ASCALE, int GSCALE);
+std::shared_ptr<PreintegratedCombinedMeasurements::Params> get_imu_preintegration_params(int ASCALE, int GSCALE, Pose3 T_inertial_to_world);

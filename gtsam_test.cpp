@@ -70,6 +70,7 @@ int main(int argc, char* argv[]) {
 	for (string path: paths) {
 		if (!std::filesystem::exists(path)) {
 				std::filesystem::create_directories(path);
+			
 				std::cout << "Directory created: " << path << std::endl;
 		}
 	}
@@ -115,15 +116,20 @@ int main(int argc, char* argv[]) {
 
 
 	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 1e-2);
-	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-1);
+	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-2);
 
 	Vector3 prior_velocity((double)priors["velocity"][0], (double)priors["velocity"][1], (double)priors["velocity"][2]);
-	Vector6 prior_imu_bias(-1*(double)priors["accel_bias"][0], -1*(double)priors["accel_bias"][1], -1*(double)priors["accel_bias"][2], 
+	Vector6 prior_imu_bias((double)priors["accel_bias"][0], (double)priors["accel_bias"][1], (double)priors["accel_bias"][2], 
 			(double)priors["gyro_bias"][0], (double)priors["gyro_bias"][1], (double)priors["gyro_bias"][2]);
+
+	// Vector6 prior_imu_bias(0.866525, -0.0937014, 0.232587, 
+	// 	(double)priors["gyro_bias"][0], (double)priors["gyro_bias"][1], (double)priors["gyro_bias"][2]);
 	// Vector6 prior_imu_bias(0,0,0, 
 	// 		(double)priors["gyro_bias"][0], (double)priors["gyro_bias"][1], (double)priors["gyro_bias"][2]);
 
-	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = get_imu_preintegration_params(10, 1);
+	Pose3 T_inertial_to_world;
+	get_pose_from_HTM(transforms["T_inertial_to_world"], T_inertial_to_world);
+	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = get_imu_preintegration_params(10, 1, T_inertial_to_world);
 
 	Pose3 T_body_to_imu;
 	get_pose_from_HTM(transforms["T_body_to_imu"], T_body_to_imu);
@@ -149,7 +155,7 @@ int main(int argc, char* argv[]) {
 	t.estimated_trajectory_fs = &estimated_trajectory_fs;
 	t.slam_trajectory_fs = &slam_trajectory_fs;
 
-	t.init_anchors(json::parse(beacon_fs));
+	// t.init_anchors(json::parse(beacon_fs));
 	t.init_state(calibration_stream, priors);
 
 

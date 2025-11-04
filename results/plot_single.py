@@ -54,7 +54,7 @@ def draw_axes(ax, T, length=0.1):
     ax.quiver(*origin, *(z_axis-origin) * length, color='b')
 
 
-def plot_trajectories(trial_dir, slam_stride=0, est_stride=0, show=True):
+def plot_trajectories(trial_dir, slam_stride=0, est_stride=0, show=True, scatter=False):
     """Plot estimated vs slam trajectories from the given trial directory."""
     est_path = os.path.join(trial_dir, "est.txt")
     slam_path = os.path.join(trial_dir, "slam.txt")
@@ -79,10 +79,16 @@ def plot_trajectories(trial_dir, slam_stride=0, est_stride=0, show=True):
     est_inv_positions = np.array(est_inv_positions)
     slam_inv_positions = np.array(slam_inv_positions)
 
-    ax.plot(est_inv_positions[:, 0], est_inv_positions[:, 1], est_inv_positions[:, 2],
-            label='Estimated', color='blue', linewidth=0.5)
-    ax.plot(slam_inv_positions[:, 0], slam_inv_positions[:, 1], slam_inv_positions[:, 2],
-            label='SLAM Ground Truth', color='green', linewidth=0.5)
+    if scatter:
+        ax.scatter(est_inv_positions[:, 0], est_inv_positions[:, 1], est_inv_positions[:, 2],
+            label='Estimated', color='blue',s=0.1)
+        ax.scatter(slam_inv_positions[:, 0], slam_inv_positions[:, 1], slam_inv_positions[:, 2],
+                label='SLAM Ground Truth', color='green',s=0.1)
+    else:
+        ax.plot(est_inv_positions[:, 0], est_inv_positions[:, 1], est_inv_positions[:, 2],
+                label='Estimated', color='blue', linewidth=0.5)
+        ax.plot(slam_inv_positions[:, 0], slam_inv_positions[:, 1], slam_inv_positions[:, 2],
+                label='SLAM Ground Truth', color='green', linewidth=0.5)
 
     if est_stride > 0:
         for i in range(0, len(est_htms), est_stride):
@@ -111,10 +117,11 @@ def main():
     parser.add_argument("trial_dir", help="Directory containing est.txt and slam.txt (e.g. stereoi_circle2/synthetic_1_5)")
     parser.add_argument("--slam_stride", type=int, default=0, help="Draw orientation axes every Nth point (0 = skip)")
     parser.add_argument("--est_stride", type=int, default=0, help="Draw orientation axes every Nth point (0 = skip)")  
+    parser.add_argument("--scatter", action="store_true", help="scatter")  
     args = parser.parse_args()
 
     directory = f"./out/{args.trial_dir}"
-    plot_trajectories(directory, slam_stride=args.slam_stride, est_stride=args.est_stride, show=True)
+    plot_trajectories(directory, slam_stride=args.slam_stride, est_stride=args.est_stride, show=True, scatter=args.scatter)
 
 
 if __name__ == "__main__":

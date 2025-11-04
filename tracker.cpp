@@ -211,6 +211,8 @@ void Tracker::init_state(json calibration_stream, json priors) {
 	int imu_counter = 0;
 	int vicon_counter = 0;
 
+	bool calibrate_bias = true;
+
 	for (json mes: calibration_stream) {
 		// First set all priors
 		if ( mes["type"]=="vicon_pose" && !set_pose_prior) {
@@ -252,7 +254,7 @@ void Tracker::init_state(json calibration_stream, json priors) {
 		}
 
 		// Then calibrate the IMU bias
-		if (set_pose_prior) {
+		if (set_pose_prior && calibrate_bias) {
 			if (mes["type"] == "imu") {
 
 				// Add IMU measurement
@@ -325,6 +327,7 @@ void Tracker::init_state(json calibration_stream, json priors) {
 				vals.clear();
 
 				imu_preintegrated->resetIntegrationAndSetBias(track.changing_bias);
+				// imu_preintegrated->resetIntegrationAndSetBias(prior_imu_bias);
 			}
 		}
 	}
@@ -765,7 +768,7 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 }
 
 
-std::shared_ptr<PreintegratedCombinedMeasurements::Params> get_imu_preintegration_params(int ASCALE, int GSCALE) {
+std::shared_ptr<PreintegratedCombinedMeasurements::Params> get_imu_preintegration_params(int ASCALE, int GSCALE, Pose3 T_inertial_to_world) {
 
 
 	double GYRO_NOISE_DENSITY = 0.0002049600985797649; 
@@ -784,9 +787,11 @@ std::shared_ptr<PreintegratedCombinedMeasurements::Params> get_imu_preintegratio
 	Matrix66 initial_bias_cov = I_6x6 * 1e-5 * ASCALE;
 	Matrix33 integration_cov = I_3x3 * 1e-5 * ASCALE;
 
+	const Vector3 gravity = T_inertial_to_world.rotation() * Vector3(0,0,-9.806);
 
-	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
-	// std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = std::make_shared<PreintegratedCombinedMeasurements::Params>(Vector3(0, -9.81, 0));
+	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params =std::shared_ptr<PreintegrationCombinedParams>( new PreintegrationCombinedParams(gravity));
+	// std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params =std::shared_ptr<PreintegrationCombinedParams>( new PreintegrationCombinedParams(Vector3(0,0,-9.81)));
+
 	imu_preintegration_params->accelerometerCovariance = continuous_time_accel_noise_cov;
 	imu_preintegration_params->gyroscopeCovariance = continuous_time_gyro_noise_cov;
 

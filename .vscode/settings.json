@@ -90,6 +90,7 @@
         "typeinfo": "cpp",
         "variant": "cpp",
         "core": "cpp",
-        "superlusupport": "cpp"
+        "superlusupport": "cpp",
+        "expected": "cpp"
     },
 }
