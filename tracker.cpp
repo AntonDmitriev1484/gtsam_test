@@ -200,7 +200,6 @@ void Tracker::init_state(json calibration_stream, json priors) {
     track.Iv = 0;
     track.Ib = 0;
 
-
 	// prior_pose needs to come from the first pose in the sensor stream.
 
 	bool set_pose_prior = false;
@@ -215,9 +214,9 @@ void Tracker::init_state(json calibration_stream, json priors) {
 
 	for (json mes: calibration_stream) {
 		// First set all priors
-		if ( mes["type"]=="vicon_pose" && !set_pose_prior) {
+		if ( mes["type"]=="slam_pose" && !set_pose_prior) {
 			Pose3 start_slam_pose; 
-			Vector3 start_slam_velocity;
+			Vector3 start_slam_velocity(0,0,0);
 			double timestamp;
 
 			Pose3 T_world_to_body;
@@ -226,7 +225,7 @@ void Tracker::init_state(json calibration_stream, json priors) {
 			Pose3 T_body_to_world = T_world_to_body.inverse();
 			start_slam_pose = T_body_to_world;
 			
-			get_V(mes, start_slam_velocity); // velocity
+			// get_V(mes, start_slam_velocity); // velocity // NOTE: CHANGED VELOCITY!
 
 			Rot3 rot_imu_to_body = T_body_to_imu.rotation();
 			Pose3 prior_pose = start_slam_pose;
@@ -246,115 +245,44 @@ void Tracker::init_state(json calibration_stream, json priors) {
 			set_pose_prior = true;
 
 			isam->update(*graph, vals);
-			graph->resize(0);
-			vals.clear();
-
 			prev_state = NavState(prior_pose, prior_velocity);
 			imu_preintegrated->resetIntegrationAndSetBias(prior_imu_bias);
-		}
+			track.changing_bias = prior_imu_bias;
 
-		// Then calibrate the IMU bias
-		if (set_pose_prior && calibrate_bias) {
-			if (mes["type"] == "imu") {
+			// Clear for next iteration
+			// graph->resize(0);
+			// vals.clear();
+			// Need to get result out of iSAM
 
-				// Add IMU measurement
-				Vector3 accel;
-				Vector3 gyro;
-				get_IMU(mes, accel, gyro);
+			result = vals;
+			PreintegrationBase::Bias optimized_bias = result.at<gtsam::PreintegrationBase::Bias>(B(track.Ib));
+			Pose3 latest_pose = result.at<Pose3>(X(track.Ix));
+			Vector3 latest_velocity = result.at<Vector3>(V(track.Iv));
 
-				imu_preintegrated->integrateMeasurement(accel, gyro, delta_t);
+			cout << "Prior bias estimate" << std::endl;
+			prior_imu_bias.print();
 
-				cout << "Calibration phase: preintegration at " 
-				<< mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
-				cout << "Norm of accel " << accel.norm() << endl;
+			cout << "Optimized bias applied to preintegrator" << std::endl;
+			imu_preintegrated->print();
 
-				last_was_pose = false;
-				imu_counter ++;
-			}
 
-			if (mes["type"] == "vicon_pose") vicon_counter++;
-			if (mes["type"] == "vicon_pose" && !last_was_pose && (vicon_counter % 10 == 0)) {
-				cout << "Used Vicon in calibration" << endl;
-				track.Ix++;
-				track.Iv++;
-				track.Ib++;
+			track.est_poses.push_back(latest_pose); // We'll take the estimate out of values and put it here.
+			track.gt_poses.push_back(latest_pose);
+			track.est_timestamps.push_back(latest_pose_timestamp);
+			track.gt_timestamps.push_back(latest_pose_timestamp);
+			track.est_velocities.push_back(latest_velocity);
+			track.constant_bias = optimized_bias;
+			track.changing_bias = optimized_bias;
 
-				Pose3 T_world_to_body;
-				string usrname;
-				get_pose_from_HTM(mes["T_body_world"],T_world_to_body);
-				Pose3 T_body_to_world = T_world_to_body.inverse();
-				Pose3 gt_pose = T_body_to_world;
+			vals.clear(); // TODO: Do we need to clear here? if we're using LM
 
-				// Add IMU factor
-				auto* current_imu_preintegration =
-					dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+			// Initialize our NavState
+			prev_state = NavState(latest_pose, latest_velocity);
 
-				CombinedImuFactor imu_factor(
-					X(track.Ix - 1), V(track.Iv - 1),
-					X(track.Ix), V(track.Iv),
-					B(track.Ib - 1), B(track.Ib),
-					*current_imu_preintegration);
-
-				graph->add(imu_factor);
-				cout << "Calibration Added IMU factor " << graph->size() - 1 << endl;
-
-				// Add GT prior factor
-				graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, GT_noise_model));
-				cout << "Calibration Added Prior factor " << graph->size() - 1 << endl;
-
-				// Predict current state
-				// So I think gravity compensation is performed implicitly within predict.
-				NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
-				cout << "Using imu preintegration " << endl;
-				current_imu_preintegration->print();
-
-				// Insert initial values
-				vals.insert(X(track.Ix), proposed.pose());
-				vals.insert(V(track.Iv), proposed.v());
-				vals.insert(B(track.Ib), track.changing_bias);
-
-				last_was_pose = true;
-				latest_pose_timestamp = mes["t"];
-
-				isam->update(*graph, vals);
-				result = isam->calculateEstimate();
-
-				prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
-				track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
-
-				// Clear for next iteration
-				graph->resize(0);
-				vals.clear();
-
-				imu_preintegrated->resetIntegrationAndSetBias(track.changing_bias);
-				// imu_preintegrated->resetIntegrationAndSetBias(prior_imu_bias);
-			}
 		}
 	}
 
-	PreintegrationBase::Bias optimized_bias = result.at<gtsam::PreintegrationBase::Bias>(B(track.Ib));
-	Pose3 latest_pose = result.at<Pose3>(X(track.Ix));
-	Vector3 latest_velocity = result.at<Vector3>(V(track.Iv));
-
-	cout << "Prior bias estimate" << std::endl;
-	prior_imu_bias.print();
-
-	cout << "Optimized bias applied to preintegrator" << std::endl;
-	imu_preintegrated->print();
-
-
-    track.est_poses.push_back(latest_pose); // We'll take the estimate out of values and put it here.
-    track.gt_poses.push_back(latest_pose);
-	track.est_timestamps.push_back(latest_pose_timestamp);
-	track.gt_timestamps.push_back(latest_pose_timestamp);
-    track.est_velocities.push_back(latest_velocity);
-    track.constant_bias = optimized_bias;
-	track.changing_bias = optimized_bias;
-
-	vals.clear(); // TODO: Do we need to clear here? if we're using LM
-
-    // Initialize our NavState
-    prev_state = NavState(latest_pose, latest_velocity);
+	
 }
 
 void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp, 
@@ -787,10 +715,11 @@ std::shared_ptr<PreintegratedCombinedMeasurements::Params> get_imu_preintegratio
 	Matrix66 initial_bias_cov = I_6x6 * 1e-5 * ASCALE;
 	Matrix33 integration_cov = I_3x3 * 1e-5 * ASCALE;
 
-	const Vector3 gravity = T_inertial_to_world.rotation() * Vector3(0,0,-9.806);
+	// const Vector3 gravity = T_inertial_to_world.rotation() * Vector3(0,0,-9.806);
 
-	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params =std::shared_ptr<PreintegrationCombinedParams>( new PreintegrationCombinedParams(gravity));
-	// std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params =std::shared_ptr<PreintegrationCombinedParams>( new PreintegrationCombinedParams(Vector3(0,0,-9.81)));
+	// std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params =std::shared_ptr<PreintegrationCombinedParams>( new PreintegrationCombinedParams(gravity));
+	// // std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params =std::shared_ptr<PreintegrationCombinedParams>( new PreintegrationCombinedParams(Vector3(0,0,-9.81)));
+	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = PreintegratedCombinedMeasurements::Params::MakeSharedU();
 
 	imu_preintegration_params->accelerometerCovariance = continuous_time_accel_noise_cov;
 	imu_preintegration_params->gyroscopeCovariance = continuous_time_gyro_noise_cov;

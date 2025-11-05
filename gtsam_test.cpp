@@ -119,13 +119,10 @@ int main(int argc, char* argv[]) {
 	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-2);
 
 	Vector3 prior_velocity((double)priors["velocity"][0], (double)priors["velocity"][1], (double)priors["velocity"][2]);
-	Vector6 prior_imu_bias((double)priors["accel_bias"][0], (double)priors["accel_bias"][1], (double)priors["accel_bias"][2], 
-			(double)priors["gyro_bias"][0], (double)priors["gyro_bias"][1], (double)priors["gyro_bias"][2]);
-
-	// Vector6 prior_imu_bias(0.866525, -0.0937014, 0.232587, 
-	// 	(double)priors["gyro_bias"][0], (double)priors["gyro_bias"][1], (double)priors["gyro_bias"][2]);
-	// Vector6 prior_imu_bias(0,0,0, 
+	// Vector6 prior_imu_bias((double)priors["accel_bias"][0], (double)priors["accel_bias"][1], (double)priors["accel_bias"][2], 
 	// 		(double)priors["gyro_bias"][0], (double)priors["gyro_bias"][1], (double)priors["gyro_bias"][2]);
+	Vector6 prior_imu_bias(0,0,0, 
+			(double)priors["gyro_bias"][0], (double)priors["gyro_bias"][1], (double)priors["gyro_bias"][2]);
 
 	Pose3 T_inertial_to_world;
 	get_pose_from_HTM(transforms["T_inertial_to_world"], T_inertial_to_world);
@@ -156,7 +153,7 @@ int main(int argc, char* argv[]) {
 	t.slam_trajectory_fs = &slam_trajectory_fs;
 
 	// t.init_anchors(json::parse(beacon_fs));
-	t.init_state(calibration_stream, priors);
+	t.init_state(sensor_stream, priors);
 
 
 	bool start_graph = true;
@@ -207,7 +204,7 @@ int main(int argc, char* argv[]) {
 			}
 			range_buffer.clear();
 		}
-		else if (use_gt && mes["type"] == "synth_slam_pose") {
+		else if (use_gt && mes["type"] == "slam_pose") {
 
 			if (imu_counter == imu_count_at_last_imu_factor) {
 				// Pass this measurement and buffer it until the next IMU becomes available
