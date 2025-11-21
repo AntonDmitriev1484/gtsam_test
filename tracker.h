@@ -110,8 +110,8 @@ public:
             const string& debug_dir);
 
     void init(json sensor_stream);
-    void init_anchors(json anchor_json);
-    void init_anchor(string id);
+    void init_anchors(json anchor_json, SharedNoiseModel initial_anchor_noise_model);
+    void init_anchor(int id, SharedNoiseModel initial_anchor_noise_model);
     void init_state(json sensor_stream);
 
     Pose3 report_estimate(Pose3 initial, double timestamp); // take in a GTSAM pose, apply 1-euro filter, and append output to est
@@ -125,6 +125,7 @@ public:
     void processSLAM(const json& mes);
     void processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_stdev);
     void processAssistedUWB(const json& mes, int& uwb_counter);
+    void processAnchorUWB(const json& mes, int& uwb_counter);
 };
 
 // Moved in here because circular includes confuse me

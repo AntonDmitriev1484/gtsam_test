@@ -98,10 +98,21 @@ int main(int argc, char* argv[]) {
 
 	// UWB noise model
 
-	// double uwb_stdev = 1e-2;
-	double uwb_stdev = 0.05;
-	// double uwb_stdev = 0.2;
+	// Ranges
+	double uwb_stdev = 0.2;
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
+
+	// Anchors
+	double anchor_ori_stdev = 1e-3;
+	double initial_anchor_pos_stdev = 1;
+	double final_anchor_pos_stdev = 1e-3;
+	noiseModel::Diagonal::shared_ptr initial_anchor_noise_model = noiseModel::Diagonal::Sigmas(
+		Vector6(initial_anchor_pos_stdev, initial_anchor_pos_stdev, initial_anchor_pos_stdev,
+			 anchor_ori_stdev, anchor_ori_stdev, anchor_ori_stdev));
+
+	noiseModel::Diagonal::shared_ptr final_anchor_noise_model = noiseModel::Diagonal::Sigmas(
+		Vector6(final_anchor_pos_stdev, final_anchor_pos_stdev, final_anchor_pos_stdev,
+			 anchor_ori_stdev, anchor_ori_stdev, anchor_ori_stdev));		 
 
 	// GT noise model - (use to define pose prior)
 	double gt_pos_stdev = 1e-2;
@@ -146,7 +157,7 @@ int main(int argc, char* argv[]) {
 	t.estimated_trajectory_fs = &estimated_trajectory_fs;
 	t.slam_trajectory_fs = &slam_trajectory_fs;
 
-	// t.init_anchors(json::parse(beacon_fs));
+	t.init_anchors(json::parse(beacon_fs), initial_anchor_noise_model);
 	t.init_state(sensor_stream);
 
 
@@ -159,81 +170,76 @@ int main(int argc, char* argv[]) {
 	vector<json> gt_pose_buffer;
 	vector<json> range_buffer;
 
-
+	int user_id = 1;
 	int mes_idx = 0;
 
 	for (json mes : sensor_stream) {
-		if (mes["type"] == "imu") {
+		if (mes["src"] == user_id) {
+			if (mes["type"] == "imu") {
 
-			// Add IMU measurement
-			Vector3 accel;
-			Vector3 gyro;
-			get_IMU(mes, accel, gyro);
+				// Add IMU measurement
+				Vector3 accel;
+				Vector3 gyro;
+				get_IMU(mes, accel, gyro);
 
-			t.imu_preintegrated->integrateMeasurement(accel, gyro, dt);
-			imu_counter++;
+				t.imu_preintegrated->integrateMeasurement(accel, gyro, dt);
+				imu_counter++;
 
-			cout << "Preintegration on at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
+				cout << "Preintegration on at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
 
-			// Just for plotting at IMU frequency
-			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(t.imu_preintegrated);
-			auto proposed = current_imu_preintegration->predict(t.prev_state, t.track.changing_bias);
-			t.report_estimate(proposed.pose(), mes["t"]);
+				// Just for plotting at IMU frequency
+				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(t.imu_preintegrated);
+				auto proposed = current_imu_preintegration->predict(t.prev_state, t.track.changing_bias);
+				t.report_estimate(proposed.pose(), mes["t"]);
 
-			for (json mes : gt_pose_buffer) {
+				for (json mes : gt_pose_buffer) {
+					t.processSLAM(mes);
+					imu_count_at_last_correction = imu_counter;
+					imu_count_at_last_imu_factor = imu_counter;
+					gt_counter++;
+				}
+				gt_pose_buffer.clear();
+
+				for (json mes : range_buffer) {
+					if (use_synthetic_uwb) {
+						t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
+					}
+					else {
+						t.processAssistedUWB(mes, uwb_counter);
+					}
+				}
+				range_buffer.clear();
+			}
+			else if (use_gt && mes["type"] == "slam_pose") {
+
+				if (imu_counter == imu_count_at_last_imu_factor) {
+					// Pass this measurement and buffer it until the next IMU becomes available
+					cout << " Skipped SLAM pose " << endl;
+					gt_pose_buffer.push_back(mes);
+					continue;
+				}
+				t.imu_preintegrated->print();
 				t.processSLAM(mes);
 				imu_count_at_last_correction = imu_counter;
 				imu_count_at_last_imu_factor = imu_counter;
 				gt_counter++;
-			}
-			gt_pose_buffer.clear();
 
-			for (json mes : range_buffer) {
-				if (use_synthetic_uwb) {
-					t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
-				}
+			}
+			else if (!use_synthetic_uwb && use_uwb && mes["type"] == "assisted_uwb" && start_graph) {
+				if (imu_counter == imu_count_at_last_correction) { continue; }
 				else {
 					t.processAssistedUWB(mes, uwb_counter);
 				}
+				imu_count_at_last_imu_factor = imu_counter;
 			}
-			range_buffer.clear();
-		}
-		else if (use_gt && mes["type"] == "slam_pose") {
 
-			if (imu_counter == imu_count_at_last_imu_factor) {
-				// Pass this measurement and buffer it until the next IMU becomes available
-				cout << " Skipped SLAM pose " << endl;
-				gt_pose_buffer.push_back(mes);
-				continue;
+			mes_idx ++;
+		}
+		else {
+			if ( mes["type"] == "uwb") {
+				t.processAnchorUWB(mes, uwb_counter);
 			}
-			t.imu_preintegrated->print();
-			t.processSLAM(mes);
-			imu_count_at_last_correction = imu_counter;
-			imu_count_at_last_imu_factor = imu_counter;
-			gt_counter++;
-
 		}
-		// else if (!use_synthetic_uwb && use_uwb && mes["type"] == "assisted_uwb" && start_graph) {
-		// 	// For the pilot4 case, where we aren't generating synthetic ranges, 
-		// 	// but still need synthetic orientations from post processed interpolation
-		// 	if (imu_counter == imu_count_at_last_correction) { continue; }
-		// 	else {
-		// 		t.processAssistedUWB(mes, uwb_counter);
-		// 	}
-		// 	imu_count_at_last_imu_factor = imu_counter;
-
-		// }
-		// else if (use_synthetic_uwb && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
-		// 	if (imu_counter == imu_count_at_last_correction) { continue; }
-		// 	else {
-		// 		t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
-		// 	}
-		// 	imu_count_at_last_imu_factor = imu_counter;
-		// }
-		// else if (use_uwb && mes["type"] == "uwb" && start_graph) {
-		// }
-
-		mes_idx ++;
 	}
 
 	// Before writing files for evluation, need to be able to transform all

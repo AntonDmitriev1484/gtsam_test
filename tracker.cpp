@@ -54,7 +54,8 @@ void get_beacon_info(map<string, tracking>& info, json beacon_data) {
 			i++;
 		}
 
-		string user = to_string(beacon["ID"]);
+		// string user = to_string(beacon["ID"]);
+		string user = beacon["ID"];
 		Pose3 beacon_pos(Rot3::Identity(), v);
 
 			//If beacon hasn't been added yet
@@ -177,21 +178,22 @@ Pose3 Tracker::report_estimate(Pose3 initial, double timestamp){
 	return reported_pose;
 }
 
-Key AnchorKey(string name) {return symbol('s', stoi(name));}
+Key AnchorKey(int id) {return symbol('s', id);}
 
 
 // Assuming we have already called
 // get_beacon_info(tracker.anchors, json::parse(beacon_fs));
-void Tracker::init_anchor(string id){
-    Pose3 prior_beacon_pose(anchors[id].gt_poses[0]);
+void Tracker::init_anchor(int id, SharedNoiseModel initial_anchor_noise_model){
+    Pose3 prior_beacon_pose(Rot3::Identity(), Point3(0,0,0));
+
     vals.insert(AnchorKey(id), prior_beacon_pose);
-    graph->add(NonlinearEquality<Pose3>(AnchorKey(id), prior_beacon_pose));
+	graph->add(PriorFactor<Pose3>(X(track.Ix), prior_beacon_pose, GT_noise_model));
 }
 
-void Tracker::init_anchors(json anchor_json) {
+void Tracker::init_anchors(json anchor_json, SharedNoiseModel initial_anchor_noise_model) {
 	get_beacon_info(anchors, anchor_json); // Reads raw pose data into map
 	for (auto& [id, anchor_track]: anchors){
-		init_anchor(id); // Uses anchor pose to set pose prior, and inserts into values.
+		init_anchor(stoi(id), initial_anchor_noise_model); // Uses anchor pose to set pose prior, and inserts into values.
 	}
 }
 
@@ -324,6 +326,11 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
 		track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
 
+		// Save estimate poses for all anchors also
+		for (auto& [id, anchor_track]: anchors){
+			anchor_track.est_poses.push_back(result.at<Pose3>(AnchorKey(stoi(id))));
+		}
+
 		// Clear for next iteration
 		graph->resize(0);
 		vals.clear();
@@ -445,9 +452,8 @@ void Tracker::processSLAM(const json& mes)
 	key_timestamps[V(track.Iv)] = (double)mes["t"];
 	key_timestamps[B(track.Ib)] = (double)mes["t"];
 	for (auto const &[id, tracking_] : anchors) {
-		key_timestamps[AnchorKey(id)] = (double)mes["t"];
+		if (id != "") key_timestamps[AnchorKey(stoi(id))] = (double)mes["t"];
 	}
-
 	CombinedImuFactor imu_factor(
 		X(track.Ix - 1), V(track.Iv - 1),
 		X(track.Ix), V(track.Iv),
@@ -496,20 +502,18 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 	key_timestamps[V(track.Iv)] = (double)mes["t"];
 	key_timestamps[B(track.Ib)] = (double)mes["t"];
 	for (auto const &[id, tracking_] : anchors) {
-		key_timestamps[AnchorKey(id)] = (double)mes["t"];
+		if (id != "") key_timestamps[AnchorKey(stoi(id))] = (double)mes["t"];
 	}
-
 	bool USE_TRILATERATION = false;
 
 	vector<string> ids = {"2", "3", "5"}; // Trilateration: Get a range to all anchors
 	vector<string> used_ids = {ids[uwb_counter % 3] }; // Default: Get a range to a single anchor, round robin
 	if (USE_TRILATERATION) used_ids = ids;
 
-	for (string dst_user: used_ids){ 
+	for (string dst: used_ids){ 
 		uwb_counter++;
 
-		tracking& dst = anchors[dst_user];
-		Point3 anchor_pos = dst.gt_poses.back().translation();
+		Point3 anchor_pos = anchors[dst].gt_poses.back().translation();
 
 		Point3 user_antenna_pos = (gt_pose.compose(T_body_to_decawave)).translation();
 
@@ -520,7 +524,7 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 		double noised_range = uwb_distribution(uwb_rng);
 
 		graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-			X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model, T_body_to_decawave));
+			X(track.Ix), AnchorKey(stoi(dst)), noised_range, UWB_noise_model, T_body_to_decawave));
 
 		cout << "Added Range factor " << graph->size() - 1 << endl;
 		cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
@@ -588,13 +592,12 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	key_timestamps[V(track.Iv)] = (double)mes["t"];
 	key_timestamps[B(track.Ib)] = (double)mes["t"];
 	for (auto const &[id, tracking_] : anchors) {
-		key_timestamps[AnchorKey(id)] = (double)mes["t"];
+		if (id != "") key_timestamps[AnchorKey(stoi(id))] = (double)mes["t"];
 	}
 
-	string dst_user = to_string((int)mes["id"]);
+	string dst = to_string((int)mes["id"]);
 
-	tracking& dst = anchors[dst_user];
-	Point3 anchor_pos = dst.gt_poses.back().translation();
+	Point3 anchor_pos = anchors[dst].gt_poses.back().translation();
 	Point3 user_antenna_pos = (gt_pose.compose(T_body_to_decawave)).translation();
 
 	double measured_range = (double)mes["range"];
@@ -641,15 +644,9 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	bool nlos = nlos_score > min_nlos;
 	double corrected_range = measured_range;
 	double helmet_bias = 0.183; // 18.3cm
-	// if (nlos) {
-	// 	double scale_factor = 3 * (nlos_score-min_nlos) / (max_nlos-min_nlos);
-	// 	cout << "scale factor: " << scale_factor << endl;
-	// 	corrected_range =  (measured_range - ((scale_factor+1)*helmet_bias));
-	// }
-
 
 	graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-		X(track.Ix), AnchorKey(dst_user), measured_range, UWB_noise_model, T_body_to_decawave));
+		X(track.Ix), AnchorKey(stoi(dst)), measured_range, UWB_noise_model, T_body_to_decawave));
 
 
 	cout << "Added Range factor " << graph->size() - 1 << endl;
@@ -735,4 +732,43 @@ std::shared_ptr<PreintegratedCombinedMeasurements::Params> get_imu_preintegratio
 	imu_preintegration_params->use2ndOrderCoriolis = false;
 
 	return imu_preintegration_params;
+}
+
+void Tracker::processAnchorUWB(const json& mes, int& uwb_counter)
+{
+
+	int src = mes["src"];
+	int dst = mes["id"];
+	cout << "Processing UWB from src " << src << " to dst " << dst << " time " << mes["t"] << endl;
+
+	anchors[src+""].Ix++; // No velocity or bias associated 
+	// so we only need to increment Ix to get our key
+	uwb_counter++;
+
+	// Add this key -> timestamp mapping to our map
+	key_timestamps[X(track.Ix)] = (double)mes["t"];
+	key_timestamps[V(track.Iv)] = (double)mes["t"];
+	key_timestamps[B(track.Ib)] = (double)mes["t"];
+	for (auto const &[id, tracking_] : anchors) {
+		if (id != "") key_timestamps[AnchorKey(stoi(id))] = (double)mes["t"];
+	}
+
+	double measured_range = (double)mes["range"];
+
+	// 2 cases here, need to add T_body_to_decawave if we're ranging from 2.
+	// But don't need it if we're not ranging from 2.
+	graph->add(RangeFactor<Pose3, Pose3, double>(
+		AnchorKey(src), AnchorKey(dst), measured_range, UWB_noise_model));
+
+
+	cout << "Added Range factor " << graph->size() - 1 << endl;
+	// noiseModel::Diagonal::shared_ptr ori_noise_model = noiseModel::Isotropic::Sigma(3, 1e-3);
+	// graph->add(PriorFactor<Rot3>((AnchorKey(src), Rot3::Identity(), ori_noise_model)));
+
+	// Predict state and insert
+
+
+	// Run optimization
+	// if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "SynthUWB", true); }
+	// else { exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true); }
 }
