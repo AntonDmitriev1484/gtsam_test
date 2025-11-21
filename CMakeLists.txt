@@ -34,6 +34,9 @@ endif()
 # <trial_name> <synthetic_trial_name or 'none'> <'uwb' or 'no_uwb'> <dump (true|false)>"
 enable_testing()
 
+add_test(NAME irl3_loops_integration COMMAND gtsam_test irl3_loops none no_uwb 0.0 true)
+add_test(NAME irl3_loops COMMAND gtsam_test irl3_loops none uwb 0.0 true)
+
 add_test(NAME irl5_imu_bias_straight3 COMMAND gtsam_test irl5_imu_bias_straight3 none no_uwb 0.0 true)
 add_test(NAME irl5_imu_bias_worn COMMAND gtsam_test irl5_imu_bias_worn none no_uwb 0.0 true)
 add_test(NAME irl5_free COMMAND gtsam_test irl5_free none no_uwb 0.0 true)

@@ -195,7 +195,7 @@ void Tracker::init_anchors(json anchor_json) {
 	}
 }
 
-void Tracker::init_state(json calibration_stream, json priors) {
+void Tracker::init_state(json calibration_stream) {
     track.Ix = 0;
     track.Iv = 0;
     track.Ib = 0;
@@ -265,6 +265,8 @@ void Tracker::init_state(json calibration_stream, json priors) {
 			cout << "Optimized bias applied to preintegrator" << std::endl;
 			imu_preintegrated->print();
 
+			cout << "Graph state initialized to " << std::endl;
+			graph->print("");
 
 			track.est_poses.push_back(latest_pose); // We'll take the estimate out of values and put it here.
 			track.gt_poses.push_back(latest_pose);
