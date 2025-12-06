@@ -33,3 +33,4 @@ chrono::system_clock::time_point iso_string_to_time(string timeString);
 void write_trajectory_KITTI_format(vector<Pose3> trajectory, ofstream& fs);
 void write_trajectory_TUM_format(vector<Pose3> trajectory, vector<double> timestamps, ofstream& fs, Pose3 transform = Pose3::Identity());
 void write_timestamps(vector<Pose3> trajectory, vector<double> timestamps, ofstream& fs);
+void write_trajectory_TUM_format_no_timestamps(vector<Pose3> trajectory, ofstream& fs, Pose3 T_body_to_imu);

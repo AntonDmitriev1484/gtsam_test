@@ -160,9 +160,6 @@ int main(int argc, char* argv[]) {
 	t.init_anchors(json::parse(beacon_fs), initial_anchor_noise_model);
 	t.init_state(sensor_stream);
 
-
-	bool start_graph = true;
-
 	// TODO: Counters can all be internal to tracker.
 	int imu_counter=0, uwb_counter = 0, gt_counter=0,
 	imu_count_at_last_correction = 0, imu_count_at_last_imu_factor = 0;
@@ -172,6 +169,8 @@ int main(int argc, char* argv[]) {
 
 	int user_id = 1;
 	int mes_idx = 0;
+
+	int slam_skip = 1; // To make it run faster
 
 	for (json mes : sensor_stream) {
 		if (mes["src"] == user_id) {
@@ -210,7 +209,7 @@ int main(int argc, char* argv[]) {
 				}
 				range_buffer.clear();
 			}
-			else if (use_gt && mes["type"] == "slam_pose") {
+			else if (use_gt && mes["type"] == "slam_pose" && (gt_counter % slam_skip == 0)) {
 
 				if (imu_counter == imu_count_at_last_imu_factor) {
 					// Pass this measurement and buffer it until the next IMU becomes available
@@ -223,12 +222,11 @@ int main(int argc, char* argv[]) {
 				imu_count_at_last_correction = imu_counter;
 				imu_count_at_last_imu_factor = imu_counter;
 				gt_counter++;
-
 			}
-			else if (!use_synthetic_uwb && use_uwb && mes["type"] == "assisted_uwb" && start_graph) {
+			else if ( use_uwb && mes["type"] == "uwb") {
 				if (imu_counter == imu_count_at_last_correction) { continue; }
 				else {
-					t.processAssistedUWB(mes, uwb_counter);
+					t.processUWB(mes, uwb_counter);
 				}
 				imu_count_at_last_imu_factor = imu_counter;
 			}
@@ -248,7 +246,7 @@ int main(int argc, char* argv[]) {
 	Pose3 T_imu_to_cam1;
 	get_pose_from_HTM(transforms["T_imu_to_cam1"], T_imu_to_cam1);
 
-	Pose3 T_body_to_sbody_in_world = T_body_to_imu.compose(T_imu_to_cam1);
+	Pose3 T_body_to_sbody_in_world = Pose3(Rot3::Identity(), Vector3::Zero());
 	Pose3& out_transform = T_body_to_sbody_in_world;
 
 	write_trajectory_TUM_format( t.track.est_poses, t.track.est_timestamps, estimated_trajectory_fs, out_transform);
@@ -260,6 +258,18 @@ int main(int argc, char* argv[]) {
 	write_timestamps( t.track.est_poses, t.track.est_timestamps, estimated_timestamp_fs);
 	estimated_timestamp_fs.close();
 
+	// Print estimated anchor locations
+	for (auto const &[id, tracking_] : t.anchors) {
+		if (id != "") cout << " Anchor " << id << " estimated position " << tracking_.est_poses.back().translation() << endl;
+	} 
+
+	// Dump the full trajectory for each anchor
+	for (auto& [id, anchor_track]: t.anchors){
+
+		ofstream anchor_optimization_trajectory_fs(out_dir + "/anchor_"+id+"_optimization.txt");
+		write_trajectory_TUM_format_no_timestamps( anchor_track.est_poses, anchor_optimization_trajectory_fs, out_transform);
+		anchor_optimization_trajectory_fs.close();
+	}
 
 	cout << "Dumping magnetometer and velocity vectors for visual debug" << endl;
 	
@@ -278,6 +288,7 @@ int main(int argc, char* argv[]) {
 	ofstream postproc_velocity_fs(out_dir + "/vel_vectors.txt");
 	write_trajectory_KITTI_format( t.postproc_velocity_vectors, postproc_velocity_fs);
 	postproc_velocity_fs.close();
+
 
 	
 

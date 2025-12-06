@@ -6,7 +6,7 @@
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/out/build/linux-debug/gtsam_test",
-      "args": ["irl3_loops", "none", "no_uwb", "0.0", "true"],
+      "args": ["irl3_loops", "none", "uwb", "0.0", "true"],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
       "environment": [],

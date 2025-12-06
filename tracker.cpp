@@ -54,8 +54,8 @@ void get_beacon_info(map<string, tracking>& info, json beacon_data) {
 			i++;
 		}
 
-		// string user = to_string(beacon["ID"]);
-		string user = beacon["ID"];
+		string user = to_string(beacon["id"]);
+		// string user = beacon["ID"];
 		Pose3 beacon_pos(Rot3::Identity(), v);
 
 			//If beacon hasn't been added yet
@@ -187,7 +187,7 @@ void Tracker::init_anchor(int id, SharedNoiseModel initial_anchor_noise_model){
     Pose3 prior_beacon_pose(Rot3::Identity(), Point3(0,0,0));
 
     vals.insert(AnchorKey(id), prior_beacon_pose);
-	graph->add(PriorFactor<Pose3>(X(track.Ix), prior_beacon_pose, GT_noise_model));
+	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, GT_noise_model));
 }
 
 void Tracker::init_anchors(json anchor_json, SharedNoiseModel initial_anchor_noise_model) {
@@ -328,7 +328,7 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 
 		// Save estimate poses for all anchors also
 		for (auto& [id, anchor_track]: anchors){
-			anchor_track.est_poses.push_back(result.at<Pose3>(AnchorKey(stoi(id))));
+			if (id !="") anchor_track.est_poses.push_back(result.at<Pose3>(AnchorKey(stoi(id))));
 		}
 
 		// Clear for next iteration
@@ -340,9 +340,9 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 	catch (const std::exception& e) {
 		cerr << "Optimizer update failed: " << e.what() << endl;
 		cerr << "Data timestamp is " << mes_timestamp << endl;
-		graph->saveGraph(debug_dir+"/graph.dot", result);
+		graph->saveGraph("/home/antond2/Desktop/Research/gtsam_test/results/out/irl3_loops/debug/graph.dot", result);
 		graph->print("");
-		cerr << "Graph dumped to factor_graph.dot" << endl;
+		cerr << "Graph dumped to " << "/home/antond2/Desktop/Research/gtsam_test/results/out/irl3_loops/debug/graph.dot" << endl;
 
 
 		write_trajectory_TUM_format( track.est_poses, track.est_timestamps, *estimated_trajectory_fs, T_body_to_imu);
@@ -694,6 +694,61 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	else { exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true); }
 }
 
+void Tracker::processUWB(const json& mes, int& uwb_counter)
+{
+	cout << "Processing assisted range for t=" << mes["t"] << endl;
+
+	track.Ix++;
+	track.Iv++;
+	track.Ib++;
+	uwb_counter++;
+
+	double measured_range = (double)mes["range"];
+
+	// Add this key -> timestamp mapping to our map
+	key_timestamps[X(track.Ix)] = (double)mes["t"];
+	key_timestamps[V(track.Iv)] = (double)mes["t"];
+	key_timestamps[B(track.Ib)] = (double)mes["t"];
+	for (auto const &[id, tracking_] : anchors) {
+		if (id != "") key_timestamps[AnchorKey(stoi(id))] = (double)mes["t"];
+	}
+
+	string dst = to_string((int)mes["id"]);
+
+	
+	graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
+		X(track.Ix), AnchorKey(stoi(dst)), measured_range, UWB_noise_model, T_body_to_decawave));
+
+
+	cout << "Added Range factor " << graph->size() - 1 << endl;
+
+	// Synthetic Magnetometer Factor
+
+	// Add IMU factor
+	auto* current_imu_preintegration =
+		dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+
+	CombinedImuFactor imu_factor(
+		X(track.Ix - 1), V(track.Iv - 1),
+		X(track.Ix), V(track.Iv),
+		B(track.Ib - 1), B(track.Ib),
+		*current_imu_preintegration);
+
+	graph->add(imu_factor);
+	cout << "Added IMU factor " << graph->size() - 1 << endl;
+
+	// Predict state and insert
+	// NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
+	NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
+	vals.insert(X(track.Ix), proposed.pose());
+	vals.insert(V(track.Iv), proposed.v());
+	vals.insert(B(track.Ib), track.changing_bias);
+
+	// Run optimization
+	if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "SynthUWB", true); }
+	else { exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true); }
+}
+
 
 std::shared_ptr<PreintegratedCombinedMeasurements::Params> get_imu_preintegration_params(int ASCALE, int GSCALE, Pose3 T_inertial_to_world) {
 
@@ -760,6 +815,14 @@ void Tracker::processAnchorUWB(const json& mes, int& uwb_counter)
 	graph->add(RangeFactor<Pose3, Pose3, double>(
 		AnchorKey(src), AnchorKey(dst), measured_range, UWB_noise_model));
 
+// Magnetometer Factor
+	Vector3 N_world_frame = Vector3(1,0,0);
+	Vector3 N_body_frame = Vector3(1,0,0); // Identity rotation
+	double scale = 1; 
+
+	Point3 bias(1e-3, 1e-3, 1e-3);
+	noiseModel::Diagonal::shared_ptr MAG_noise_model = noiseModel::Isotropic::Sigma(3, 1e-3);
+	graph->add(MagPoseFactor<Pose3>(AnchorKey(src), N_body_frame, scale, N_world_frame, bias, MAG_noise_model));
 
 	cout << "Added Range factor " << graph->size() - 1 << endl;
 	// noiseModel::Diagonal::shared_ptr ori_noise_model = noiseModel::Isotropic::Sigma(3, 1e-3);

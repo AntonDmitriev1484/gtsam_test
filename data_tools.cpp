@@ -125,6 +125,29 @@ void write_trajectory_TUM_format(vector<Pose3> trajectory, vector<double> timest
 
 }
 
+void write_trajectory_TUM_format_no_timestamps(vector<Pose3> trajectory, ofstream& fs, Pose3 T_body_to_imu) {
+
+	fs << std::fixed << std::setprecision(8);  // Set once before the loop
+
+    for (size_t i = 0; i < trajectory.size(); i++) {
+        const Pose3& T_body_to_world = trajectory[i];
+
+		//Pose is T_world_to_body
+		// We want T_world_to_imu = T_body_to_imu x T_world_to_body
+		// Pose3 out_pose = T_world_to_body.compose(T_body_to_imu); // Apply some transform to each pose before dumping
+		Pose3 out_pose = T_body_to_world.inverse();
+		// Pose3 out_pose = pose;
+
+        Point3 t = out_pose.translation();
+        Rot3 R = out_pose.rotation();
+        Quaternion q = out_pose.rotation().toQuaternion();
+
+        fs << t.x() << " " << t.y() << " " << t.z() << " ";
+        fs << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << "\n";
+    }
+
+}
+
 void write_timestamps(vector<Pose3> trajectory, vector<double> timestamps, ofstream& fs) {
 	fs << std::fixed << std::setprecision(6);  // For 6 digits after the decimal
 
