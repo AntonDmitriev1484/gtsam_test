@@ -696,7 +696,7 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 
 void Tracker::processUWB(const json& mes, int& uwb_counter)
 {
-	cout << "Processing assisted range for t=" << mes["t"] << endl;
+	// cout << "Processing assisted range for t=" << mes["t"] << endl;
 
 	track.Ix++;
 	track.Iv++;
@@ -720,7 +720,7 @@ void Tracker::processUWB(const json& mes, int& uwb_counter)
 		X(track.Ix), AnchorKey(stoi(dst)), measured_range, UWB_noise_model, T_body_to_decawave));
 
 
-	cout << "Added Range factor " << graph->size() - 1 << endl;
+	cout << "Added Range factor to state " << track.Ix << endl;
 
 	// Synthetic Magnetometer Factor
 
@@ -810,10 +810,14 @@ void Tracker::processAnchorUWB(const json& mes, int& uwb_counter)
 
 	double measured_range = (double)mes["range"];
 
+		// Ranges
+	double uwb_stdev = 0.6;
+	noiseModel::Isotropic::shared_ptr test = noiseModel::Isotropic::Sigma(1, uwb_stdev);
+
 	// 2 cases here, need to add T_body_to_decawave if we're ranging from 2.
 	// But don't need it if we're not ranging from 2.
 	graph->add(RangeFactor<Pose3, Pose3, double>(
-		AnchorKey(src), AnchorKey(dst), measured_range, UWB_noise_model));
+		AnchorKey(src), AnchorKey(dst), measured_range, test));
 
 // Magnetometer Factor
 	Vector3 N_world_frame = Vector3(1,0,0);

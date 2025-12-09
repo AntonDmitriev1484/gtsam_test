@@ -104,7 +104,7 @@ int main(int argc, char* argv[]) {
 
 	// Anchors
 	double anchor_ori_stdev = 1e-3;
-	double initial_anchor_pos_stdev = 1;
+	double initial_anchor_pos_stdev = 2;
 	double final_anchor_pos_stdev = 1e-3;
 	noiseModel::Diagonal::shared_ptr initial_anchor_noise_model = noiseModel::Diagonal::Sigmas(
 		Vector6(initial_anchor_pos_stdev, initial_anchor_pos_stdev, initial_anchor_pos_stdev,
@@ -234,9 +234,9 @@ int main(int argc, char* argv[]) {
 			mes_idx ++;
 		}
 		else {
-			if ( mes["type"] == "uwb") {
-				t.processAnchorUWB(mes, uwb_counter);
-			}
+			// if ( mes["type"] == "uwb") {
+			// 	t.processAnchorUWB(mes, uwb_counter);
+			// }
 		}
 	}
 
