@@ -295,7 +295,7 @@ void Tracker::init_state(json calibration_stream) {
 			track.constant_bias = optimized_bias;
 			track.changing_bias = optimized_bias;
 
-			vals.clear(); // TODO: Do we need to clear here? if we're using LM
+			// vals.clear(); // TODO: Do we need to clear here? if we're using LM
 
 			// Initialize our NavState
 			prev_state = NavState(latest_pose, latest_velocity);
@@ -493,8 +493,8 @@ void Tracker::processSLAM(const json& mes)
 	vals.insert(B(track.Ib), track.changing_bias);
 
     // Run iSAM
-	if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "GT", true); }
-	else { exec_iSAM(proposed, (double)mes["t"], "GT", true); }
+	// if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "GT", true); }
+	// else { exec_iSAM(proposed, (double)mes["t"], "GT", true); }
 	
 
 	// translation_filt.clear(); // clear filter
@@ -585,8 +585,8 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 	vals.insert(B(track.Ib), track.changing_bias);
 
 	// Run optimization
-	if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "SynthUWB", true); }
-	else { exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true); }
+	// if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "SynthUWB", true); }
+	// else { exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true); }
 }
 
 void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
@@ -707,8 +707,8 @@ void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
 	vals.insert(B(track.Ib), track.changing_bias);
 
 	// Run optimization
-	if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "SynthUWB", true); }
-	else { exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true); }
+	// if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "SynthUWB", true); }
+	// else { exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true); }
 }
 
 void Tracker::processUWB(const json& mes, int& uwb_counter)
@@ -762,8 +762,8 @@ void Tracker::processUWB(const json& mes, int& uwb_counter)
 	vals.insert(B(track.Ib), track.changing_bias);
 
 	// Run optimization
-	if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "SynthUWB", true); }
-	else { exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true); }
+	// if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "SynthUWB", true); }
+	// else { exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true); }
 }
 
 

@@ -239,6 +239,28 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
+	LevenbergMarquardtParams lm_params;
+	lm_params.diagonalDamping = true;
+	lm_params.linearSolverType = NonlinearOptimizerParams::LinearSolverType::MULTIFRONTAL_QR;
+	LevenbergMarquardtOptimizer lm_optimizer(*(t.graph), t.vals, lm_params);
+
+	double last_error;
+	do {
+		last_error = lm_optimizer.error();
+		lm_optimizer.iterate();  
+		
+		Values result = lm_optimizer.values();
+		
+		for (auto& [id, anchor_track]: t.anchors){
+			if (id != "") {
+				Pose3 estimated = result.at<Pose3>(symbol('s', stoi(id)));
+				anchor_track.est_poses.push_back(estimated);
+			}
+		}
+
+	} while (!checkConvergence(lm_params.relativeErrorTol, lm_params.absoluteErrorTol, lm_params.errorTol, last_error, lm_optimizer.error()));
+
+
 	// Before writing files for evluation, need to be able to transform all
 	// body poses in world frame to slambody (cam1) poses in world frame.
 
