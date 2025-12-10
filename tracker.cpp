@@ -184,7 +184,24 @@ Key AnchorKey(int id) {return symbol('s', id);}
 // Assuming we have already called
 // get_beacon_info(tracker.anchors, json::parse(beacon_fs));
 void Tracker::init_anchor(int id, SharedNoiseModel initial_anchor_noise_model){
-    Pose3 prior_beacon_pose(Rot3::Identity(), Point3(0,0,0));
+    Pose3 prior_beacon_pose;
+
+	// prior_beacon_pose = Pose3(Rot3::Identity(), Point3(0, 0, 0));
+// Anchor 2
+//  GT  [ 3.30309063  0.11910768 -0.36471837]
+// Anchor 3
+//  GT  [ 2.60637062  2.67963209 -0.45687288]
+// Anchor 4
+//  GT  [-0.52073365 -0.78536964 -0.23552549]
+	if (id == 2) {
+		prior_beacon_pose = Pose3(Rot3::Identity(), Point3(4.30309063 , 0.11910768 , -0.36471837));
+	}
+	else if (id == 3) {
+		prior_beacon_pose = Pose3(Rot3::Identity(), Point3(2.60637062 , 3.67963209 , -0.45687288));
+	}
+	else if (id == 4) {
+		prior_beacon_pose = Pose3(Rot3::Identity(), Point3(  -0.52073365, -1.78536964, -0.23552549));
+	}
 
     vals.insert(AnchorKey(id), prior_beacon_pose);
 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, GT_noise_model));
@@ -811,7 +828,7 @@ void Tracker::processAnchorUWB(const json& mes, int& uwb_counter)
 	double measured_range = (double)mes["range"];
 
 		// Ranges
-	double uwb_stdev = 0.6;
+	double uwb_stdev = 0.2;
 	noiseModel::Isotropic::shared_ptr test = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
 	// 2 cases here, need to add T_body_to_decawave if we're ranging from 2.

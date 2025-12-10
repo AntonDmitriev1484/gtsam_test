@@ -187,15 +187,17 @@ def plot_anchors(trialname, fig, ax):
         poses = load_tum_trajectory_timestampless(est_file)
 
         pos_list = []
-        for p in poses:
-            pos_list.append(p[:3, 3])  # extract translation
+        for p_slamworld_to_anchor in poses:
+            p_anchor_to_slamworld = np.linalg.inv(p_slamworld_to_anchor)
+            pos_list.append(p_anchor_to_slamworld[:3, 3])  # extract translation
         est_anchors[id] = np.array(pos_list)
 
     # ---- Transform GT anchors into SLAM frame ----
     for id, pos in gt_anchors.items():
         pos_h = np.array(pos + [1.0])    # homogeneous
+        # Gt anchor in vicon frame
         pos_slam = T["T_world_to_slam"] @ pos_h
-        gt_anchors[id] = pos_slam[:3]
+        gt_anchors[id] = pos_slam[:3] # gt anchor in SLAM frame
 
     # ---- Print comparison ----
     for id in gt_anchors.keys():

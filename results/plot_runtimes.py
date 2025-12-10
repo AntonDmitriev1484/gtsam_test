@@ -74,7 +74,7 @@ def main():
     parser.add_argument("dir", help="Synthetic trial directory, e.g., stereoi_circle2/synthetic_1_5")
     args = parser.parse_args()
 
-    full_dir = f"/home/antond2/Desktop/Research/gtsam_test/out_results/{args.dir}"
+    full_dir = f"/home/antond2/Desktop/Research/gtsam_test/results/out/{args.dir}"
     plot_isam_runtimes(full_dir, title=f"Runtime - {args.dir}", show=True)
 
 
