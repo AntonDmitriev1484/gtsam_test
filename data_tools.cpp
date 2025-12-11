@@ -135,8 +135,8 @@ void write_trajectory_TUM_format_no_timestamps(vector<Pose3> trajectory, ofstrea
 		//Pose is T_world_to_body
 		// We want T_world_to_imu = T_body_to_imu x T_world_to_body
 		// Pose3 out_pose = T_world_to_body.compose(T_body_to_imu); // Apply some transform to each pose before dumping
-		Pose3 out_pose = T_body_to_world.inverse();
-		// Pose3 out_pose = pose;
+		Pose3 out_pose = T_body_to_world.inverse(); // TODO: Temp to see t_body_to_world
+		// Pose3 out_pose = T_body_to_world;
 
         Point3 t = out_pose.translation();
         Rot3 R = out_pose.rotation();

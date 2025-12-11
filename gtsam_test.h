@@ -29,6 +29,8 @@
 #include <gtsam/nonlinear/NonlinearConjugateGradientOptimizer.h>
 #include <gtsam/nonlinear/NonlinearEquality.h>
 #include <gtsam/nonlinear/IncrementalFixedLagSmoother.h>
+#include <gtsam/nonlinear/DoglegOptimizer.h>
+// #include <gtsam/nonlinear/DoglegParams.h>
 
 #include <cctype>
 #include <filesystem>

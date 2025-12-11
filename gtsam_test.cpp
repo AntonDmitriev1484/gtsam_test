@@ -119,8 +119,6 @@ int main(int argc, char* argv[]) {
 	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
 
 	//// IMU noise model
-
-
 	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 1e-2);
 	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-2);
 
@@ -188,7 +186,7 @@ int main(int argc, char* argv[]) {
 				// Just for plotting at IMU frequency
 				PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(t.imu_preintegrated);
 				auto proposed = current_imu_preintegration->predict(t.prev_state, t.track.changing_bias);
-				t.report_estimate(proposed.pose(), mes["t"]);
+				// t.report_estimate(proposed.pose(), mes["t"]);
 
 				for (json mes : gt_pose_buffer) {
 					t.processSLAM(mes);
@@ -222,7 +220,7 @@ int main(int argc, char* argv[]) {
 				imu_count_at_last_imu_factor = imu_counter;
 				gt_counter++;
 			}
-			else if ( use_uwb && mes["type"] == "uwb") {
+			else if ( use_uwb && mes["type"] == "uwb" and !(mes["tag"]=="synth_for_anchors")) {
 				if (imu_counter == imu_count_at_last_correction) { continue; }
 				else {
 					t.processUWB(mes, uwb_counter);
@@ -239,17 +237,54 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
+	// DoglegParams dogleg_params;
+	// // Good settings to help avoid shallow local minima:
+	// dogleg_params.deltaInitial = 1.0;        // Trust region initial radius
+	// dogleg_params.relativeErrorTol = 1e-6;
+	// dogleg_params.absoluteErrorTol = 1e-6;
+	// dogleg_params.errorTol = 1e-6;
+
+	// DoglegOptimizer dogleg_optimizer(*(t.graph), t.vals, dogleg_params);
+
+	// double last_error;
+	// Values result;
+
+	// do {
+	// 	last_error = dogleg_optimizer.error();
+	// 	dogleg_optimizer.iterate();
+
+	// 	result = dogleg_optimizer.values();
+
+	// 	// --- store anchor estimates --
+	// 	for (auto& [id, anchor_track] : t.anchors) {
+	// 		if (!id.empty()) {
+	// 			Pose3 est = result.at<Pose3>(symbol('s', std::stoi(id)));
+	// 			anchor_track.est_poses.push_back(est);
+	// 		}
+	// 	}
+
+	// } while (!checkConvergence(
+	// 			dogleg_params.relativeErrorTol,
+	// 			dogleg_params.absoluteErrorTol,
+	// 			dogleg_params.errorTol,
+	// 			last_error,
+	// 			dogleg_optimizer.error()));
+
 	LevenbergMarquardtParams lm_params;
-	lm_params.diagonalDamping = true;
+	lm_params.diagonalDamping = false;
+	lm_params.maxIterations = 200;      // or even 500
+	lm_params.lambdaInitial = 1e-6;  // more global exploration
+	lm_params.lambdaUpperBound = 1e12;
 	lm_params.linearSolverType = NonlinearOptimizerParams::LinearSolverType::MULTIFRONTAL_QR;
 	LevenbergMarquardtOptimizer lm_optimizer(*(t.graph), t.vals, lm_params);
 
 	double last_error;
+	Values result;
 	do {
 		last_error = lm_optimizer.error();
 		lm_optimizer.iterate();  
 		
-		Values result = lm_optimizer.values();
+		result = lm_optimizer.values();
 		
 		for (auto& [id, anchor_track]: t.anchors){
 			if (id != "") {
@@ -259,6 +294,16 @@ int main(int argc, char* argv[]) {
 		}
 
 	} while (!checkConvergence(lm_params.relativeErrorTol, lm_params.absoluteErrorTol, lm_params.errorTol, last_error, lm_optimizer.error()));
+
+
+	// Load full estimated trajectory into est_poses before dumping
+	for (int i = 0 ; i < t.track.Ix; i ++ ) {
+		t.track.est_poses.push_back(result.at<Pose3>(X(i)));
+	}
+
+	t.graph->saveGraph("/home/antond2/Desktop/Research/gtsam_test/results/out/irl3_loops/debug/graph.dot", result);
+	t.graph->print("");
+	cerr << "Graph dumped to " << "/home/antond2/Desktop/Research/gtsam_test/results/out/irl3_loops/debug/graph.dot" << endl;
 
 
 	// Before writing files for evluation, need to be able to transform all
@@ -310,19 +355,10 @@ int main(int argc, char* argv[]) {
 	write_trajectory_KITTI_format( t.postproc_velocity_vectors, postproc_velocity_fs);
 	postproc_velocity_fs.close();
 
+	// Dump graph
 
-	
 
-	// NOTE: THIS WILL CHANGE FOR EACH DATASET duration
 
-	double duration_s = 45;
-	cout << " Applied " << uwb_counter << " uwb measurements for "<< duration_s<< " seconds of data " << endl;
-	double f_uwb = uwb_counter /duration_s;
-	cout << " UWB frequency in the graph is " << f_uwb << endl;
-
-	cout << " Applied " << gt_counter << " slam measurements for "<< duration_s<< " seconds of data " << endl;
-	double f_gt = gt_counter /duration_s;
-	cout << " GT frequency in the graph is " << f_gt << endl;
 
 	return 0;
 }

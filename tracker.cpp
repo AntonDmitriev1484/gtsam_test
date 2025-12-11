@@ -186,25 +186,26 @@ Key AnchorKey(int id) {return symbol('s', id);}
 void Tracker::init_anchor(int id, SharedNoiseModel initial_anchor_noise_model){
     Pose3 prior_beacon_pose;
 
-	// prior_beacon_pose = Pose3(Rot3::Identity(), Point3(0, 0, 0));
+	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(0, 0, 0));
 // Anchor 2
 //  GT  [ 3.30309063  0.11910768 -0.36471837]
 // Anchor 3
 //  GT  [ 2.60637062  2.67963209 -0.45687288]
 // Anchor 4
 //  GT  [-0.52073365 -0.78536964 -0.23552549]
-	if (id == 2) {
-		prior_beacon_pose = Pose3(Rot3::Identity(), Point3(4.30309063 , 0.11910768 , -0.36471837));
-	}
-	else if (id == 3) {
-		prior_beacon_pose = Pose3(Rot3::Identity(), Point3(2.60637062 , 3.67963209 , -0.45687288));
-	}
-	else if (id == 4) {
-		prior_beacon_pose = Pose3(Rot3::Identity(), Point3(  -0.52073365, -1.78536964, -0.23552549));
-	}
+
+	// if (id == 2) {
+	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(3.30309063 , 0.11910768 ,-0.36471837));
+	// }
+	// else if (id == 3) {
+	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(2.60637062  ,2.67963209, -0.45687288));
+	// }
+	// else if (id == 4) {
+	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(  -0.52073365 ,-0.78536964, -0.23552549));
+	// }
 
     vals.insert(AnchorKey(id), prior_beacon_pose);
-	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, GT_noise_model));
+	// graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, GT_noise_model));
 }
 
 void Tracker::init_anchors(json anchor_json, SharedNoiseModel initial_anchor_noise_model) {
@@ -492,6 +493,9 @@ void Tracker::processSLAM(const json& mes)
 	vals.insert(V(track.Iv), proposed.v());
 	vals.insert(B(track.Ib), track.changing_bias);
 
+
+	imu_preintegrated->resetIntegrationAndSetBias(track.changing_bias);
+
     // Run iSAM
 	// if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "GT", true); }
 	// else { exec_iSAM(proposed, (double)mes["t"], "GT", true); }
@@ -734,7 +738,7 @@ void Tracker::processUWB(const json& mes, int& uwb_counter)
 
 	
 	graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-		X(track.Ix), AnchorKey(stoi(dst)), measured_range, UWB_noise_model, T_body_to_decawave));
+		AnchorKey(stoi(dst)), X(track.Ix), measured_range, UWB_noise_model, T_body_to_decawave));
 
 
 	cout << "Added Range factor to state " << track.Ix << endl;
@@ -760,6 +764,9 @@ void Tracker::processUWB(const json& mes, int& uwb_counter)
 	vals.insert(X(track.Ix), proposed.pose());
 	vals.insert(V(track.Iv), proposed.v());
 	vals.insert(B(track.Ib), track.changing_bias);
+
+
+	imu_preintegrated->resetIntegrationAndSetBias(track.changing_bias);
 
 	// Run optimization
 	// if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "SynthUWB", true); }
@@ -846,6 +853,7 @@ void Tracker::processAnchorUWB(const json& mes, int& uwb_counter)
 	graph->add(MagPoseFactor<Pose3>(AnchorKey(src), N_body_frame, scale, N_world_frame, bias, MAG_noise_model));
 
 	cout << "Added Range factor " << graph->size() - 1 << endl;
+	
 	// noiseModel::Diagonal::shared_ptr ori_noise_model = noiseModel::Isotropic::Sigma(3, 1e-3);
 	// graph->add(PriorFactor<Rot3>((AnchorKey(src), Rot3::Identity(), ori_noise_model)));
 
