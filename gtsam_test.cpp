@@ -74,9 +74,9 @@ int main(int argc, char* argv[]) {
 	}
 
 	// If log_dump. Redirect stdout output to a text file.
-	if (log_dump) {
-		std::cout.rdbuf(log_dump_fs.rdbuf());
-	}
+	// if (log_dump) {
+	// 	std::cout.rdbuf(log_dump_fs.rdbuf());
+	// }
 
 	cout << "In path " << data_dir << endl;
 	cout << "Out path " << out_dir << endl;
@@ -104,7 +104,7 @@ int main(int argc, char* argv[]) {
 
 	// Anchors
 	double anchor_ori_stdev = 1e-3;
-	double initial_anchor_pos_stdev = 2;
+	double initial_anchor_pos_stdev = 3;
 	double final_anchor_pos_stdev = 1e-3;
 	noiseModel::Diagonal::shared_ptr initial_anchor_noise_model = noiseModel::Diagonal::Sigmas(
 		Vector6(initial_anchor_pos_stdev, initial_anchor_pos_stdev, initial_anchor_pos_stdev,
@@ -197,12 +197,8 @@ int main(int argc, char* argv[]) {
 				gt_pose_buffer.clear();
 
 				for (json mes : range_buffer) {
-					if (use_synthetic_uwb) {
-						t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
-					}
-					else {
-						t.processAssistedUWB(mes, uwb_counter);
-					}
+					cout << "processing buffered range to " << mes["id"] << " t = " << mes["t"] << endl;
+					t.processUWB(mes, uwb_counter);
 				}
 				range_buffer.clear();
 			}
@@ -220,89 +216,91 @@ int main(int argc, char* argv[]) {
 				imu_count_at_last_imu_factor = imu_counter;
 				gt_counter++;
 			}
-			else if ( use_uwb && mes["type"] == "uwb" and !(mes["tag"]=="synth_for_anchors")) {
-				if (imu_counter == imu_count_at_last_correction) { continue; }
+			else if ( (mes["type"] == "uwb")) { // user -> real anchor ranges (non-synthetic)
+				if (imu_counter == imu_count_at_last_correction) { 
+					cout << "Skipped User to "<< mes["id"] << endl;
+					range_buffer.push_back(mes);
+					continue; }
 				else {
+					cout << "Used User to "<< mes["id"] << endl;
 					t.processUWB(mes, uwb_counter);
 				}
 				imu_count_at_last_imu_factor = imu_counter;
 			}
+			// Commenting this block out makes it converge
+			// else if ( (mes["type"] == "synth_uwb") and (mes["tag"]=="synth_for_user")) {
+			// 	// user -> synthetic anchor ranges (synthetic)
+			// 	if (imu_counter == imu_count_at_last_correction) { 
+			// 		cout << "Skipped User to "<< mes["id"] << endl;
+			// 		range_buffer.push_back(mes);
+			// 		continue; }
+			// 	else {
+			// 		cout << "Used User to "<< mes["id"] << endl;
+			// 		t.processUWB(mes, uwb_counter);
+			// 	}
+			// 	imu_count_at_last_imu_factor = imu_counter;
+			// }
 
 			mes_idx ++;
 		}
 		else {
-			if ( mes["type"] == "uwb") {
+			if ( mes["type"] == "synth_uwb" and mes["tag"] == "synth_for_anchor") {
 				t.processAnchorUWB(mes, uwb_counter);
 			}
 		}
 	}
 
-	// DoglegParams dogleg_params;
-	// // Good settings to help avoid shallow local minima:
-	// dogleg_params.deltaInitial = 1.0;        // Trust region initial radius
-	// dogleg_params.relativeErrorTol = 1e-6;
-	// dogleg_params.absoluteErrorTol = 1e-6;
-	// dogleg_params.errorTol = 1e-6;
-
-	// DoglegOptimizer dogleg_optimizer(*(t.graph), t.vals, dogleg_params);
-
-	// double last_error;
-	// Values result;
-
-	// do {
-	// 	last_error = dogleg_optimizer.error();
-	// 	dogleg_optimizer.iterate();
-
-	// 	result = dogleg_optimizer.values();
-
-	// 	// --- store anchor estimates --
-	// 	for (auto& [id, anchor_track] : t.anchors) {
-	// 		if (!id.empty()) {
-	// 			Pose3 est = result.at<Pose3>(symbol('s', std::stoi(id)));
-	// 			anchor_track.est_poses.push_back(est);
-	// 		}
-	// 	}
-
-	// } while (!checkConvergence(
-	// 			dogleg_params.relativeErrorTol,
-	// 			dogleg_params.absoluteErrorTol,
-	// 			dogleg_params.errorTol,
-	// 			last_error,
-	// 			dogleg_optimizer.error()));
-
 	LevenbergMarquardtParams lm_params;
-	lm_params.diagonalDamping = false;
-	lm_params.maxIterations = 200;      // or even 500
-	lm_params.lambdaInitial = 1e-6;  // more global exploration
-	lm_params.lambdaUpperBound = 1e12;
-	lm_params.linearSolverType = NonlinearOptimizerParams::LinearSolverType::MULTIFRONTAL_QR;
+	// lm_params.diagonalDamping = false;
+	// lm_params.maxIterations = 20;      // or even 500
+	// lm_params.lambdaInitial = 1e-6;  // more global exploration
+	// lm_params.lambdaUpperBound = 1e12;
+	// lm_params.linearSolverType = NonlinearOptimizerParams::LinearSolverType::MULTIFRONTAL_QR;
 	LevenbergMarquardtOptimizer lm_optimizer(*(t.graph), t.vals, lm_params);
 
 	double last_error;
 	Values result;
+	int iteration = 0;
+
 	do {
 		last_error = lm_optimizer.error();
 		lm_optimizer.iterate();  
-		
+
 		result = lm_optimizer.values();
-		
+		iteration++;
+
+		// Print convergence info
+		double current_error = lm_optimizer.error();
+		double delta_error = last_error - current_error;
+		cout << "Iteration " << iteration
+				<< " | Error: " << current_error
+				<< " | ΔError: " << delta_error
+				<< endl;
+		// In debugger, I can see it printing, but when I check the file after, its gone?
+
+		// Store anchor estimates
 		for (auto& [id, anchor_track]: t.anchors){
-			if (id != "") {
+			if (!id.empty()) {
 				Pose3 estimated = result.at<Pose3>(symbol('s', stoi(id)));
+
+				cout << " anchor " << id << " estimated " << estimated.translation() << endl;
 				anchor_track.est_poses.push_back(estimated);
 			}
 		}
 
-	} while (!checkConvergence(lm_params.relativeErrorTol, lm_params.absoluteErrorTol, lm_params.errorTol, last_error, lm_optimizer.error()));
+	} while (!checkConvergence(
+				lm_params.relativeErrorTol,
+				lm_params.absoluteErrorTol,
+				lm_params.errorTol,
+				last_error,
+				lm_optimizer.error()));
 
-
-	// Load full estimated trajectory into est_poses before dumping
+	// Load full estimated user trajectory into est_poses before dumping
 	for (int i = 0 ; i < t.track.Ix; i ++ ) {
 		t.track.est_poses.push_back(result.at<Pose3>(X(i)));
 	}
 
 	t.graph->saveGraph("/home/antond2/Desktop/Research/gtsam_test/results/out/irl3_loops/debug/graph.dot", result);
-	t.graph->print("");
 	cerr << "Graph dumped to " << "/home/antond2/Desktop/Research/gtsam_test/results/out/irl3_loops/debug/graph.dot" << endl;
 
 

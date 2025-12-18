@@ -122,7 +122,6 @@ void write_trajectory_TUM_format(vector<Pose3> trajectory, vector<double> timest
         fs << t.x() << " " << t.y() << " " << t.z() << " ";
         fs << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << "\n";
     }
-
 }
 
 void write_trajectory_TUM_format_no_timestamps(vector<Pose3> trajectory, ofstream& fs, Pose3 T_body_to_imu) {

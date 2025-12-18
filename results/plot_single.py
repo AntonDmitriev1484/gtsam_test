@@ -165,7 +165,7 @@ def plot_trajectories(trial_dir, slam_stride=0, est_stride=0, show=True, scatter
     return (fig, ax)
 
 
-def plot_anchors(trialname, fig, ax):
+def plot_anchors(trialname, fig, ax, show_optimization):
 
     # ---- Load transforms ----
     transforms_file = open(f"/home/antond2/ws/post/out/{trialname}_post/transforms.json", 'r')
@@ -173,15 +173,24 @@ def plot_anchors(trialname, fig, ax):
 
     # ---- Load GT anchors ----
     gt_anchors_file = open(f"/home/antond2/ws/post/out/{trialname}_post/gt_anchors_{trialname}.json", 'r')
-    gt_anchors = {"2": [], "3": [], "4": []}
-    j = json.load(gt_anchors_file)
+    # gt_anchors = {"2": [], "3": [], "4": []}
+    anchor_read = json.load(gt_anchors_file)
+
+    gt_anchors = {}
+    est_anchors = {}
+    colors = {}
+
+    for j in anchor_read:
+        gt_anchors[str(j["id"])] = []
+        est_anchors[str(j["id"])] = []
+        colors[str(j["id"])] = "black"
 
     for id, _ in gt_anchors.items():
-        j_ = [a for a in j if a["id"] == int(id)][0]
+        j_ = [a for a in anchor_read if a["id"] == int(id)][0]
         gt_anchors[id] = j_["position"]
 
     # ---- Load estimated anchor trajectories ----
-    est_anchors = {"2": [], "3": [], "4": []}
+    # est_anchors = {"2": [], "3": [], "4": []}
     for id, _ in est_anchors.items():
         est_file = f"/home/antond2/Desktop/Research/gtsam_test/results/out/{trialname}/anchor_{id}_optimization.txt"
         poses = load_tum_trajectory_timestampless(est_file)
@@ -204,6 +213,7 @@ def plot_anchors(trialname, fig, ax):
         print(f"Anchor {id}")
         print(f" GT  {gt_anchors[id]}")
         print(f" EST {est_anchors[id][-1]}")
+        print(f" error = {np.linalg.norm(gt_anchors[id]-est_anchors[id][-1])}")
 
     # =====================================================
     #                    PLOTTING
@@ -212,7 +222,7 @@ def plot_anchors(trialname, fig, ax):
     # fig = plt.figure()
     # ax = fig.add_subplot(111, projection="3d")
 
-    colors = {"2": "red", "3": "purple", "4": "orange"}
+    # colors = {"2": "red", "3": "purple", "4": "orange"}
 
     for id in est_anchors.keys():
 
@@ -220,7 +230,8 @@ def plot_anchors(trialname, fig, ax):
         x, y, z = traj[:, 0], traj[:, 1], traj[:, 2]
 
         # Plot trajectory
-        ax.plot(x, y, z, color=colors[id], linewidth=2, label=f"Anchor {id} est")
+        if show_optimization:
+            ax.plot(x, y, z, color=colors[id], linewidth=2, label=f"Anchor {id} est")
 
         # Final estimate (blue)
         ax.scatter(x[-1], y[-1], z[-1], color="blue", s=80)
@@ -248,11 +259,18 @@ def plot_anchors(trialname, fig, ax):
         )
 
     ax.set_title(f"Ground-truth, Estimated, and Anchor Optimization Trajectories — {trialname} (SLAM frame)")
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_zlabel("Z")
+    ax.set_xlabel("X (m)")
+    ax.set_ylabel("Y (m)")
+    ax.set_zlabel("Z (m)")
     ax.legend()
     ax.grid(True)
+
+    # for irl3_loops specifically 
+    ax.set_xlim(-2, 4)
+    ax.set_ylim(-3, 3)
+    ax.set_zlim(-1.5, 1.5)
+
+    ax.view_init(elev=22, azim=-52)
 
     plt.show()
 
@@ -269,9 +287,10 @@ def main():
 
     directory = f"./out/{args.trial_dir}"
 
+    show_optimization = False
     if args.anchor_compare:
         fig, ax = plot_trajectories(directory, slam_stride=args.slam_stride, est_stride=args.est_stride, show=False, scatter=args.scatter)
-        plot_anchors(args.trial_dir, fig, ax) # trial_dir is really just trial name
+        plot_anchors(args.trial_dir, fig, ax, show_optimization) # trial_dir is really just trial name
 
 
 if __name__ == "__main__":

@@ -55,6 +55,7 @@ void get_beacon_info(map<string, tracking>& info, json beacon_data) {
 		}
 
 		string user = to_string(beacon["id"]);
+		if (user != "\200") {
 		// string user = beacon["ID"];
 		Pose3 beacon_pos(Rot3::Identity(), v);
 
@@ -65,6 +66,7 @@ void get_beacon_info(map<string, tracking>& info, json beacon_data) {
 				t.is_beacon = true;
 				info.insert(make_pair(user, t));
 			}
+		}
 	}
 }
 
@@ -188,24 +190,24 @@ void Tracker::init_anchor(int id, SharedNoiseModel initial_anchor_noise_model){
 
 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(0, 0, 0));
 // Anchor 2
-//  GT  [ 3.30309063  0.11910768 -0.36471837]
+//  GT  [-0.52073365 -0.78536964 -0.23552549]
 // Anchor 3
 //  GT  [ 2.60637062  2.67963209 -0.45687288]
 // Anchor 4
-//  GT  [-0.52073365 -0.78536964 -0.23552549]
+//  GT  [ 3.30309063  0.11910768 -0.36471837]
 
-	// if (id == 2) {
-	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(3.30309063 , 0.11910768 ,-0.36471837));
-	// }
-	// else if (id == 3) {
-	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(2.60637062  ,2.67963209, -0.45687288));
-	// }
-	// else if (id == 4) {
-	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(  -0.52073365 ,-0.78536964, -0.23552549));
-	// }
+	if (id == 2) {
+		prior_beacon_pose = Pose3(Rot3::Identity(), Point3(-1.52073365, -0.78536964 ,-0.23552549));
+	}
+	else if (id == 3) {
+		prior_beacon_pose = Pose3(Rot3::Identity(), Point3( 2.60637062 , 3.67963209 ,-0.45687288));
+	}
+	else if (id == 4) {
+		prior_beacon_pose = Pose3(Rot3::Identity(), Point3( 3.30309063,  -1.11910768 ,-0.36471837));
+	}
 
     vals.insert(AnchorKey(id), prior_beacon_pose);
-	// graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, GT_noise_model));
+	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, GT_noise_model));
 }
 
 void Tracker::init_anchors(json anchor_json, SharedNoiseModel initial_anchor_noise_model) {
@@ -213,6 +215,7 @@ void Tracker::init_anchors(json anchor_json, SharedNoiseModel initial_anchor_noi
 	for (auto& [id, anchor_track]: anchors){
 		init_anchor(stoi(id), initial_anchor_noise_model); // Uses anchor pose to set pose prior, and inserts into values.
 	}
+	cout << "pause" << endl; // garbage being added to anchors after
 }
 
 void Tracker::init_state(json calibration_stream) {
@@ -731,7 +734,7 @@ void Tracker::processUWB(const json& mes, int& uwb_counter)
 	key_timestamps[V(track.Iv)] = (double)mes["t"];
 	key_timestamps[B(track.Ib)] = (double)mes["t"];
 	for (auto const &[id, tracking_] : anchors) {
-		if (id != "") key_timestamps[AnchorKey(stoi(id))] = (double)mes["t"];
+		if (id != "" && id != "\\200") key_timestamps[AnchorKey(stoi(id))] = (double)mes["t"];
 	}
 
 	string dst = to_string((int)mes["id"]);
@@ -820,7 +823,8 @@ void Tracker::processAnchorUWB(const json& mes, int& uwb_counter)
 	int dst = mes["id"];
 	cout << "Processing UWB from src " << src << " to dst " << dst << " time " << mes["t"] << endl;
 
-	anchors[src+""].Ix++; // No velocity or bias associated 
+	// string src_ = src+"";
+	anchors[to_string(src)].Ix++; // No velocity or bias associated 
 	// so we only need to increment Ix to get our key
 	uwb_counter++;
 
@@ -829,8 +833,9 @@ void Tracker::processAnchorUWB(const json& mes, int& uwb_counter)
 	key_timestamps[V(track.Iv)] = (double)mes["t"];
 	key_timestamps[B(track.Ib)] = (double)mes["t"];
 	for (auto const &[id, tracking_] : anchors) {
-		if (id != "") key_timestamps[AnchorKey(stoi(id))] = (double)mes["t"];
-	}
+		if (id != "" && id !="\\200") key_timestamps[AnchorKey(stoi(id))] = (double)mes["t"];
+	} 
+	// I have absolutely no fucking clue how "\200" is making it into the map, nor do I know how to avoid it.
 
 	double measured_range = (double)mes["range"];
 
