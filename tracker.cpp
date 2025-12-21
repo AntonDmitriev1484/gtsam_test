@@ -186,22 +186,23 @@ Key AnchorKey(int id) {return symbol('s', id);}
 void Tracker::init_anchor(int id, SharedNoiseModel initial_anchor_noise_model){
     Pose3 prior_beacon_pose;
 
-	// prior_beacon_pose = Pose3(Rot3::Identity(), Point3(0, 0, 0));
+	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(0, 0, 0));
 // Anchor 2
-//  GT  [ 3.30309063  0.11910768 -0.36471837]
+//  GT  [-0.52073365 -0.78536964 -0.23552549]
 // Anchor 3
 //  GT  [ 2.60637062  2.67963209 -0.45687288]
 // Anchor 4
-//  GT  [-0.52073365 -0.78536964 -0.23552549]
-	if (id == 2) {
-		prior_beacon_pose = Pose3(Rot3::Identity(), Point3(4.30309063 , 0.11910768 , -0.36471837));
-	}
-	else if (id == 3) {
-		prior_beacon_pose = Pose3(Rot3::Identity(), Point3(2.60637062 , 3.67963209 , -0.45687288));
-	}
-	else if (id == 4) {
-		prior_beacon_pose = Pose3(Rot3::Identity(), Point3(  -0.52073365, -1.78536964, -0.23552549));
-	}
+//  GT  [ 3.30309063  0.11910768 -0.36471837]
+
+	// if (id == 2) {
+	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(-1.52073365, -0.78536964 ,-0.23552549));
+	// }
+	// else if (id == 3) {
+	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3( 2.60637062 , 3.67963209 ,-0.45687288));
+	// }
+	// else if (id == 4) {
+	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3( 3.30309063,  -1.11910768 ,-0.36471837));
+	// }
 
     vals.insert(AnchorKey(id), prior_beacon_pose);
 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, GT_noise_model));
@@ -541,7 +542,7 @@ void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_
 		double noised_range = uwb_distribution(uwb_rng);
 
 		graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-			X(track.Ix), AnchorKey(stoi(dst)), noised_range, UWB_noise_model, T_body_to_decawave));
+			AnchorKey(stoi(dst)), X(track.Ix), noised_range, UWB_noise_model, T_body_to_decawave));
 
 		cout << "Added Range factor " << graph->size() - 1 << endl;
 		cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;

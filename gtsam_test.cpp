@@ -199,12 +199,8 @@ int main(int argc, char* argv[]) {
 				gt_pose_buffer.clear();
 
 				for (json mes : range_buffer) {
-					if (use_synthetic_uwb) {
-						t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
-					}
-					else {
-						t.processAssistedUWB(mes, uwb_counter);
-					}
+					cout << "processing buffered range to " << mes["id"] << " t = " << mes["t"] << endl;
+					t.processUWB(mes, uwb_counter);
 				}
 				range_buffer.clear();
 			}
@@ -222,9 +218,13 @@ int main(int argc, char* argv[]) {
 				imu_count_at_last_imu_factor = imu_counter;
 				gt_counter++;
 			}
-			else if ( use_uwb && mes["type"] == "uwb") {
-				if (imu_counter == imu_count_at_last_correction) { continue; }
+			else if ( (mes["type"] == "uwb")) { // user -> real anchor ranges (non-synthetic)
+				if (imu_counter == imu_count_at_last_correction) { 
+					cout << "Skipped User to "<< mes["id"] << endl;
+					range_buffer.push_back(mes);
+					continue; }
 				else {
+					cout << "Used User to "<< mes["id"] << endl;
 					t.processUWB(mes, uwb_counter);
 				}
 				imu_count_at_last_imu_factor = imu_counter;
@@ -233,7 +233,7 @@ int main(int argc, char* argv[]) {
 			mes_idx ++;
 		}
 		else {
-			if ( mes["type"] == "uwb") {
+			if ( mes["type"] == "synth_uwb" and mes["tag"] == "synth_for_anchor") {
 				t.processAnchorUWB(mes, uwb_counter);
 			}
 		}
