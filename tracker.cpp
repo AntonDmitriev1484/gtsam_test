@@ -196,19 +196,20 @@ void Tracker::init_anchor(int id, SharedNoiseModel initial_anchor_noise_model){
 // Anchor 4
 //  GT  [ 3.30309063  0.11910768 -0.36471837]
 
-	if (id == 2) {
-		prior_beacon_pose = Pose3(Rot3::Identity(), Point3(-1.52073365, -0.78536964 ,-0.23552549));
-	}
-	else if (id == 3) {
-		prior_beacon_pose = Pose3(Rot3::Identity(), Point3( 2.60637062 , 3.67963209 ,-0.45687288));
-	}
-	else if (id == 4) {
-		prior_beacon_pose = Pose3(Rot3::Identity(), Point3( 3.30309063,  -1.11910768 ,-0.36471837));
-	}
+	// if (id == 2) {
+	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(-1.52073365, -0.78536964 ,-0.23552549));
+	// }
+	// else if (id == 3) {
+	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3( 2.60637062 , 3.67963209 ,-0.45687288));
+	// }
+	// else if (id == 4) {
+	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3( 3.30309063,  -1.11910768 ,-0.36471837));
+	// }
 
     vals.insert(AnchorKey(id), prior_beacon_pose);
-	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, GT_noise_model));
+	// graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, GT_noise_model));
 }
+
 
 void Tracker::init_anchors(json anchor_json, SharedNoiseModel initial_anchor_noise_model) {
 	get_beacon_info(anchors, anchor_json); // Reads raw pose data into map
@@ -868,4 +869,39 @@ void Tracker::processAnchorUWB(const json& mes, int& uwb_counter)
 	// Run optimization
 	// if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "SynthUWB", true); }
 	// else { exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true); }
+}
+
+void Tracker::visual_prior_on_anchor(const json& mes){
+	// Extract GT pose
+	Pose3 T_body_to_world;
+	string source;
+
+	// I generate these poses as T_body_to_world in post, and thats how I log them to the file.
+	get_pose_from_HTM(mes["T_body_world"],T_body_to_world);
+	Pose3 gt_pose = T_body_to_world;
+
+	source = to_string(mes["src"]);
+
+	cout << "Used synthetic visual prior on anchor " << source << endl;
+
+	// Add this key -> timestamp mapping to our map
+	// key_timestamps[X(track.Ix)] = (double)mes["t"];
+	// key_timestamps[V(track.Iv)] = (double)mes["t"];
+	// key_timestamps[B(track.Ib)] = (double)mes["t"];
+	// for (auto const &[id, tracking_] : anchors) {
+	// 	if (id != "") key_timestamps[AnchorKey(stoi(id))] = (double)mes["t"];
+	// }
+
+	double anchor_ori_stdev = 1e-3;
+	double final_anchor_pos_stdev = 0.5;
+
+	noiseModel::Diagonal::shared_ptr final_anchor_noise_model = noiseModel::Diagonal::Sigmas(
+	Vector6(final_anchor_pos_stdev, final_anchor_pos_stdev, final_anchor_pos_stdev,
+			anchor_ori_stdev, anchor_ori_stdev, anchor_ori_stdev));		 
+
+
+	// Add GT prior factor
+	graph->add(PriorFactor<Pose3>(AnchorKey(stoi(source)), gt_pose, final_anchor_noise_model));
+	cout << "Added Prior factor " << graph->size() - 1 << endl;
+
 }

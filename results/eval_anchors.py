@@ -6,6 +6,38 @@ from mpl_toolkits.mplot3d import Axes3D
 import argparse
 import os
 import json
+import re
+import argparse
+from collections import defaultdict
+
+
+def parse_log(filepath):
+    runtimes = []
+
+    with open(filepath, 'r') as f:
+        lines = f.readlines()
+
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+
+        # General pattern: TIMER | Start <Algorithm> |
+        m_start = re.match(r"TIMER \| Start (?P<algo>[A-Za-z0-9_]+)", line)
+        if m_start:
+
+            # Look ahead for the 'TIMER Elapsed' line
+            while i + 1 < len(lines):
+                i += 1
+                if lines[i].startswith("TIMER Elapsed"):
+                    try:
+                        elapsed = float(lines[i].strip().split()[-1])
+                        runtimes.append(elapsed)
+                    except ValueError:
+                        pass
+                    break
+        i += 1
+
+    return runtimes
 
 def load_tum_trajectory(filepath):
     """Load TUM trajectory file: id, tx, ty, tz, qx, qy, qz, qw (CSV-style). Returns list of HTMs."""
@@ -82,7 +114,6 @@ def plot_trajectories(trial_dir, slam_stride=0, est_stride=0, show=True, scatter
     est_path = os.path.join(trial_dir, "est.txt")
     slam_path = os.path.join(trial_dir, "slam.txt")
 
-    print(trial_dir)
     est_htms = load_tum_trajectory(est_path)
     slam_htms = load_tum_trajectory(slam_path)
 
@@ -300,6 +331,8 @@ def main():
 
     show_optimization = False
     if args.anchor_compare:
+        runtimes = parse_log(f"./out/{args.trial_dir}/log_dump.txt")
+        print(f"LM completed in {runtimes[0]} s")
         fig, ax = plot_trajectories(directory, slam_stride=args.slam_stride, est_stride=args.est_stride, show=False, scatter=args.scatter)
         plot_anchors(args.trial_dir, fig, ax, show_optimization) # trial_dir is really just trial name
 

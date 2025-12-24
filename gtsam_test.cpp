@@ -17,6 +17,31 @@ using symbol_shorthand::B;  // Bias  (ax,ay,az,gx,gy,gz)
 using symbol_shorthand::V;  // Vel   (xdot,ydot,zdot)
 using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 
+// SO THIS WAS USING CPU TIME the whole time
+// NOT WALL CLOCK TIME
+#define TIMING true
+#define START_TIMER(msg, start_timer) \
+    do { \
+        if (TIMING) { \
+			start_timer = clock(); \
+			double start_t = double(start_timer) / CLOCKS_PER_SEC; \
+			cout << "TIMER | " << msg << " | "<<start_t << endl; \
+        } \
+    } while (false)
+
+#define END_TIMER(msg, start_timer) \
+    do { \
+        if (TIMING) { \
+			clock_t end_timer = clock(); \
+			double start_t = double(start_timer) / CLOCKS_PER_SEC; \
+			double end_t = double(end_timer)/ CLOCKS_PER_SEC; \
+			double elapsed = end_t - start_t; \
+			cout << "TIMER | " << msg << " | "<< end_t << endl; \
+			cout << "TIMER Elapsed " << elapsed << endl; \
+			printf("\n"); \
+		} \
+	} while (false)
+
 
 int main(int argc, char* argv[]) {
 
@@ -74,9 +99,9 @@ int main(int argc, char* argv[]) {
 	}
 
 	// If log_dump. Redirect stdout output to a text file.
-	// if (log_dump) {
-	// 	std::cout.rdbuf(log_dump_fs.rdbuf());
-	// }
+	if (log_dump) {
+		std::cout.rdbuf(log_dump_fs.rdbuf());
+	}
 
 	cout << "In path " << data_dir << endl;
 	cout << "Out path " << out_dir << endl;
@@ -243,12 +268,19 @@ int main(int argc, char* argv[]) {
 
 			mes_idx ++;
 		}
-		else {
+		else { // For other anchors
 			if ( mes["type"] == "synth_uwb" and mes["tag"] == "synth_for_anchor") {
 				t.processAnchorUWB(mes, uwb_counter);
 			}
+			else if (mes["type"] == "synth_visual_anchor_prior"){
+				t.visual_prior_on_anchor(mes);
+			}
 		}
 	}
+
+	clock_t lm_timer;
+	auto start = std::chrono::steady_clock::now();
+	cout << "TIMER | Start LM" << endl;
 
 	LevenbergMarquardtParams lm_params;
 	// lm_params.diagonalDamping = false;
@@ -294,6 +326,11 @@ int main(int argc, char* argv[]) {
 				lm_params.errorTol,
 				last_error,
 				lm_optimizer.error()));
+
+	// END_TIMER("Ended LM", lm_timer);
+	auto end = std::chrono::steady_clock::now();
+	std::chrono::duration<double> elapsed = end - start;
+	cout << "TIMER Elapsed | Ended LM | " << elapsed.count() << endl;
 
 	// Load full estimated user trajectory into est_poses before dumping
 	for (int i = 0 ; i < t.track.Ix; i ++ ) {

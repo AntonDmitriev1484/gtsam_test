@@ -127,6 +127,7 @@ public:
     void processAssistedUWB(const json& mes, int& uwb_counter);
     void processAnchorUWB(const json& mes, int& uwb_counter);
     void processUWB(const json& mes, int& uwb_counter);
+    void visual_prior_on_anchor(const json& mes);
 };
 
 // Moved in here because circular includes confuse me
