@@ -195,7 +195,7 @@ void Tracker::init_anchors(json anchor_json) {
 	}
 }
 
-void Tracker::init_state(json calibration_stream, json priors) {
+void Tracker::init_state(json calibration_stream) {
     track.Ix = 0;
     track.Iv = 0;
     track.Ib = 0;
@@ -214,7 +214,7 @@ void Tracker::init_state(json calibration_stream, json priors) {
 
 	for (json mes: calibration_stream) {
 		// First set all priors
-		if ( mes["type"]=="slam_pose" && !set_pose_prior) {
+		if ( mes["type"]=="opti_pose" && !set_pose_prior) {
 			Pose3 start_slam_pose; 
 			Vector3 start_slam_velocity(0,0,0);
 			double timestamp;

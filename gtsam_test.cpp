@@ -37,9 +37,11 @@ int main(int argc, char* argv[]) {
 	double uwb_synth_stdev = stod(uwb_noise_str);
 	bool use_synthetic_uwb = uwb_synth_stdev > 1e-5;
 
-	string data_dir = "/home/antond2/ws/post/out/"+trial_name+"_post";
+	const int ID = 2;
+
+	string data_dir = "/home/antond2/Desktop/Research/MultiXR-Post/2/post/"+trial_name+"_post";
 	string out_dir = "/home/antond2/Desktop/Research/gtsam_test/results/out/"+trial_name;
-	if (synthetic) {
+	if (synthetic) { // TODO: Remove this
 		data_dir += "/synthetic";
 		out_dir += "/"+synthetic_trial_name;
 		if (use_uwb) { out_dir += "_uwb";}
@@ -47,19 +49,19 @@ int main(int argc, char* argv[]) {
 	string debug_dir = out_dir+"/debug";
 
 	ifstream raw_fs;
-	ifstream calibration_fs;
+	// ifstream calibration_fs;
 	if (synthetic) {
 		raw_fs = ifstream(data_dir + "/all_" + synthetic_trial_name +".json");
-		calibration_fs = ifstream(data_dir + "/calibration_" + synthetic_trial_name +".json");
+		// calibration_fs = ifstream(data_dir + "/calibration_" + synthetic_trial_name +".json");
 	}
 	else {
 		raw_fs = ifstream(data_dir + "/all.json");
-		calibration_fs = ifstream(data_dir + "/calibration.json");
+		// calibration_fs = ifstream(data_dir + "/calibration.json");
 	}
 
-	ifstream priors_fs("/home/antond2/ws/post/out/"+trial_name+"_post" + "/priors.json");
-	ifstream beacon_fs("/home/antond2/ws/post/out/"+trial_name+"_post" + "/anchors.json");
-	ifstream transform_fs("/home/antond2/ws/post/out/"+trial_name+"_post" + "/transforms.json");
+	// ifstream priors_fs("/home/antond2/ws/post/out/"+trial_name+"_post" + "/priors.json");
+	ifstream beacon_fs(data_dir + "/anchors.json");
+	ifstream transform_fs(data_dir + "/transforms.json");
 
 	ofstream estimated_trajectory_fs(out_dir + "/est.txt");
 	ofstream slam_trajectory_fs(out_dir+"/slam.txt");
@@ -85,9 +87,9 @@ int main(int argc, char* argv[]) {
 
 
 	json sensor_stream = json::parse(raw_fs);
-	json calibration_stream = json::parse(calibration_fs);
+	// json calibration_stream = json::parse(calibration_fs);
 	json transforms = json::parse(transform_fs);
-	json priors = json::parse(priors_fs);
+	// json priors = json::parse(priors_fs);
 	map<string, tracking> info; // Map of username to tracking information
 
 	double dt = 1.0 / 200.0; // IMU gyro and accelerometer operate at 200Hz
@@ -118,11 +120,13 @@ int main(int argc, char* argv[]) {
 	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 1e-2);
 	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-2);
 
-	Vector3 prior_velocity((double)priors["velocity"][0], (double)priors["velocity"][1], (double)priors["velocity"][2]);
+	// Vector3 prior_velocity((double)priors["velocity"][0], (double)priors["velocity"][1], (double)priors["velocity"][2]);
 	// Vector6 prior_imu_bias((double)priors["accel_bias"][0], (double)priors["accel_bias"][1], (double)priors["accel_bias"][2], 
 	// 		(double)priors["gyro_bias"][0], (double)priors["gyro_bias"][1], (double)priors["gyro_bias"][2]);
-	Vector6 prior_imu_bias(0,0,0, 
-			(double)priors["gyro_bias"][0], (double)priors["gyro_bias"][1], (double)priors["gyro_bias"][2]);
+	// Vector6 prior_imu_bias(0,0,0, 
+	// 		(double)priors["gyro_bias"][0], (double)priors["gyro_bias"][1], (double)priors["gyro_bias"][2]);
+		Vector3 prior_velocity(0,0,0);
+		Vector6 prior_imu_bias(0,0,0, 0, 0, 0);
 
 	Pose3 T_inertial_to_world;
 	get_pose_from_HTM(transforms["T_inertial_to_world"], T_inertial_to_world);
@@ -153,7 +157,9 @@ int main(int argc, char* argv[]) {
 	t.slam_trajectory_fs = &slam_trajectory_fs;
 
 	// t.init_anchors(json::parse(beacon_fs));
-	t.init_state(sensor_stream, priors);
+	// t.init_state(sensor_stream, priors); 
+	t.init_state(sensor_stream); 
+	// Initialize with no calibration phase and no priors
 
 
 	bool start_graph = true;
@@ -204,7 +210,7 @@ int main(int argc, char* argv[]) {
 			}
 			range_buffer.clear();
 		}
-		else if (use_gt && mes["type"] == "slam_pose") {
+		else if (use_gt && mes["type"] == "opti_pose") {
 
 			if (imu_counter == imu_count_at_last_imu_factor) {
 				// Pass this measurement and buffer it until the next IMU becomes available
@@ -219,23 +225,23 @@ int main(int argc, char* argv[]) {
 			gt_counter++;
 
 		}
-		else if (!use_synthetic_uwb && use_uwb && mes["type"] == "assisted_uwb" && start_graph) {
-			// For the pilot4 case, where we aren't generating synthetic ranges, 
-			// but still need synthetic orientations from post processed interpolation
-			if (imu_counter == imu_count_at_last_correction) { continue; }
-			else {
-				t.processAssistedUWB(mes, uwb_counter);
-			}
-			imu_count_at_last_imu_factor = imu_counter;
+		// else if (!use_synthetic_uwb && use_uwb && mes["type"] == "assisted_uwb" && start_graph) {
+		// 	// For the pilot4 case, where we aren't generating synthetic ranges, 
+		// 	// but still need synthetic orientations from post processed interpolation
+		// 	if (imu_counter == imu_count_at_last_correction) { continue; }
+		// 	else {
+		// 		t.processAssistedUWB(mes, uwb_counter);
+		// 	}
+		// 	imu_count_at_last_imu_factor = imu_counter;
 
-		}
-		else if (use_synthetic_uwb && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
-			if (imu_counter == imu_count_at_last_correction) { continue; }
-			else {
-				t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
-			}
-			imu_count_at_last_imu_factor = imu_counter;
-		}
+		// }
+		// else if (use_synthetic_uwb && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
+		// 	if (imu_counter == imu_count_at_last_correction) { continue; }
+		// 	else {
+		// 		t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
+		// 	}
+		// 	imu_count_at_last_imu_factor = imu_counter;
+		// }
 		// else if (use_uwb && mes["type"] == "uwb" && start_graph) {
 		// }
 
