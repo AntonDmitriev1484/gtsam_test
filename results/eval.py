@@ -22,30 +22,27 @@ def main():
 
     for run_config in ['no_uwb']:
         print("Running graph")
-        result = subprocess.run([
+        subprocess.run([
             exe_path,
             args.trial_name,
             "none",
             run_config,
             "0.0",
             "true"
-        ])
+        ],
+        capture_output=True,
+        text=True)
         print("Graph complete")
 
         plot_trial(args.id, 
                 args.trial_name,
                 slam_stride = -1,
-                est_stride = -1)
-        
-        # For plotting trajectories, maybe we can just use MultiXR-Post / plot_all.py
-
-    # if args.uwb:
-    #     plot_ape_cdfs_joined(path, uwb_path)
-    #     plot_trajectories(uwb_path, show=False)
-    #     plot_isam_runtimes(uwb_path)
-    # else:
-    #     plot_trajectories(path, show=False)
-    #     plot_isam_runtimes(path)
+                est_stride = -1,
+                run_config = run_config)
+   
+   # TODO:
+   # Automate EVO evaluation using evo api
+   # Automate runtime plotting
 
     plt.show()
 

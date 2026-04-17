@@ -63,7 +63,8 @@ int main(int argc, char* argv[]) {
 	ifstream beacon_fs(data_dir + "/anchors.json");
 	ifstream transform_fs(data_dir + "/transforms.json");
 
-	ofstream estimated_trajectory_fs(out_dir + "/est.txt");
+	ofstream estimated_trajectory_htm_json_fs(out_dir + "/est_"+uwb_str+".json");
+	ofstream estimated_trajectory_fs(out_dir + "/est_"+uwb_str+".txt");
 	ofstream slam_trajectory_fs(out_dir+"/slam.txt");
 	ofstream estimated_timestamp_fs(out_dir+"/est_timestamps.txt");
 	ofstream log_dump_fs(out_dir + "/log_dump.txt");
@@ -267,7 +268,6 @@ int main(int argc, char* argv[]) {
 	estimated_timestamp_fs.close();
 
 	// Write estimated poses to a json so they can be plotted
-	ofstream estimated_trajectory_htm_json_fs(out_dir + "/est.json");
 	write_trajectory_HTM_JSON_format (t.track.est_poses, t.track.est_timestamps, estimated_trajectory_htm_json_fs, "est_pose");
 	estimated_trajectory_htm_json_fs.close();
 
