@@ -210,7 +210,7 @@ int main(int argc, char* argv[]) {
 			}
 			range_buffer.clear();
 		}
-		else if (use_gt && mes["type"] == "opti_pose") {
+		else if (use_gt && mes["type"] == "aligned_slam_pose" && mes["tag"] != "lost") {
 
 			if (imu_counter == imu_count_at_last_imu_factor) {
 				// Pass this measurement and buffer it until the next IMU becomes available
@@ -266,9 +266,11 @@ int main(int argc, char* argv[]) {
 	write_timestamps( t.track.est_poses, t.track.est_timestamps, estimated_timestamp_fs);
 	estimated_timestamp_fs.close();
 
+	// Write estimated poses to a json so they can be plotted
+	ofstream estimated_trajectory_htm_json_fs(out_dir + "/est.json");
+	write_trajectory_HTM_JSON_format (t.track.est_poses, t.track.est_timestamps, estimated_trajectory_htm_json_fs, "est_pose");
+	estimated_trajectory_htm_json_fs.close();
 
-	cout << "Dumping magnetometer and velocity vectors for visual debug" << endl;
-	
 	ofstream suwb_base_poses_fs(out_dir + "/suwb_base_poses.txt");
 	write_trajectory_KITTI_format( t.suwb_base_poses, suwb_base_poses_fs);
 	suwb_base_poses_fs.close();
@@ -276,27 +278,7 @@ int main(int argc, char* argv[]) {
 	ofstream gt_base_poses_fs(out_dir + "/gt_base_poses.txt");
 	write_trajectory_KITTI_format( t.track.gt_poses, gt_base_poses_fs);
 	gt_base_poses_fs.close();
-
-	ofstream mag_vectors_fs(out_dir + "/mag_vectors_fs.txt");
-	write_trajectory_KITTI_format( t.mag_vectors, mag_vectors_fs);
-	mag_vectors_fs.close();
-
-	ofstream postproc_velocity_fs(out_dir + "/vel_vectors.txt");
-	write_trajectory_KITTI_format( t.postproc_velocity_vectors, postproc_velocity_fs);
-	postproc_velocity_fs.close();
-
 	
-
-	// NOTE: THIS WILL CHANGE FOR EACH DATASET duration
-
-	double duration_s = 45;
-	cout << " Applied " << uwb_counter << " uwb measurements for "<< duration_s<< " seconds of data " << endl;
-	double f_uwb = uwb_counter /duration_s;
-	cout << " UWB frequency in the graph is " << f_uwb << endl;
-
-	cout << " Applied " << gt_counter << " slam measurements for "<< duration_s<< " seconds of data " << endl;
-	double f_gt = gt_counter /duration_s;
-	cout << " GT frequency in the graph is " << f_gt << endl;
 
 	return 0;
 }

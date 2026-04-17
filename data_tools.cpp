@@ -125,6 +125,40 @@ void write_trajectory_TUM_format(vector<Pose3> trajectory, vector<double> timest
 
 }
 
+// Specifically written to make this graph output compatible with plot_all
+void write_trajectory_HTM_JSON_format(
+    const vector<Pose3>& trajectory,
+    const vector<double>& timestamps,
+    ofstream& fs,
+    const std::string& pose_type = "est_pose"
+) {
+    json traj_json = json::array();
+
+    for (size_t i = 0; i < trajectory.size(); i++) {
+        const Pose3& T_body_to_world = trajectory[i];
+
+        // Convert Pose3 -> 4x4 homogeneous transform matrix
+        Pose3 out_pose = T_body_to_world.inverse();
+
+        Matrix4 H = out_pose.matrix();
+
+        json pose_json;
+        pose_json["t"] = timestamps[i];
+        pose_json["type"] = pose_type;
+
+        pose_json["T_body_world"] = {
+            {H(0,0), H(0,1), H(0,2), H(0,3)},
+            {H(1,0), H(1,1), H(1,2), H(1,3)},
+            {H(2,0), H(2,1), H(2,2), H(2,3)},
+            {H(3,0), H(3,1), H(3,2), H(3,3)}
+        };
+
+        traj_json.push_back(pose_json);
+    }
+
+    fs << traj_json.dump(2);  // pretty print with indent=2
+}
+
 void write_timestamps(vector<Pose3> trajectory, vector<double> timestamps, ofstream& fs) {
 	fs << std::fixed << std::setprecision(6);  // For 6 digits after the decimal
 

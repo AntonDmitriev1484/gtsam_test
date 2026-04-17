@@ -1,2 +1,0 @@
-In path /home/antond2/ws/post/out/irl5_imu_bias_straight3_post
-Out path /home/antond2/Desktop/Research/gtsam_test/out_results/irl5_imu_bias_straight3
