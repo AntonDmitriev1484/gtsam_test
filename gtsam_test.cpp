@@ -171,6 +171,8 @@ int main(int argc, char* argv[]) {
 	vector<json> gt_pose_buffer;
 	vector<json> range_buffer;
 
+	int imu_available = 0;
+
 
 	int mes_idx = 0;
 
@@ -183,6 +185,7 @@ int main(int argc, char* argv[]) {
 			get_IMU(mes, accel, gyro);
 
 			t.imu_preintegrated->integrateMeasurement(accel, gyro, dt);
+			imu_available++;
 			imu_counter++;
 
 			cout << "Preintegration on at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
@@ -195,59 +198,48 @@ int main(int argc, char* argv[]) {
 			if (!gt_pose_buffer.empty()) {
 				json mes = gt_pose_buffer.back();
 				gt_pose_buffer.pop_back();
-				t.processUWB(mes, uwb_counter);
+				gt_counter++;
+				t.processSLAM(mes);
+				imu_available = 0;
 			}
-
-			// for (json mes : gt_pose_buffer) {
-			// 	t.processSLAM(mes);
-			// 	imu_count_at_last_correction = imu_counter;
-			// 	imu_count_at_last_imu_factor = imu_counter;
-			// 	gt_counter++;
-			// }
-			// gt_pose_buffer.clear();
 
 			if (!range_buffer.empty()) {
 				json mes = range_buffer.back();
 				range_buffer.pop_back();
 				t.processUWB(mes, uwb_counter);
+				imu_available = 0;
 			}
 
-			// for (json mes : range_buffer) {
-			// 	if (use_synthetic_uwb) {
-			// 		t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
-			// 	}
-			// 	else {
-			// 		t.processUWB(mes, uwb_counter);
-			// 	}
-			// }
-			// range_buffer.clear();
 		}
 		else if (use_gt && mes["type"] == "aligned_slam_pose" && mes["tag"] != "lost") {
 
-			if (imu_counter == imu_count_at_last_imu_factor) {
+			if (imu_available == 0) {
 				// Pass this measurement and buffer it until the next IMU becomes available
 				cout << " Skipped SLAM pose " << endl;
 				gt_pose_buffer.push_back(mes);
 				continue;
 			}
-			t.imu_preintegrated->print();
-			t.processSLAM(mes);
-			imu_count_at_last_correction = imu_counter;
-			imu_count_at_last_imu_factor = imu_counter;
-			gt_counter++;
+			else {
+				cout << "Used SLAM pose " << endl;
+				t.processSLAM(mes);
+				imu_available = 0;
+
+				gt_counter++;
+			}
 
 		}
 		else if ( (mes["type"] == "synth_uwb") && use_uwb) { 
-				if (imu_counter == imu_count_at_last_correction) { 
+				if (imu_available == 0) { 
 					cout << "Skipped User to "<< mes["id"] << endl;
 					range_buffer.push_back(mes);
-					continue; }
+					continue; 
+				}
 				else {
 					cout << "Used User to "<< mes["id"] << endl;
 					t.processUWB(mes, uwb_counter);
+					imu_available = 0;
 				}
 				
-				imu_count_at_last_imu_factor = imu_counter;
 			}
 
 		mes_idx ++;
