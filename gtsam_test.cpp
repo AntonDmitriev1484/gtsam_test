@@ -106,8 +106,7 @@ int main(int argc, char* argv[]) {
 	// UWB noise model
 
 	// double uwb_stdev = 1e-2;
-	double uwb_stdev = 0.05;
-	// double uwb_stdev = 0.2;
+	double uwb_stdev = 0.2;
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
 	// GT noise model - (use to define pose prior)
@@ -157,7 +156,7 @@ int main(int argc, char* argv[]) {
 	t.estimated_trajectory_fs = &estimated_trajectory_fs;
 	t.slam_trajectory_fs = &slam_trajectory_fs;
 
-	// t.init_anchors(json::parse(beacon_fs));
+	t.init_anchors(json::parse(beacon_fs));
 	// t.init_state(sensor_stream, priors); 
 	t.init_state(sensor_stream); 
 	// Initialize with no calibration phase and no priors
@@ -193,23 +192,35 @@ int main(int argc, char* argv[]) {
 			auto proposed = current_imu_preintegration->predict(t.prev_state, t.track.changing_bias);
 			t.report_estimate(proposed.pose(), mes["t"]);
 
-			for (json mes : gt_pose_buffer) {
-				t.processSLAM(mes);
-				imu_count_at_last_correction = imu_counter;
-				imu_count_at_last_imu_factor = imu_counter;
-				gt_counter++;
+			if (!gt_pose_buffer.empty()) {
+				json mes = gt_pose_buffer.back();
+				gt_pose_buffer.pop_back();
+				t.processUWB(mes, uwb_counter);
 			}
-			gt_pose_buffer.clear();
 
-			for (json mes : range_buffer) {
-				if (use_synthetic_uwb) {
-					t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
-				}
-				else {
-					t.processAssistedUWB(mes, uwb_counter);
-				}
+			// for (json mes : gt_pose_buffer) {
+			// 	t.processSLAM(mes);
+			// 	imu_count_at_last_correction = imu_counter;
+			// 	imu_count_at_last_imu_factor = imu_counter;
+			// 	gt_counter++;
+			// }
+			// gt_pose_buffer.clear();
+
+			if (!range_buffer.empty()) {
+				json mes = range_buffer.back();
+				range_buffer.pop_back();
+				t.processUWB(mes, uwb_counter);
 			}
-			range_buffer.clear();
+
+			// for (json mes : range_buffer) {
+			// 	if (use_synthetic_uwb) {
+			// 		t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
+			// 	}
+			// 	else {
+			// 		t.processUWB(mes, uwb_counter);
+			// 	}
+			// }
+			// range_buffer.clear();
 		}
 		else if (use_gt && mes["type"] == "aligned_slam_pose" && mes["tag"] != "lost") {
 
@@ -226,25 +237,18 @@ int main(int argc, char* argv[]) {
 			gt_counter++;
 
 		}
-		// else if (!use_synthetic_uwb && use_uwb && mes["type"] == "assisted_uwb" && start_graph) {
-		// 	// For the pilot4 case, where we aren't generating synthetic ranges, 
-		// 	// but still need synthetic orientations from post processed interpolation
-		// 	if (imu_counter == imu_count_at_last_correction) { continue; }
-		// 	else {
-		// 		t.processAssistedUWB(mes, uwb_counter);
-		// 	}
-		// 	imu_count_at_last_imu_factor = imu_counter;
-
-		// }
-		// else if (use_synthetic_uwb && use_uwb && mes["type"] == "synthetic_uwb" && start_graph) {
-		// 	if (imu_counter == imu_count_at_last_correction) { continue; }
-		// 	else {
-		// 		t.processSyntheticUWB(mes, uwb_counter, uwb_synth_stdev);
-		// 	}
-		// 	imu_count_at_last_imu_factor = imu_counter;
-		// }
-		// else if (use_uwb && mes["type"] == "uwb" && start_graph) {
-		// }
+		else if ( (mes["type"] == "synth_uwb") && use_uwb) { 
+				if (imu_counter == imu_count_at_last_correction) { 
+					cout << "Skipped User to "<< mes["id"] << endl;
+					range_buffer.push_back(mes);
+					continue; }
+				else {
+					cout << "Used User to "<< mes["id"] << endl;
+					t.processUWB(mes, uwb_counter);
+				}
+				
+				imu_count_at_last_imu_factor = imu_counter;
+			}
 
 		mes_idx ++;
 	}

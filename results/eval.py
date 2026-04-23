@@ -26,7 +26,7 @@ def main():
     gt_traj = file_interface.read_tum_trajectory_file(optitrack_gt_path)
 
 
-    for run_config in ['no_uwb']:
+    for run_config in ['no_uwb', 'uwb']:
         print("Running graph")
         subprocess.run([
             exe_path,

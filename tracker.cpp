@@ -112,6 +112,8 @@ Tracker::Tracker(const string& id,
 	this->uwb_rng = gen; 
 	this->uwb_stdev = uwb_stdev;
 
+	this->debug_dir = debug_dir;
+
 	
     // Initialize noise models
     this->GT_noise_model = GT_noise_model;
@@ -473,6 +475,62 @@ void Tracker::processSLAM(const json& mes)
 	
 
 	// translation_filt.clear(); // clear filter
+}
+
+void Tracker::processUWB(const json& mes, int& uwb_counter)
+{
+	cout << "Processing range for t=" << mes["t"] << endl;
+
+	track.Ix++;
+	track.Iv++;
+	track.Ib++;
+	uwb_counter++;
+
+	double measured_range = (double)mes["range"];
+
+	// Add this key -> timestamp mapping to our map
+	key_timestamps[X(track.Ix)] = (double)mes["t"];
+	key_timestamps[V(track.Iv)] = (double)mes["t"];
+	key_timestamps[B(track.Ib)] = (double)mes["t"];
+	for (auto const &[id, tracking_] : anchors) {
+		if (id != "") key_timestamps[AnchorKey(id)] = (double)mes["t"];
+	}
+
+	string dst = to_string((int)mes["id"]);
+
+	
+	// Needs "Pose of antenna in body frame" i.e. decawave_to_body
+	// graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
+	// 	X(track.Ix), AnchorKey(dst), measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
+	graph->add(RangeFactor<Pose3, Pose3, double>(
+		X(track.Ix), AnchorKey(dst), measured_range, UWB_noise_model));
+
+	cout << "Added Range factor to state " << track.Ix << endl;
+
+	// Add IMU factor
+	auto* current_imu_preintegration =
+		dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+
+	CombinedImuFactor imu_factor(
+		X(track.Ix - 1), V(track.Iv - 1),
+		X(track.Ix), V(track.Iv),
+		B(track.Ib - 1), B(track.Ib),
+		*current_imu_preintegration);
+
+	graph->add(imu_factor);
+	cout << "Added IMU factor " << graph->size() - 1 << endl;
+	imu_preintegrated->print();
+
+	// Predict state and insert
+	// NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
+	NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
+	vals.insert(X(track.Ix), proposed.pose());
+	vals.insert(V(track.Iv), proposed.v());
+	vals.insert(B(track.Ib), track.changing_bias);
+
+	// Run optimization
+	if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "SynthUWB", true); }
+	else { exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true); }
 }
 
 void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_stdev)

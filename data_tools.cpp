@@ -122,7 +122,6 @@ void write_trajectory_TUM_format(vector<Pose3> trajectory, vector<double> timest
         fs << t.x() << " " << t.y() << " " << t.z() << " ";
         fs << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << "\n";
     }
-
 }
 
 // Specifically written to make this graph output compatible with plot_all
