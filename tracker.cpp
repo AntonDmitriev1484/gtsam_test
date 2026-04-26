@@ -479,7 +479,7 @@ void Tracker::processSLAM(const json& mes)
 
 void Tracker::processUWB(const json& mes, int& uwb_counter)
 {
-	cout << "Processing range for t=" << mes["t"] << endl;
+	cout << "Processing range " << mes["src"] << " -> " << mes["id"] << " for t=" << mes["t"] << endl;
 
 	track.Ix++;
 	track.Iv++;

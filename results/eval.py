@@ -38,7 +38,7 @@ def dump_stats(traj_ref_sync, traj_est_sync):
     ape_metric = metrics.APE(metrics.PoseRelation.translation_part)
     ape_metric.process_data((traj_ref_sync, traj_est_sync))
     ape_stats = ape_metric.get_all_statistics()
-    print(f"    Translation APE, {ape_stats["mean"]=}, {ape_stats["rmse"]=}")
+    print(f"    Translation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
     # print(f" Translation APE {json.dumps(ape_stats, indent=1)}")
 
     # Rotation APE
@@ -46,7 +46,7 @@ def dump_stats(traj_ref_sync, traj_est_sync):
     ape_metric.process_data((traj_ref_sync, traj_est_sync))
     ape_stats = ape_metric.get_all_statistics()
     # print(f" Rotational APE {json.dumps(ape_stats, indent=1)}")
-    print(f"    Rotation APE, {ape_stats["mean"]=}, {ape_stats["rmse"]=}")
+    print(f"    Rotation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
 
 def main():
     parser = argparse.ArgumentParser()

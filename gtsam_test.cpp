@@ -140,7 +140,7 @@ int main(int argc, char* argv[]) {
 
 	imu_preintegration_params->setBodyPSensor(T_body_to_imu);
 
-	const string id = "1";
+	const string id = "2";
 	const int smoother_lag = 1;
 	const bool use_smoother = false;
 	const bool use_filter = false;
@@ -167,8 +167,8 @@ int main(int argc, char* argv[]) {
 	int imu_counter=0, uwb_counter = 0, gt_counter=0,
 	imu_count_at_last_correction = 0, imu_count_at_last_imu_factor = 0;
 
-	vector<json> gt_pose_buffer;
-	vector<json> range_buffer;
+	deque<json> gt_pose_buffer;
+	deque<json> range_buffer;
 
 	int imu_available = 0;
 
@@ -195,16 +195,14 @@ int main(int argc, char* argv[]) {
 			t.report_estimate(proposed.pose(), mes["t"]);
 
 			if (!gt_pose_buffer.empty()) {
-				json mes = gt_pose_buffer.back();
-				gt_pose_buffer.pop_back();
+				json mes = gt_pose_buffer.front();
+				gt_pose_buffer.pop_front();
 				gt_counter++;
 				t.processSLAM(mes);
 				imu_available = 0;
-			}
-
-			if (!range_buffer.empty()) {
-				json mes = range_buffer.back();
-				range_buffer.pop_back();
+			} else if (!range_buffer.empty()) { // Must be mutually exclusive
+				json mes = range_buffer.front();
+				range_buffer.pop_front();
 				t.processUWB(mes, uwb_counter);
 				imu_available = 0;
 			}
