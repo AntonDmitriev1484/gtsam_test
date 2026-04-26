@@ -157,7 +157,6 @@ int main(int argc, char* argv[]) {
 	t.slam_trajectory_fs = &slam_trajectory_fs;
 
 	t.init_anchors(json::parse(beacon_fs));
-	// t.init_state(sensor_stream, priors); 
 	t.init_state(sensor_stream); 
 	// Initialize with no calibration phase and no priors
 

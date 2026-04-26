@@ -500,10 +500,10 @@ void Tracker::processUWB(const json& mes, int& uwb_counter)
 
 	
 	// Needs "Pose of antenna in body frame" i.e. decawave_to_body
-	// graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-	// 	X(track.Ix), AnchorKey(dst), measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
-	graph->add(RangeFactor<Pose3, Pose3, double>(
-		X(track.Ix), AnchorKey(dst), measured_range, UWB_noise_model));
+	graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
+		X(track.Ix), AnchorKey(dst), measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
+	// graph->add(RangeFactor<Pose3, Pose3, double>(
+	// 	X(track.Ix), AnchorKey(dst), measured_range, UWB_noise_model));
 
 	cout << "Added Range factor to state " << track.Ix << endl;
 

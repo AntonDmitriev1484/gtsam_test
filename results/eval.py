@@ -49,8 +49,6 @@ def main():
         # Evaluation
         # We have the estimated trajectory as a .txt in TUM format and .json in HTM format
         # We have the optitrack trajectory as a .json in all.json
-        # TODO: Modify post to also export the optitrack trajectory as a .txt in TUM format
-        # TODO: Load both of these and run APE.
         # TODO: Later we can read in the synth_failures file from post and use that to evaluate each error segment individually
             # Apparently once you have a trajectory object, you can write a function to crop it by timestamps (ask Chat if you need to do this later)
         est_path = f"/home/antond2/Desktop/Research/gtsam_test/results/out/{args.trial_name}/est_{run_config}.txt"
