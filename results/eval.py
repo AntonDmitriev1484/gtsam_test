@@ -18,14 +18,10 @@ from plot_all import plot_trial
 import copy
 
 
-def crop_traj_by_time(traj, t_start, t_end):
+def crop_traj_by_time(traj, ids):
     """
     Crop evo trajectory to timestamps in [t_start, t_end]
     """
-    ids = np.where(
-        (traj.timestamps >= t_start) &
-        (traj.timestamps <= t_end)
-    )[0]
 
     return PoseTrajectory3D(
         positions_xyz=traj.positions_xyz[ids],
@@ -34,6 +30,7 @@ def crop_traj_by_time(traj, t_start, t_end):
     )
 
 def dump_stats(traj_ref_sync, traj_est_sync):
+
     # Translation APE
     ape_metric = metrics.APE(metrics.PoseRelation.translation_part)
     ape_metric.process_data((traj_ref_sync, traj_est_sync))
@@ -105,8 +102,24 @@ def main():
         for interval in fails:
             start, end = traj_ref_sync.timestamps[0] + interval["start"] , traj_ref_sync.timestamps[0] + interval["end"]
             print(f"Failure {interval["start"]}s - {interval["end"]}s")
-            cropped_traj_ref_sync = crop_traj_by_time(traj_ref_sync, start, end)
-            cropped_traj_est_sync = crop_traj_by_time(traj_est_sync, start, end)
+
+            ref_ids = np.where(
+                (traj_ref_sync.timestamps >= start) &
+                (traj_ref_sync.timestamps <= end)
+            )[0]
+
+            est_ids = np.where(
+                (traj_est_sync.timestamps >= start) &
+                (traj_est_sync.timestamps <= end)
+            )[0]
+
+            # WHY trajectory lengths OFF BY 1 sometimes????
+
+            ids = est_ids
+            
+
+            cropped_traj_ref_sync = crop_traj_by_time(traj_ref_sync, ids) # Need to limit to the smallest number of poses?
+            cropped_traj_est_sync = crop_traj_by_time(traj_est_sync, ids)
             dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
         
         print()
