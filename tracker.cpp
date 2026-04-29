@@ -87,9 +87,9 @@ Tracker::Tracker(const string& id,
             
             translation_filt(
                 200.,
-                Eigen::Array<double, 3, 1>::Constant(5.),   // min_cutoff
-                Eigen::Array<double, 3, 1>::Constant(1),    // beta > 1
-                Eigen::Array<double, 3, 1>::Constant(10.),   // d_cutoff
+                Eigen::Array<double, 3, 1>::Constant(0.25),   // min_cutoff
+                Eigen::Array<double, 3, 1>::Constant(0.01),    // beta > 1
+                Eigen::Array<double, 3, 1>::Constant(1),   // d_cutoff
                 Eigen::Array<double, 3, 1>::Zero(),          // zero
                 Eigen::Array<double, 3, 1>::Ones(),          // one
                 [](auto& in) { return in.abs(); }            // abs function
@@ -162,6 +162,7 @@ Pose3 Tracker::report_estimate(Pose3 initial, double timestamp){
 
 	Pose3 reported_pose;
 	if (use_filter) {
+		// Timestamps in seconds, mincutoff beta should be in seconds
 		Vector3 filtered_translation = translation_filt(initial.translation() , timestamp);
 		Pose3 good_pose(Pose3(initial.rotation(), filtered_translation));
 		reported_pose = good_pose;

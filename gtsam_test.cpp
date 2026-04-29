@@ -175,7 +175,10 @@ int main(int argc, char* argv[]) {
 
 	int mes_idx = 0;
 
+	string prev_status = "tracking";
+
 	for (json mes : sensor_stream) {
+
 		if (mes["type"] == "imu") {
 
 			// Add IMU measurement
@@ -208,36 +211,48 @@ int main(int argc, char* argv[]) {
 			}
 
 		}
-		else if (use_gt && mes["type"] == "aligned_slam_pose" && mes["tag"] != "lost") {
+		else if (use_gt && mes["type"] == "aligned_slam_pose") {
 
-			if (imu_available == 0) {
-				// Pass this measurement and buffer it until the next IMU becomes available
-				cout << " Skipped SLAM pose " << endl;
-				gt_pose_buffer.push_back(mes);
-				continue;
+			if (prev_status == "tracking" && mes["status"] == "lost") {
+				t.use_filter = true;
 			}
-			else {
-				cout << "Used SLAM pose " << endl;
-				t.processSLAM(mes);
-				imu_available = 0;
+			else if (prev_status == "lost" && mes["status"] == "tracking"){
+				t.use_filter = false;
+				t.translation_filt.clear();
+			}
+			
+			prev_status = mes["status"];
 
-				gt_counter++;
+			if (mes["status"] == "tracking") {
+				if (imu_available == 0) {
+					// Pass this measurement and buffer it until the next IMU becomes available
+					cout << " Skipped SLAM pose " << endl;
+					gt_pose_buffer.push_back(mes);
+					continue;
+				}
+				else {
+					cout << "Used SLAM pose " << endl;
+					t.processSLAM(mes);
+					imu_available = 0;
+
+					gt_counter++;
+				}
 			}
 
 		}
-		else if ( (mes["type"] == "synth_uwb") && use_uwb) { 
-				if (imu_available == 0) { 
-					cout << "Skipped User to "<< mes["id"] << endl;
-					range_buffer.push_back(mes);
-					continue; 
-				}
-				else {
-					cout << "Used User to "<< mes["id"] << endl;
-					t.processUWB(mes, uwb_counter);
-					imu_available = 0;
-				}
-				
+		else if ( (mes["type"] == "uwb") && use_uwb) { 
+			if (imu_available == 0) { 
+				cout << "Skipped User to "<< mes["id"] << endl;
+				range_buffer.push_back(mes);
+				continue; 
 			}
+			else {
+				cout << "Used User to "<< mes["id"] << endl;
+				t.processUWB(mes, uwb_counter);
+				imu_available = 0;
+			}
+		}
+			
 
 		mes_idx ++;
 	}
