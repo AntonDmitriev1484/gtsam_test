@@ -116,7 +116,8 @@ int main(int argc, char* argv[]) {
 		T_body_to_decawave, 
 		smoother_lag, 
 		use_smoother, 
-		use_filter, 
+		use_filter,
+		use_uwb, 
 		SLAM_noise_model, 
 		UWB_noise_model, 
 		prior_velocity_noise_model,
@@ -133,100 +134,9 @@ int main(int argc, char* argv[]) {
 	t.init_state(sensor_stream); 
 	// Initialize with no calibration phase and no priors
 
-
-	bool start_graph = true;
-
-	// TODO: Counters can all be internal to tracker.
-	int imu_counter=0, uwb_counter = 0, gt_counter=0,
-	imu_count_at_last_correction = 0, imu_count_at_last_imu_factor = 0;
-
-	deque<json> gt_pose_buffer;
-	deque<json> range_buffer;
-
-	int imu_available = 0;
-
-	int mes_idx = 0;
-
-	string prev_status = "tracking";
-
+	// Main emulation loop!
 	for (json mes : sensor_stream) {
-
-		if (mes["type"] == "imu") {
-
-			// Add IMU measurement
-			Vector3 accel;
-			Vector3 gyro;
-			get_IMU(mes, accel, gyro);
-
-			t.imu_preintegrated->integrateMeasurement(accel, gyro, t.delta_t);
-			imu_available++;
-			imu_counter++;
-
-			cout << "Preintegration on at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
-
-			// Just for plotting at IMU frequency
-			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(t.imu_preintegrated);
-			auto proposed = current_imu_preintegration->predict(t.prev_state, t.track.changing_bias);
-			t.report_estimate(proposed.pose(), mes["t"]);
-
-			if (!gt_pose_buffer.empty()) {
-				json mes = gt_pose_buffer.front();
-				gt_pose_buffer.pop_front();
-				gt_counter++;
-				t.processSLAM(mes);
-				imu_available = 0;
-			} else if (!range_buffer.empty()) { // Must be mutually exclusive
-				json mes = range_buffer.front();
-				range_buffer.pop_front();
-				t.processUWB(mes, uwb_counter);
-				imu_available = 0;
-			}
-
-		}
-		else if (use_gt && mes["type"] == "aligned_slam_pose") {
-
-			if (prev_status == "tracking" && mes["status"] == "lost") {
-				t.use_filter = true;
-			}
-			else if (prev_status == "lost" && mes["status"] == "tracking"){
-				t.use_filter = false;
-				t.translation_filt.clear();
-			}
-			
-			prev_status = mes["status"];
-
-			if (mes["status"] == "tracking") {
-				if (imu_available == 0) {
-					// Pass this measurement and buffer it until the next IMU becomes available
-					cout << " Skipped SLAM pose " << endl;
-					gt_pose_buffer.push_back(mes);
-					continue;
-				}
-				else {
-					cout << "Used SLAM pose " << endl;
-					t.processSLAM(mes);
-					imu_available = 0;
-
-					gt_counter++;
-				}
-			}
-
-		}
-		else if ( (mes["type"] == "uwb") && use_uwb) { 
-			if (imu_available == 0) { 
-				cout << "Skipped User to "<< mes["id"] << endl;
-				range_buffer.push_back(mes);
-				continue; 
-			}
-			else {
-				cout << "Used User to "<< mes["id"] << endl;
-				t.processUWB(mes, uwb_counter);
-				imu_available = 0;
-			}
-		}
-			
-
-		mes_idx ++;
+		t.processSensor(mes);
 	}
 
 	// Before writing files for evluation, need to be able to transform all
@@ -238,10 +148,10 @@ int main(int argc, char* argv[]) {
 	Pose3 T_body_to_sbody_in_world = T_body_to_imu.compose(T_imu_to_cam1);
 	Pose3& out_transform = T_body_to_sbody_in_world;
 
-	write_trajectory_TUM_format( t.track.est_poses, t.track.est_timestamps, estimated_trajectory_fs, out_transform);
+	write_trajectory_TUM_format( t.track.est_poses, t.track.est_timestamps, estimated_trajectory_fs);
 	estimated_trajectory_fs.close();
 
-	write_trajectory_TUM_format( t.track.gt_poses, t.track.gt_timestamps, slam_trajectory_fs, out_transform);
+	write_trajectory_TUM_format( t.track.slam_poses, t.track.slam_timestamps, slam_trajectory_fs);
 	slam_trajectory_fs.close();
 
 	write_timestamps( t.track.est_poses, t.track.est_timestamps, estimated_timestamp_fs);
@@ -252,7 +162,7 @@ int main(int argc, char* argv[]) {
 	estimated_trajectory_htm_json_fs.close();
 
 	ofstream gt_base_poses_fs(out_dir + "/gt_base_poses.txt");
-	write_trajectory_KITTI_format( t.track.gt_poses, gt_base_poses_fs);
+	write_trajectory_KITTI_format( t.track.slam_poses, gt_base_poses_fs);
 	gt_base_poses_fs.close();
 	
 

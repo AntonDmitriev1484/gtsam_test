@@ -21,8 +21,8 @@ struct tracking {
 	bool is_beacon;
 
     // Note: Unsued, just comparing to Optitrack post output
-	vector<Pose3> gt_poses;
-	vector<double> gt_timestamps; // Parallel array to GT poses.
+	vector<Pose3> slam_poses;
+	vector<double> slam_timestamps; // Parallel array to GT poses.
 
 	vector<Pose3> est_poses; // Estimated pose
 	vector<double> est_timestamps; // Parallel array to poses.
@@ -85,6 +85,7 @@ public:
             const double smoother_lag,
             const bool use_smoother,
             const bool use_filter,
+            const bool use_uwb,
             const SharedNoiseModel& SLAM_noise_model,
             const SharedNoiseModel& UWB_noise_model,
             const SharedNoiseModel& Velocity_noise_model,
@@ -106,8 +107,17 @@ public:
     void exec_smoother(NavState& proposed, double mes_timestamp, 
         string msg="", bool print=false);
 
+    
+    //emulator parameter, toggles between Flock and IMU only
+    bool use_uwb;
+
+	deque<json> gt_pose_buffer;
+	deque<json> range_buffer;
+    int imu_available;
+    string prev_status;
+    void processSensor(const json& mes);
     void processSLAM(const json& mes);
-    void processUWB(const json& mes, int& uwb_counter);
+    void processUWB(const json& mes);
 };
 
 // Moved in here because circular includes confuse me

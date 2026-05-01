@@ -37,7 +37,7 @@ void get_gt_info(map<string, tracking>& info, json gt_data) {
 				t.is_beacon = false;
 				info.insert(make_pair(user, t));
 			}
-			info.at(user).gt_poses.push_back(Pose3(M_L_U)); //Load all GT poses into tracking.
+			info.at(user).slam_poses.push_back(Pose3(M_L_U)); //Load all GT poses into tracking.
 		}
 	}
 }
@@ -60,7 +60,7 @@ void get_beacon_info(map<string, tracking>& info, json beacon_data) {
 			//If beacon hasn't been added yet
 			if (info.find(user) == info.end()) {
 				tracking t;
-				t.gt_poses.push_back(beacon_pos); // Only need to push back once
+				t.slam_poses.push_back(beacon_pos); // Only need to push back once
 				t.is_beacon = true;
 				info.insert(make_pair(user, t));
 			}
@@ -68,82 +68,88 @@ void get_beacon_info(map<string, tracking>& info, json beacon_data) {
 }
 
 Tracker::Tracker(
-			const string& id,
-            const Pose3 T_body_to_imu,
-			const Pose3 T_body_to_decawave,
-			const double smoother_lag,
-			const bool use_smoother,
-			const bool use_filter,
-            const SharedNoiseModel& SLAM_noise_model,
-            const SharedNoiseModel& UWB_noise_model,
-            const SharedNoiseModel& Velocity_noise_model,
-            const SharedNoiseModel& Bias_noise_model,
-			std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params,
-            const Vector6 prior_imu_bias,
-			const Vector3 prior_velocity,
-            const string& debug_dir) : 
-            
-            translation_filt(
-                200.,
-                Eigen::Array<double, 3, 1>::Constant(0.25),   // min_cutoff
-                Eigen::Array<double, 3, 1>::Constant(0.01),    // beta > 1
-                Eigen::Array<double, 3, 1>::Constant(1),   // d_cutoff
-                Eigen::Array<double, 3, 1>::Zero(),          // zero
-                Eigen::Array<double, 3, 1>::Ones(),          // one
-                [](auto& in) { return in.abs(); }            // abs function
-            ){
+    const string& id,
+    const Pose3 T_body_to_imu,
+    const Pose3 T_body_to_decawave,
+    const double smoother_lag,
+    const bool use_smoother,
+    const bool use_filter,
+    const bool use_uwb,
+    const SharedNoiseModel& SLAM_noise_model,
+    const SharedNoiseModel& UWB_noise_model,
+    const SharedNoiseModel& Velocity_noise_model,
+    const SharedNoiseModel& Bias_noise_model,
+    std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params,
+    const Vector6 prior_imu_bias,
+    const Vector3 prior_velocity,
+    const string& debug_dir
+) :
+    // Filters
+    translation_filt(
+        200.,
+        Eigen::Array<double, 3, 1>::Constant(0.25),
+        Eigen::Array<double, 3, 1>::Constant(0.01),
+        Eigen::Array<double, 3, 1>::Constant(1),
+        Eigen::Array<double, 3, 1>::Zero(),
+        Eigen::Array<double, 3, 1>::Ones(),
+        [](auto& in) { return in.abs(); }
+    ),
 
-	this->T_body_to_imu = T_body_to_imu;
-	this->T_body_to_decawave = T_body_to_decawave;
+    // Transforms
+    T_body_to_imu(T_body_to_imu),
+    T_body_to_decawave(T_body_to_decawave),
 
-    this->prior_imu_bias = imuBias::ConstantBias(prior_imu_bias);
-	this->prior_velocity = prior_velocity;
+    // Priors
+    prior_imu_bias(imuBias::ConstantBias(prior_imu_bias)),
+    prior_velocity(prior_velocity),
 
-	// Instantiate IMU preintegration
-	this->imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, this->prior_imu_bias);
-	this->delta_t = 1/200.0;
+    // IMU
+    imu_preintegrated(new PreintegratedCombinedMeasurements(
+        imu_preintegration_params,
+        imuBias::ConstantBias(prior_imu_bias)
+    )),
+    delta_t(1.0 / 200.0),
 
-	this->debug_dir = debug_dir;
+    // Debug
+    debug_dir(debug_dir),
 
-	
-    // Initialize noise models
-    this->SLAM_noise_model = SLAM_noise_model;
-    this->UWB_noise_model = UWB_noise_model;
-    this->Velocity_noise_model = Velocity_noise_model;
-    this->Bias_noise_model = Bias_noise_model;
+    // Noise models
+    SLAM_noise_model(SLAM_noise_model),
+    UWB_noise_model(UWB_noise_model),
+    Velocity_noise_model(Velocity_noise_model),
+    Bias_noise_model(Bias_noise_model),
 
-    // Instantiate graph
-    this->graph = new NonlinearFactorGraph();
+    // Graph
+    graph(new NonlinearFactorGraph()),
 
-    // Values initialized in class
-    // Tracking initialized in class
+    // Flags / state
+    use_filter(use_filter),
+    use_uwb(use_uwb),
+    imu_available(0),
+    prev_status("tracking"),
+    use_smoother(use_smoother)
 
-	this->use_filter = use_filter;
+{
+    if (use_smoother) {
+        ISAM2Params isam_params;
+        isam_params.factorization = ISAM2Params::QR;
+        isam_params.relinearizeThreshold = 0.01;
+        isam_params.relinearizeSkip = 1;
+        isam_params.enableDetailedResults = true;
 
-	this->use_smoother = use_smoother;
-	if (use_smoother) {
-		ISAM2Params isam_params;
-		// Must be some way to set up a verbose option.
-		isam_params.factorization = ISAM2Params::QR;
-		isam_params.relinearizeThreshold = 0.01;
-		isam_params.relinearizeSkip = 1; // More informed optimization at the cost of more computing.
-		isam_params.enableDetailedResults = true;
-		this->smoother = new IncrementalFixedLagSmoother(smoother_lag, isam_params);
-	}
-	else {
-    	// Instantiate iSAM
-		ISAM2Params isam_params;
-		// Must be some way to set up a verbose option.
-		isam_params.factorization = ISAM2Params::QR;
-		isam_params.relinearizeThreshold = 0.01;
-		isam_params.relinearizeSkip = 1; // More informed optimization at the cost of more computing.
-		isam_params.enableDetailedResults = true;
-		ISAM2DoglegParams dogleg;
-		isam_params.optimizationParams = dogleg;
-		this->isam = new ISAM2(isam_params);
-	}
-	// key_to_ts gets initialized in class
+        smoother = new IncrementalFixedLagSmoother(smoother_lag, isam_params);
+    } else {
+        ISAM2Params isam_params;
+        isam_params.factorization = ISAM2Params::QR;
+        isam_params.relinearizeThreshold = 0.01;
+        isam_params.relinearizeSkip = 1;
+        isam_params.enableDetailedResults = true;
 
+        ISAM2DoglegParams dogleg;
+        isam_params.optimizationParams = dogleg;
+
+        isam = new ISAM2(isam_params);
+    }
 }
 
 Pose3 Tracker::report_estimate(Pose3 initial, double timestamp){
@@ -174,7 +180,7 @@ Key AnchorKey(string name) {return symbol('s', stoi(name));}
 // Assuming we have already called
 // get_beacon_info(tracker.anchors, json::parse(beacon_fs));
 void Tracker::init_anchor(string id){
-    Pose3 prior_beacon_pose(anchors[id].gt_poses[0]);
+    Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
     vals.insert(AnchorKey(id), prior_beacon_pose);
     graph->add(NonlinearEquality<Pose3>(AnchorKey(id), prior_beacon_pose));
 }
@@ -258,9 +264,9 @@ void Tracker::init_state(json calibration_stream) {
 
 
 			track.est_poses.push_back(latest_pose); // We'll take the estimate out of values and put it here.
-			track.gt_poses.push_back(latest_pose);
+			track.slam_poses.push_back(latest_pose);
 			track.est_timestamps.push_back(latest_pose_timestamp);
-			track.gt_timestamps.push_back(latest_pose_timestamp);
+			track.slam_timestamps.push_back(latest_pose_timestamp);
 			track.est_velocities.push_back(latest_velocity);
 			track.constant_bias = optimized_bias;
 			track.changing_bias = optimized_bias;
@@ -326,10 +332,10 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		cerr << "Graph dumped to factor_graph.dot" << endl;
 
 
-		write_trajectory_TUM_format( track.est_poses, track.est_timestamps, *estimated_trajectory_fs, T_body_to_imu);
+		write_trajectory_TUM_format( track.est_poses, track.est_timestamps, *estimated_trajectory_fs);
 		estimated_trajectory_fs->close();
 
-		write_trajectory_TUM_format( track.gt_poses, track.gt_timestamps, *slam_trajectory_fs, T_body_to_imu);
+		write_trajectory_TUM_format( track.slam_poses, track.slam_timestamps, *slam_trajectory_fs);
 		slam_trajectory_fs->close();
 
 		throw; // rethrow
@@ -392,13 +398,87 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 		graph->print("");
 		cerr << "Graph dumped to factor_graph.dot" << endl;
 
-		write_trajectory_TUM_format( track.est_poses, track.est_timestamps, *estimated_trajectory_fs, T_body_to_imu);
+		write_trajectory_TUM_format( track.est_poses, track.est_timestamps, *estimated_trajectory_fs);
 		estimated_trajectory_fs->close();
 
-		write_trajectory_TUM_format( track.gt_poses, track.gt_timestamps, *slam_trajectory_fs, T_body_to_imu);
+		write_trajectory_TUM_format( track.slam_poses, track.slam_timestamps, *slam_trajectory_fs);
 		slam_trajectory_fs->close();
 		throw; // rethrow
 	}
+}
+
+void Tracker::processSensor(const json& mes) {
+
+	if (mes["type"] == "imu") {
+
+		// Add IMU measurement
+		Vector3 accel;
+		Vector3 gyro;
+		get_IMU(mes, accel, gyro);
+
+		imu_preintegrated->integrateMeasurement(accel, gyro, delta_t);
+		imu_available++;
+
+		cout << "Preintegration on at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
+
+		// Just for plotting at IMU frequency
+		PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+		auto proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
+		report_estimate(proposed.pose(), mes["t"]);
+
+		if (!gt_pose_buffer.empty()) {
+			json mes = gt_pose_buffer.front();
+			gt_pose_buffer.pop_front();
+			processSLAM(mes);
+			imu_available = 0;
+		} else if (!range_buffer.empty()) { // Must be mutually exclusive
+			json mes = range_buffer.front();
+			range_buffer.pop_front();
+			processUWB(mes);
+			imu_available = 0;
+		}
+
+	}
+	else if (mes["type"] == "aligned_slam_pose") {
+
+		if (prev_status == "tracking" && mes["status"] == "lost") {
+			use_filter = true;
+		}
+		else if (prev_status == "lost" && mes["status"] == "tracking"){
+			use_filter = false;
+			translation_filt.clear();
+		}
+		
+		prev_status = mes["status"];
+
+		if (mes["status"] == "tracking") {
+			if (imu_available == 0) {
+				// Pass this measurement and buffer it until the next IMU becomes available
+				cout << " Skipped SLAM pose " << endl;
+				gt_pose_buffer.push_back(mes);
+				return;
+			}
+			else {
+				cout << "Used SLAM pose " << endl;
+				processSLAM(mes);
+				imu_available = 0;
+			}
+		}
+
+	}
+	else if ( (mes["type"] == "uwb") && use_uwb) { 
+		if (imu_available == 0) { 
+			cout << "Skipped User to "<< mes["id"] << endl;
+			range_buffer.push_back(mes);
+			return; 
+		}
+		else {
+			cout << "Used User to "<< mes["id"] << endl;
+			processUWB(mes);
+			imu_available = 0;
+		}
+	}
+			
 }
 
 
@@ -419,9 +499,8 @@ void Tracker::processSLAM(const json& mes)
 	Pose3 T_body_to_world = T_world_to_body.inverse();
 	Pose3 gt_pose = T_body_to_world;
 
-	// Pose3 gt_pose = T_world_to_imu;
-	track.gt_poses.push_back(gt_pose);
-	track.gt_timestamps.push_back(mes["t"]);
+	track.slam_poses.push_back(gt_pose);
+	track.slam_timestamps.push_back(mes["t"]);
 
 	// Add IMU factor
 	auto* current_imu_preintegration =
@@ -459,19 +538,16 @@ void Tracker::processSLAM(const json& mes)
     // Run iSAM
 	if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "GT", true); }
 	else { exec_iSAM(proposed, (double)mes["t"], "GT", true); }
-	
 
-	// translation_filt.clear(); // clear filter
 }
 
-void Tracker::processUWB(const json& mes, int& uwb_counter)
+void Tracker::processUWB(const json& mes)
 {
 	cout << "Processing range This -> " << mes["id"] << " for t=" << mes["t"] << endl;
 
 	track.Ix++;
 	track.Iv++;
 	track.Ib++;
-	uwb_counter++;
 
 	double measured_range = (double)mes["range"];
 
@@ -489,8 +565,6 @@ void Tracker::processUWB(const json& mes, int& uwb_counter)
 	// Needs "Pose of antenna in body frame" i.e. decawave_to_body
 	graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
 		X(track.Ix), AnchorKey(dst), measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
-	// graph->add(RangeFactor<Pose3, Pose3, double>(
-	// 	X(track.Ix), AnchorKey(dst), measured_range, UWB_noise_model));
 
 	cout << "Added Range factor to state " << track.Ix << endl;
 

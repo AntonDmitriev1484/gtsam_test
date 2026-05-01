@@ -27,11 +27,8 @@ void get_IMU(json d, Vector3& accel, Vector3& gyro);
 
 chrono::system_clock::time_point iso_string_to_time(string timeString);
 
-// void get_gt_info(map<string, tracking>& info, json gt_data);
-// void get_beacon_info(map<string, tracking>& info, json beacon_data);
-
 void write_trajectory_KITTI_format(vector<Pose3> trajectory, ofstream& fs);
-void write_trajectory_TUM_format(vector<Pose3> trajectory, vector<double> timestamps, ofstream& fs, Pose3 transform = Pose3::Identity());
+void write_trajectory_TUM_format(vector<Pose3> trajectory, vector<double> timestamps, ofstream& fs, const Pose3& transform = Pose3::Identity());
 void write_timestamps(vector<Pose3> trajectory, vector<double> timestamps, ofstream& fs);
 void write_trajectory_HTM_JSON_format(
     const vector<Pose3>& trajectory,
