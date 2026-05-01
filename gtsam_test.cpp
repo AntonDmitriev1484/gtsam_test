@@ -29,7 +29,6 @@ int main(int argc, char* argv[]) {
 	std::string uwb_str = argv[3];
 	std::string uwb_noise_str = argv[4];
 	std::string dump_str = argv[5];
-
     bool log_dump = (dump_str == "true");
 	bool use_uwb = (uwb_str == "uwb");
 	bool use_gt = true;
@@ -37,30 +36,12 @@ int main(int argc, char* argv[]) {
 	double uwb_synth_stdev = stod(uwb_noise_str);
 	bool use_synthetic_uwb = uwb_synth_stdev > 1e-5;
 
-	const int ID = 2;
-
 	string data_dir = "/home/antond2/Desktop/Research/MultiXR-Post/2/post/"+trial_name+"_post";
 	string out_dir = "/home/antond2/Desktop/Research/gtsam_test/results/out/"+trial_name;
-	if (synthetic) { // TODO: Remove this
-		data_dir += "/synthetic";
-		out_dir += "/"+synthetic_trial_name;
-		if (use_uwb) { out_dir += "_uwb";}
-	}
 	string debug_dir = out_dir+"/debug";
 
-	ifstream raw_fs;
-	// ifstream calibration_fs;
-	if (synthetic) {
-		raw_fs = ifstream(data_dir + "/all_" + synthetic_trial_name +".json");
-		// calibration_fs = ifstream(data_dir + "/calibration_" + synthetic_trial_name +".json");
-	}
-	else {
-		raw_fs = ifstream(data_dir + "/all.json");
-		// calibration_fs = ifstream(data_dir + "/calibration.json");
-	}
-
-	// ifstream priors_fs("/home/antond2/ws/post/out/"+trial_name+"_post" + "/priors.json");
-	ifstream beacon_fs(data_dir + "/anchors.json");
+	ifstream raw_fs(data_dir + "/all.json");
+	ifstream anchor_fs(data_dir + "/anchors.json");
 	ifstream transform_fs(data_dir + "/transforms.json");
 
 	ofstream estimated_trajectory_htm_json_fs(out_dir + "/est_"+uwb_str+".json");
@@ -73,7 +54,6 @@ int main(int argc, char* argv[]) {
 	for (string path: paths) {
 		if (!std::filesystem::exists(path)) {
 				std::filesystem::create_directories(path);
-			
 				std::cout << "Directory created: " << path << std::endl;
 		}
 	}
@@ -86,52 +66,37 @@ int main(int argc, char* argv[]) {
 	cout << "In path " << data_dir << endl;
 	cout << "Out path " << out_dir << endl;
 
-
 	json sensor_stream = json::parse(raw_fs);
-	// json calibration_stream = json::parse(calibration_fs);
 	json transforms = json::parse(transform_fs);
-	// json priors = json::parse(priors_fs);
-	map<string, tracking> info; // Map of username to tracking information
-
-	double dt = 1.0 / 200.0; // IMU gyro and accelerometer operate at 200Hz
 
 	// --- Noise Models ---
 
-	// VIO noise model
-
-	double vio_ori_stdev = 0.175;
-	double vio_pos_stdev = 0.2;
-	noiseModel::Diagonal::shared_ptr VIO_pose_noise_model = noiseModel::Diagonal::Sigmas(Vector6(vio_pos_stdev, vio_pos_stdev, vio_pos_stdev, vio_ori_stdev, vio_ori_stdev, vio_ori_stdev));
+	// TODO: Move within tracker
 
 	// UWB noise model
 
-	// double uwb_stdev = 1e-2;
 	double uwb_stdev = 0.2;
 	noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 
 	// GT noise model - (use to define pose prior)
 	double gt_pos_stdev = 1e-2;
 	double gt_ori_stdev = 1e-2;
-	noiseModel::Diagonal::shared_ptr GT_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
+	noiseModel::Diagonal::shared_ptr SLAM_noise_model = noiseModel::Diagonal::Sigmas(Vector6(gt_pos_stdev, gt_pos_stdev, gt_pos_stdev, gt_ori_stdev, gt_ori_stdev, gt_ori_stdev));
 
 	//// IMU noise model
-
 
 	noiseModel::Diagonal::shared_ptr prior_velocity_noise_model = noiseModel::Isotropic::Sigma(3, 1e-2);
 	noiseModel::Diagonal::shared_ptr prior_bias_noise_model = noiseModel::Isotropic::Sigma(6, 1e-2);
 
-	// Vector3 prior_velocity((double)priors["velocity"][0], (double)priors["velocity"][1], (double)priors["velocity"][2]);
-	// Vector6 prior_imu_bias((double)priors["accel_bias"][0], (double)priors["accel_bias"][1], (double)priors["accel_bias"][2], 
-	// 		(double)priors["gyro_bias"][0], (double)priors["gyro_bias"][1], (double)priors["gyro_bias"][2]);
-	// Vector6 prior_imu_bias(0,0,0, 
-	// 		(double)priors["gyro_bias"][0], (double)priors["gyro_bias"][1], (double)priors["gyro_bias"][2]);
-		Vector3 prior_velocity(0,0,0);
-		Vector6 prior_imu_bias(0,0,0, 0, 0, 0);
+	Vector3 prior_velocity(0,0,0);
+	Vector6 prior_imu_bias(0,0,0, 0, 0, 0);
 
 	Pose3 T_inertial_to_world;
 	get_pose_from_HTM(transforms["T_inertial_to_world"], T_inertial_to_world);
 	std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params = get_imu_preintegration_params(10, 1, T_inertial_to_world);
 
+	// Other transforms
+	
 	Pose3 T_body_to_imu;
 	get_pose_from_HTM(transforms["T_body_to_imu"], T_body_to_imu);
 
@@ -146,17 +111,25 @@ int main(int argc, char* argv[]) {
 	const bool use_filter = false;
 
 	Tracker t(
-		id, T_body_to_imu, T_body_to_decawave, 
-		dt, smoother_lag, use_smoother, use_filter, 
-		uwb_synth_stdev, GT_noise_model, UWB_noise_model, VIO_pose_noise_model, 
-		prior_velocity_noise_model, prior_bias_noise_model,
-		imu_preintegration_params, prior_imu_bias, prior_velocity,
+		id, 
+		T_body_to_imu, 
+		T_body_to_decawave, 
+		smoother_lag, 
+		use_smoother, 
+		use_filter, 
+		SLAM_noise_model, 
+		UWB_noise_model, 
+		prior_velocity_noise_model,
+		prior_bias_noise_model,
+		imu_preintegration_params,
+		prior_imu_bias,
+		prior_velocity,
 		debug_dir);
 	
 	t.estimated_trajectory_fs = &estimated_trajectory_fs;
 	t.slam_trajectory_fs = &slam_trajectory_fs;
 
-	t.init_anchors(json::parse(beacon_fs));
+	t.init_anchors(json::parse(anchor_fs));
 	t.init_state(sensor_stream); 
 	// Initialize with no calibration phase and no priors
 
@@ -172,7 +145,6 @@ int main(int argc, char* argv[]) {
 
 	int imu_available = 0;
 
-
 	int mes_idx = 0;
 
 	string prev_status = "tracking";
@@ -186,7 +158,7 @@ int main(int argc, char* argv[]) {
 			Vector3 gyro;
 			get_IMU(mes, accel, gyro);
 
-			t.imu_preintegrated->integrateMeasurement(accel, gyro, dt);
+			t.imu_preintegrated->integrateMeasurement(accel, gyro, t.delta_t);
 			imu_available++;
 			imu_counter++;
 
@@ -278,10 +250,6 @@ int main(int argc, char* argv[]) {
 	// Write estimated poses to a json so they can be plotted
 	write_trajectory_HTM_JSON_format (t.track.est_poses, t.track.est_timestamps, estimated_trajectory_htm_json_fs, "est_pose");
 	estimated_trajectory_htm_json_fs.close();
-
-	ofstream suwb_base_poses_fs(out_dir + "/suwb_base_poses.txt");
-	write_trajectory_KITTI_format( t.suwb_base_poses, suwb_base_poses_fs);
-	suwb_base_poses_fs.close();
 
 	ofstream gt_base_poses_fs(out_dir + "/gt_base_poses.txt");
 	write_trajectory_KITTI_format( t.track.gt_poses, gt_base_poses_fs);

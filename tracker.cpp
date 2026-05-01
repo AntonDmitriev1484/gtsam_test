@@ -67,17 +67,15 @@ void get_beacon_info(map<string, tracking>& info, json beacon_data) {
 	}
 }
 
-Tracker::Tracker(const string& id,
+Tracker::Tracker(
+			const string& id,
             const Pose3 T_body_to_imu,
 			const Pose3 T_body_to_decawave,
-            const double delta_t,
 			const double smoother_lag,
 			const bool use_smoother,
 			const bool use_filter,
-			const double uwb_stdev,
-            const SharedNoiseModel& GT_noise_model,
+            const SharedNoiseModel& SLAM_noise_model,
             const SharedNoiseModel& UWB_noise_model,
-            const SharedNoiseModel& FakePrior_noise_model,
             const SharedNoiseModel& Velocity_noise_model,
             const SharedNoiseModel& Bias_noise_model,
 			std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params,
@@ -95,8 +93,6 @@ Tracker::Tracker(const string& id,
                 [](auto& in) { return in.abs(); }            // abs function
             ){
 
-	this->delta_t = delta_t;
-
 	this->T_body_to_imu = T_body_to_imu;
 	this->T_body_to_decawave = T_body_to_decawave;
 
@@ -105,20 +101,14 @@ Tracker::Tracker(const string& id,
 
 	// Instantiate IMU preintegration
 	this->imu_preintegrated = new PreintegratedCombinedMeasurements(imu_preintegration_params, this->prior_imu_bias);
-
-	// Initialize UWB RNG
-	std::random_device rd; 
-	std::mt19937 gen(rd());    
-	this->uwb_rng = gen; 
-	this->uwb_stdev = uwb_stdev;
+	this->delta_t = 1/200.0;
 
 	this->debug_dir = debug_dir;
 
 	
     // Initialize noise models
-    this->GT_noise_model = GT_noise_model;
+    this->SLAM_noise_model = SLAM_noise_model;
     this->UWB_noise_model = UWB_noise_model;
-    this->FakePrior_noise_model = FakePrior_noise_model;
     this->Velocity_noise_model = Velocity_noise_model;
     this->Bias_noise_model = Bias_noise_model;
 
@@ -153,8 +143,6 @@ Tracker::Tracker(const string& id,
 		this->isam = new ISAM2(isam_params);
 	}
 	// key_to_ts gets initialized in class
-
-    
 
 }
 
@@ -240,7 +228,7 @@ void Tracker::init_state(json calibration_stream) {
 			vals.insert(V(track.Iv), prior_velocity);
 			vals.insert(B(track.Ib), prior_imu_bias);
 
-			graph->addPrior(X(track.Ix), prior_pose, GT_noise_model);
+			graph->addPrior(X(track.Ix), prior_pose, SLAM_noise_model);
 			graph->addPrior(V(track.Iv), prior_velocity, Velocity_noise_model);
 			graph->addPrior(B(track.Ib), prior_imu_bias, Bias_noise_model);
 
@@ -320,7 +308,6 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		report_estimate(result.at<Pose3>(X(track.Ix)), mes_timestamp);
 
 		track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
-		est_velocity_vectors.push_back(Pose3(Rot3::Identity(), result.at<Vector3>(V(track.Iv))));
 
 		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
 		track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
@@ -382,7 +369,6 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 		report_estimate(result.at<Pose3>(X(track.Ix)), mes_timestamp);
 
 		track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
-		est_velocity_vectors.push_back(Pose3(Rot3::Identity(), result.at<Vector3>(V(track.Iv))));
 
 		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
 
@@ -459,7 +445,7 @@ void Tracker::processSLAM(const json& mes)
 	cout << "Added IMU factor " << graph->size() - 1 << endl;
 
 	// Add GT prior factor
-	graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, GT_noise_model));
+	graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, SLAM_noise_model));
 	cout << "Added Prior factor " << graph->size() - 1 << endl;
 
 	// Predict current state
@@ -534,225 +520,6 @@ void Tracker::processUWB(const json& mes, int& uwb_counter)
 	else { exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true); }
 }
 
-void Tracker::processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_stdev)
-{
-	cout << "Processing synthetic range for : " << mes["t"] << endl;
-
-		// Extract GT pose
-	Pose3 T_world_to_body;
-	get_pose_from_HTM(mes["T_body_world"],T_world_to_body);
-	Pose3 T_body_to_world = T_world_to_body.inverse();
-	Pose3 gt_pose = T_body_to_world;
-
-	track.Ix++;
-	track.Iv++;
-	track.Ib++;
-
-	// Add this key -> timestamp mapping to our map
-	key_timestamps[X(track.Ix)] = (double)mes["t"];
-	key_timestamps[V(track.Iv)] = (double)mes["t"];
-	key_timestamps[B(track.Ib)] = (double)mes["t"];
-	for (auto const &[id, tracking_] : anchors) {
-		key_timestamps[AnchorKey(id)] = (double)mes["t"];
-	}
-
-	bool USE_TRILATERATION = false;
-
-	vector<string> ids = {"2", "3", "5"}; // Trilateration: Get a range to all anchors
-	vector<string> used_ids = {ids[uwb_counter % 3] }; // Default: Get a range to a single anchor, round robin
-	if (USE_TRILATERATION) used_ids = ids;
-
-	for (string dst_user: used_ids){ 
-		uwb_counter++;
-
-		tracking& dst = anchors[dst_user];
-		Point3 anchor_pos = dst.gt_poses.back().translation();
-
-		Point3 user_antenna_pos = (gt_pose.compose(T_body_to_decawave)).translation();
-
-		// Ground truth range from GT poses
-		double true_range = distance3(anchor_pos, user_antenna_pos); 
-
-		std::normal_distribution<double> uwb_distribution(true_range, uwb_stdev);  // N(mean, stddev)
-		double noised_range = uwb_distribution(uwb_rng);
-
-		graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-			X(track.Ix), AnchorKey(dst_user), noised_range, UWB_noise_model, T_body_to_decawave));
-
-		cout << "Added Range factor " << graph->size() - 1 << endl;
-		cout << " True range " << true_range << " Noised range " << noised_range << " Noise " << uwb_stdev << endl;
-	}
-
-
-	// Magnetometer Factor
-	Vector3 N_world_frame = Vector3(1,0,0);
-	Vector3 N_body_frame = gt_pose.rotation() * N_world_frame; // Seems inverse or not makes no difference here.
-	double scale = 1; // Magnitude is 55k nT, or 55 muT - I think this is just in case your raw measurement is not already normalized?
-
-	Point3 bias(1e-3, 1e-3, 1e-3);
-	noiseModel::Diagonal::shared_ptr MAG_noise_model = noiseModel::Isotropic::Sigma(3, 0.1);
-	graph->add(MagPoseFactor<Pose3>(X(track.Ix), N_body_frame, scale, N_world_frame, bias, MAG_noise_model));
-	// Should the world frame mag vector be aligned to 0,0,0?
-	
-	Vector3 measured = N_body_frame; // Normalize to see where the vector points relative to the GT pose.
-	cout << " Synthetic vector " << measured.x() << " " << measured.y() << " " << measured.z() << " magnitude " << N_body_frame.norm() << endl;
-	suwb_base_poses.push_back(gt_pose);
-	mag_vectors.push_back(Pose3(Rot3::Identity(), N_body_frame));
-
-
-	// Add IMU factor
-	auto* current_imu_preintegration =
-		dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-
-	CombinedImuFactor imu_factor(
-		X(track.Ix - 1), V(track.Iv - 1),
-		X(track.Ix), V(track.Iv),
-		B(track.Ib - 1), B(track.Ib),
-		*current_imu_preintegration);
-
-	graph->add(imu_factor);
-	cout << "Added IMU factor " << graph->size() - 1 << endl;
-
-	// Predict state and insert
-	// NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
-	NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
-	vals.insert(X(track.Ix), proposed.pose());
-	vals.insert(V(track.Iv), proposed.v());
-	vals.insert(B(track.Ib), track.changing_bias);
-
-	// Run optimization
-	if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "SynthUWB", true); }
-	else { exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true); }
-}
-
-void Tracker::processAssistedUWB(const json& mes, int& uwb_counter)
-{
-	cout << "Processing assisted range for t=" << mes["t"] << endl;
-
-	// Extract GT pose
-	Pose3 T_world_to_body;
-	get_pose_from_HTM(mes["T_body_world"], T_world_to_body);
-	Pose3 T_body_to_world = T_world_to_body.inverse();
-	Pose3 gt_pose = T_body_to_world;
-
-	track.Ix++;
-	track.Iv++;
-	track.Ib++;
-	uwb_counter++;
-
-	// Add this key -> timestamp mapping to our map
-	key_timestamps[X(track.Ix)] = (double)mes["t"];
-	key_timestamps[V(track.Iv)] = (double)mes["t"];
-	key_timestamps[B(track.Ib)] = (double)mes["t"];
-	for (auto const &[id, tracking_] : anchors) {
-		key_timestamps[AnchorKey(id)] = (double)mes["t"];
-	}
-
-	string dst_user = to_string((int)mes["id"]);
-
-	tracking& dst = anchors[dst_user];
-	Point3 anchor_pos = dst.gt_poses.back().translation();
-	Point3 user_antenna_pos = (gt_pose.compose(T_body_to_decawave)).translation();
-
-	double measured_range = (double)mes["range"];
-	// Ground truth range from GT poses
-	double true_range = distance3(anchor_pos, user_antenna_pos); 
-
-	std::normal_distribution<double> uwb_distribution(true_range, uwb_stdev);  // N(mean, stddev)
-	double noised_range = uwb_distribution(uwb_rng);
-
-	// Math Source: https://www.sunnywale.com/uploadfile/2021/1230/DW1000%20User%20Manual_Awin.pdf sec 4.7.1
-	double A = 121.74; // Source: https://github.com/AntonDmitriev1484/DecawaveMDEK1001-SNR-Firmware-Mod/blob/master/Decawave_firmware_mod/examples/ss_twr_init/ss_init_main.c
-	double fp_power = 10 * log10( (pow((float)mes["firstpathamp1"], 2)
-										+ pow((float)mes["firstpathamp2"], 2) 
-										+ pow((float)mes["firstpathamp3"], 2))
-										/ pow((float)mes["rxpreamcount"], 2)
-									) - A;
-
-	double rx_power = 10 * log10( (((float)mes["maxgrowthcir"]) * pow(2, 17))
-									/ pow((float)mes["rxpreamcount"], 2)) - A;
-	
-	double snr = (float)mes["firstpathamp1"] / (float)mes["maxnoise"];
-	double nlos_score = (rx_power - fp_power);
-	double smoothed_nlos_score = nlos_score;
-	int NLOS_SCORE_WINDOW_SIZE = 20;
-
-	if (nlos_score_window.size() > NLOS_SCORE_WINDOW_SIZE) {
-		nlos_score_window.erase(nlos_score_window.begin());
-		nlos_score_window.push_back(nlos_score);
-		smoothed_nlos_score = 0;
-		for (double s: nlos_score_window) {
-			smoothed_nlos_score += s;
-		}
-		smoothed_nlos_score /= NLOS_SCORE_WINDOW_SIZE;
-	}
-	else {
-		nlos_score_window.push_back(nlos_score);
-	}
-
-
-	nlos_score = smoothed_nlos_score;
-
-	double min_nlos = 10;
-	double max_nlos = 15;
-	bool nlos = nlos_score > min_nlos;
-	double corrected_range = measured_range;
-	double helmet_bias = 0.183; // 18.3cm
-	// if (nlos) {
-	// 	double scale_factor = 3 * (nlos_score-min_nlos) / (max_nlos-min_nlos);
-	// 	cout << "scale factor: " << scale_factor << endl;
-	// 	corrected_range =  (measured_range - ((scale_factor+1)*helmet_bias));
-	// }
-
-
-	graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-		X(track.Ix), AnchorKey(dst_user), measured_range, UWB_noise_model, T_body_to_decawave));
-
-
-	cout << "Added Range factor " << graph->size() - 1 << endl;
-	cout << "UWB "<<mes["id"]<<". Synthetic Range " << true_range << ", Real Range " << measured_range << ", Corrected Range " << corrected_range << endl;
-	cout << "UWB "<<mes["id"]<<". NLOS " << nlos_score << ", SNR " << snr << endl;
-
-	// Synthetic Magnetometer Factor
-
-	Vector3 N_world_frame = Vector3(1,0,0);
-	Vector3 N_body_frame = gt_pose.rotation() * N_world_frame; // Seems inverse or not makes no difference here.
-	double scale = 1; // Magnitude is 55k nT, or 55 muT - I think this is just in case your raw measurement is not already normalized?
-
-	Point3 bias(1e-3, 1e-3, 1e-3);
-	noiseModel::Diagonal::shared_ptr MAG_noise_model = noiseModel::Isotropic::Sigma(3, 0.1);
-	graph->add(MagPoseFactor<Pose3>(X(track.Ix), N_body_frame, scale, N_world_frame, bias, MAG_noise_model));
-	// Should the world frame mag vector be aligned to 0,0,0?
-	
-	Vector3 measured = N_body_frame; // Normalize to see where the vector points relative to the GT pose.
-	cout << " Synthetic vector " << measured.x() << " " << measured.y() << " " << measured.z() << " magnitude " << N_body_frame.norm() << endl;
-	suwb_base_poses.push_back(gt_pose);
-	mag_vectors.push_back(Pose3(Rot3::Identity(), N_body_frame));
-
-	// Add IMU factor
-	auto* current_imu_preintegration =
-		dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-
-	CombinedImuFactor imu_factor(
-		X(track.Ix - 1), V(track.Iv - 1),
-		X(track.Ix), V(track.Iv),
-		B(track.Ib - 1), B(track.Ib),
-		*current_imu_preintegration);
-
-	graph->add(imu_factor);
-	cout << "Added IMU factor " << graph->size() - 1 << endl;
-
-	// Predict state and insert
-	// NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);
-	NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
-	vals.insert(X(track.Ix), proposed.pose());
-	vals.insert(V(track.Iv), proposed.v());
-	vals.insert(B(track.Ib), track.changing_bias);
-
-	// Run optimization
-	if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "SynthUWB", true); }
-	else { exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true); }
-}
 
 
 std::shared_ptr<PreintegratedCombinedMeasurements::Params> get_imu_preintegration_params(int ASCALE, int GSCALE, Pose3 T_inertial_to_world) {

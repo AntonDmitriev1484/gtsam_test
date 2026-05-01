@@ -9,7 +9,6 @@
 using PreintegrationType = gtsam::PreintegrationBase;
 using PreintegrationParams = gtsam::PreintegratedCombinedMeasurements::Params;
 using namespace gtsam;
-// using namespace std;
 using json = nlohmann::json;
 
 using symbol_shorthand::B;  // Bias  (ax,ay,az,gx,gy,gz)
@@ -21,12 +20,12 @@ struct tracking {
 	// Computed in get_info
 	bool is_beacon;
 
+    // Note: Unsued, just comparing to Optitrack post output
 	vector<Pose3> gt_poses;
 	vector<double> gt_timestamps; // Parallel array to GT poses.
 
 	vector<Pose3> est_poses; // Estimated pose
 	vector<double> est_timestamps; // Parallel array to poses.
-
 	vector<Vector3> est_velocities; // Estimated velocity from IMU factor
 	vector<Vector3> est_poses_error; // Estimated poses error
 
@@ -58,9 +57,8 @@ public:
 
     Pose3 T_body_to_imu;
     Pose3 T_body_to_decawave;
-    SharedNoiseModel GT_noise_model;
+    SharedNoiseModel SLAM_noise_model;
     SharedNoiseModel UWB_noise_model;
-    SharedNoiseModel FakePrior_noise_model;
     SharedNoiseModel Velocity_noise_model;
     SharedNoiseModel Bias_noise_model;
 
@@ -72,36 +70,23 @@ public:
 
     std::map<string, tracking> anchors;
 
-	std::mt19937 uwb_rng;   // Random Number Generator for synthetic UWB measurements
-    double uwb_stdev;
-    
-    //Debug
-    vector<Pose3> suwb_base_poses;
-    vector<Pose3> mag_vectors; // identity rotation, just translation
-    vector<Pose3> postproc_velocity_vectors;
-    vector<Pose3> est_velocity_vectors;
+
     ofstream* estimated_trajectory_fs;
     ofstream* slam_trajectory_fs;
 
     double mes_start;
 
-    vector<double> nlos_score_window;
-
     bool use_filter;
     one_euro_filter<Eigen::Array<double, 3, 1>, double> translation_filt;
-    // OneEuroFilter<3> translation_filt;
 
     Tracker(const string& id,
             const Pose3 T_body_to_imu,
             const Pose3 T_body_to_decawave,
-            const double delta_t,
             const double smoother_lag,
             const bool use_smoother,
             const bool use_filter,
-            const double uwb_stdev,
-            const SharedNoiseModel& GT_noise_model,
+            const SharedNoiseModel& SLAM_noise_model,
             const SharedNoiseModel& UWB_noise_model,
-            const SharedNoiseModel& FakePrior_noise_model,
             const SharedNoiseModel& Velocity_noise_model,
             const SharedNoiseModel& Bias_noise_model,
 			std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params,
@@ -112,20 +97,16 @@ public:
     void init(json sensor_stream);
     void init_anchors(json anchor_json);
     void init_anchor(string id);
-    // void init_state(json sensor_stream, json priors);
     void init_state(json sensor_stream);
     
     Pose3 report_estimate(Pose3 initial, double timestamp); // take in a GTSAM pose, apply 1-euro filter, and append output to est
 
     void exec_iSAM(NavState& proposed, double mes_timestamp, 
         string msg="", bool print=false);
-
     void exec_smoother(NavState& proposed, double mes_timestamp, 
         string msg="", bool print=false);
 
     void processSLAM(const json& mes);
-    void processSyntheticUWB(const json& mes, int& uwb_counter, double uwb_stdev);
-    void processAssistedUWB(const json& mes, int& uwb_counter);
     void processUWB(const json& mes, int& uwb_counter);
 };
 
