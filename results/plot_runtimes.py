@@ -42,9 +42,13 @@ def parse_log(filepath):
 
     return runtimes
 
+# Note "UWB" tracks execution time on a UWB + IMU fusion
+# "GT" tracks execution time on a Pose + IMU fusion
+# TODO: Need to re-write this with fig, ax as a parameter, and figure out exactly
+# what part of the runtime I actually want to track.
 
-def plot_isam_runtimes(log_dir, title=None, show=False):
-    log_path = os.path.join(log_dir, "log_dump.txt")
+# i.e., measuring the runtime whenever 
+def plot_isam_runtimes(log_path, title=None, show=False):
     runtimes = parse_log(log_path)
 
     if not runtimes:
@@ -58,7 +62,7 @@ def plot_isam_runtimes(log_dir, title=None, show=False):
 
     ax.set_xlabel("Data Timestamp (s)")
     ax.set_ylabel("Elapsed Time (s)")
-    ax.set_title(title or os.path.basename(log_path))
+    ax.set_title(title)
     ax.legend()
     ax.grid(True)
     plt.tight_layout()
@@ -69,14 +73,14 @@ def plot_isam_runtimes(log_dir, title=None, show=False):
     return fig
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Plot timing logs for multiple algorithms.")
-    parser.add_argument("dir", help="Synthetic trial directory, e.g., stereoi_circle2/synthetic_1_5")
-    args = parser.parse_args()
+# def main():
+#     parser = argparse.ArgumentParser(description="Plot timing logs for multiple algorithms.")
+#     parser.add_argument("dir", help="Synthetic trial directory, e.g., stereoi_circle2/synthetic_1_5")
+#     args = parser.parse_args()
 
-    full_dir = f"/home/antond2/Desktop/Research/gtsam_test/out_results/{args.dir}"
-    plot_isam_runtimes(full_dir, title=f"Runtime - {args.dir}", show=True)
+#     full_dir = f"/home/antond2/Desktop/Research/gtsam_test/out_results/{args.dir}"
+#     plot_isam_runtimes(full_dir, title=f"Runtime - {args.dir}", show=True)
 
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()

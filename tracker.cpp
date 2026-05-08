@@ -590,8 +590,8 @@ void Tracker::processUWB(const json& mes)
 	vals.insert(B(track.Ib), track.changing_bias);
 
 	// Run optimization
-	if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "SynthUWB", true); }
-	else { exec_iSAM(proposed, (double)mes["t"], "SynthUWB", true); }
+	if (use_smoother) { exec_smoother(proposed, (double)mes["t"], "UWB", true); }
+	else { exec_iSAM(proposed, (double)mes["t"], "UWB", true); }
 }
 
 
