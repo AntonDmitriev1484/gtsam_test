@@ -62,7 +62,7 @@ public:
     SharedNoiseModel Velocity_noise_model;
     SharedNoiseModel Bias_noise_model;
 
-    string debug_dir;
+    string debug_dir, out_dir;
 
     double delta_t;
     string id;
@@ -71,15 +71,17 @@ public:
     std::map<string, tracking> anchors;
 
 
-    ofstream* estimated_trajectory_fs;
-    ofstream* slam_trajectory_fs;
+    ofstream estimated_trajectory_fs;
+    ofstream estimated_trajectory_htm_json_fs;
+    ofstream slam_trajectory_fs;
+    ofstream log_fs;
 
     double mes_start;
 
     bool use_filter;
     one_euro_filter<Eigen::Array<double, 3, 1>, double> translation_filt;
 
-    Tracker(const string& id,
+    Tracker(const string id,
             const Pose3 T_body_to_imu,
             const Pose3 T_body_to_decawave,
             const double smoother_lag,
@@ -93,7 +95,8 @@ public:
 			std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params,
             const Vector6 prior_imu_bias,
             const Vector3 prior_velocity,
-            const string& debug_dir);
+            const string out_dir,
+            const string debug_dir);
 
     void init(json sensor_stream);
     void init_anchors(json anchor_json);

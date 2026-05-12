@@ -6,7 +6,7 @@
         if (TIMING) { \
 			start_timer = clock(); \
 			double start_t = double(start_timer) / CLOCKS_PER_SEC; \
-			cout << "TIMER | " << msg << " | "<<start_t << endl; \
+			log_fs << "TIMER | " << msg << " | "<<start_t << endl; \
         } \
     } while (false)
 
@@ -17,8 +17,8 @@
 			double start_t = double(start_timer) / CLOCKS_PER_SEC; \
 			double end_t = double(end_timer)/ CLOCKS_PER_SEC; \
 			double elapsed = end_t - start_t; \
-			cout << "TIMER | " << msg << " | "<< end_t << endl; \
-			cout << "TIMER Elapsed " << elapsed << endl; \
+			log_fs << "TIMER | " << msg << " | "<< end_t << endl; \
+			log_fs << "TIMER Elapsed " << elapsed << endl; \
 			printf("\n"); \
 		} \
 	} while (false)
@@ -68,7 +68,7 @@ void get_beacon_info(map<string, tracking>& info, json beacon_data) {
 }
 
 Tracker::Tracker(
-    const string& id,
+    const string id,
     const Pose3 T_body_to_imu,
     const Pose3 T_body_to_decawave,
     const double smoother_lag,
@@ -82,7 +82,8 @@ Tracker::Tracker(
     std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params,
     const Vector6 prior_imu_bias,
     const Vector3 prior_velocity,
-    const string& debug_dir
+	const string out_dir,
+    const string debug_dir
 ) :
     // Filters
     translation_filt(
@@ -110,7 +111,7 @@ Tracker::Tracker(
     )),
     delta_t(1.0 / 200.0),
 
-    // Debug
+	out_dir(out_dir),
     debug_dir(debug_dir),
 
     // Noise models
@@ -150,6 +151,14 @@ Tracker::Tracker(
 
         isam = new ISAM2(isam_params);
     }
+
+	string uwb_str = "uwb";
+	if (!use_uwb) uwb_str = "no_uwb";
+
+	estimated_trajectory_htm_json_fs = ofstream(out_dir + "/est_"+uwb_str+".json");
+	estimated_trajectory_fs = ofstream(out_dir + "/est_"+uwb_str+".txt");
+	// slam_trajectory_fs = ofstream(out_dir+"/slam.txt");
+	log_fs = ofstream(out_dir+"/log_dump.txt");
 }
 
 Pose3 Tracker::report_estimate(Pose3 initial, double timestamp){
@@ -161,7 +170,7 @@ Pose3 Tracker::report_estimate(Pose3 initial, double timestamp){
 		Pose3 good_pose(Pose3(initial.rotation(), filtered_translation));
 		reported_pose = good_pose;
 
-		cout << "Filtering changed pose by " << (initial.translation().norm() - filtered_translation.norm()) << endl;
+		log_fs << "Filtering changed pose by " << (initial.translation().norm() - filtered_translation.norm()) << endl;
 		track.est_poses.push_back(good_pose);
 		track.est_timestamps.push_back(timestamp);
 	}
@@ -256,10 +265,10 @@ void Tracker::init_state(json calibration_stream) {
 			Pose3 latest_pose = result.at<Pose3>(X(track.Ix));
 			Vector3 latest_velocity = result.at<Vector3>(V(track.Iv));
 
-			cout << "Prior bias estimate" << std::endl;
+			log_fs << "Prior bias estimate" << std::endl;
 			prior_imu_bias.print();
 
-			cout << "Optimized bias applied to preintegrator" << std::endl;
+			log_fs << "Optimized bias applied to preintegrator" << std::endl;
 			imu_preintegrated->print();
 
 
@@ -289,20 +298,20 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 
 	try {
         if (print) {
-            cout << "Keys in vals: ";
+            log_fs << "Keys in vals: ";
             for (const auto& key : vals.keys()) {
-                cout << DefaultKeyFormatter(key) << " ";
+                log_fs << DefaultKeyFormatter(key) << " ";
             }
-            cout << endl;
+            log_fs << endl;
 
-            cout << "Keys in graph: ";
+            log_fs << "Keys in graph: ";
             for (const auto& f : *graph) {
                 auto keys = f->keys();
                 for (Key k : keys) {
-                    cout << DefaultKeyFormatter(k) << " ";
+                    log_fs << DefaultKeyFormatter(k) << " ";
                 }
             }
-            cout << endl;
+            log_fs << endl;
         }
 		
 		clock_t isam_t;
@@ -331,12 +340,11 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		graph->print("");
 		cerr << "Graph dumped to factor_graph.dot" << endl;
 
+		write_trajectory_TUM_format( track.est_poses, track.est_timestamps, estimated_trajectory_fs);
+		estimated_trajectory_fs.close();
 
-		write_trajectory_TUM_format( track.est_poses, track.est_timestamps, *estimated_trajectory_fs);
-		estimated_trajectory_fs->close();
-
-		write_trajectory_TUM_format( track.slam_poses, track.slam_timestamps, *slam_trajectory_fs);
-		slam_trajectory_fs->close();
+		write_trajectory_TUM_format( track.slam_poses, track.slam_timestamps, slam_trajectory_fs);
+		slam_trajectory_fs.close();
 
 		throw; // rethrow
 	}
@@ -349,20 +357,20 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 
 	try {
         if (print) {
-            cout << "Keys in vals: ";
+            log_fs << "Keys in vals: ";
             for (const auto& key : vals.keys()) {
-                cout << DefaultKeyFormatter(key) << " ";
+                log_fs << DefaultKeyFormatter(key) << " ";
             }
-            cout << endl;
+            log_fs << endl;
 
-            cout << "Keys in graph: ";
+            log_fs << "Keys in graph: ";
             for (const auto& f : *graph) {
                 auto keys = f->keys();
                 for (Key k : keys) {
-                    cout << DefaultKeyFormatter(k) << " ";
+                    log_fs << DefaultKeyFormatter(k) << " ";
                 }
             }
-            cout << endl;
+            log_fs << endl;
 
         }
 		
@@ -380,7 +388,7 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 
 		track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
 
-		cout << " Bias estimate " << endl;
+		log_fs << " Bias estimate " << endl;
 		track.changing_bias.print();
 
 		// Clear for next iteration
@@ -398,11 +406,11 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 		graph->print("");
 		cerr << "Graph dumped to factor_graph.dot" << endl;
 
-		write_trajectory_TUM_format( track.est_poses, track.est_timestamps, *estimated_trajectory_fs);
-		estimated_trajectory_fs->close();
+		write_trajectory_TUM_format( track.est_poses, track.est_timestamps, estimated_trajectory_fs);
+		estimated_trajectory_fs.close();
 
-		write_trajectory_TUM_format( track.slam_poses, track.slam_timestamps, *slam_trajectory_fs);
-		slam_trajectory_fs->close();
+		write_trajectory_TUM_format( track.slam_poses, track.slam_timestamps, slam_trajectory_fs);
+		slam_trajectory_fs.close();
 		throw; // rethrow
 	}
 }
@@ -419,7 +427,7 @@ void Tracker::processSensor(const json& mes) {
 		imu_preintegrated->integrateMeasurement(accel, gyro, delta_t);
 		imu_available++;
 
-		cout << "Preintegration on at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
+		log_fs << "Preintegration on at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
 
 		// Just for plotting at IMU frequency
 		PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
@@ -454,12 +462,12 @@ void Tracker::processSensor(const json& mes) {
 		if (mes["status"] == "tracking") {
 			if (imu_available == 0) {
 				// Pass this measurement and buffer it until the next IMU becomes available
-				cout << " Skipped SLAM pose " << endl;
+				log_fs << " Skipped SLAM pose " << endl;
 				gt_pose_buffer.push_back(mes);
 				return;
 			}
 			else {
-				cout << "Used SLAM pose " << endl;
+				log_fs << "Used SLAM pose " << endl;
 				processSLAM(mes);
 				imu_available = 0;
 			}
@@ -468,12 +476,12 @@ void Tracker::processSensor(const json& mes) {
 	}
 	else if ( (mes["type"] == "uwb") && use_uwb) { 
 		if (imu_available == 0) { 
-			cout << "Skipped User to "<< mes["id"] << endl;
+			log_fs << "Skipped User to "<< mes["id"] << endl;
 			range_buffer.push_back(mes);
 			return; 
 		}
 		else {
-			cout << "Used User to "<< mes["id"] << endl;
+			log_fs << "Used User to "<< mes["id"] << endl;
 			processUWB(mes);
 			imu_available = 0;
 		}
@@ -484,7 +492,7 @@ void Tracker::processSensor(const json& mes) {
 
 void Tracker::processSLAM(const json& mes)
 {
-	cout << "Used GT" << endl;
+	log_fs << "Used GT" << endl;
 	track.Ix++;
 	track.Iv++;
 	track.Ib++;
@@ -521,11 +529,11 @@ void Tracker::processSLAM(const json& mes)
 		*current_imu_preintegration);
 
 	graph->add(imu_factor);
-	cout << "Added IMU factor " << graph->size() - 1 << endl;
+	log_fs << "Added IMU factor " << graph->size() - 1 << endl;
 
 	// Add GT prior factor
 	graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, SLAM_noise_model));
-	cout << "Added Prior factor " << graph->size() - 1 << endl;
+	log_fs << "Added Prior factor " << graph->size() - 1 << endl;
 
 	// Predict current state
 	NavState proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
@@ -543,7 +551,7 @@ void Tracker::processSLAM(const json& mes)
 
 void Tracker::processUWB(const json& mes)
 {
-	cout << "Processing range This -> " << mes["id"] << " for t=" << mes["t"] << endl;
+	log_fs << "Processing range This -> " << mes["id"] << " for t=" << mes["t"] << endl;
 
 	track.Ix++;
 	track.Iv++;
@@ -566,7 +574,7 @@ void Tracker::processUWB(const json& mes)
 	graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
 		X(track.Ix), AnchorKey(dst), measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
 
-	cout << "Added Range factor to state " << track.Ix << endl;
+	log_fs << "Added Range factor to state " << track.Ix << endl;
 
 	// Add IMU factor
 	auto* current_imu_preintegration =
@@ -579,7 +587,7 @@ void Tracker::processUWB(const json& mes)
 		*current_imu_preintegration);
 
 	graph->add(imu_factor);
-	cout << "Added IMU factor " << graph->size() - 1 << endl;
+	log_fs << "Added IMU factor " << graph->size() - 1 << endl;
 	imu_preintegrated->print();
 
 	// Predict state and insert
