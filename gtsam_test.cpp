@@ -36,8 +36,8 @@ int main(int argc, char* argv[]) {
 
 
 	vector<int> users {2,3,4};
-	std::map<int, Tracker> trackers;
-
+	map<int, Tracker> trackers;
+	map<int, Tracker>& trackers_ref = trackers;
 
 	string data_dir = "/home/antond2/Desktop/Research/MultiXR-Post/merged/"+trial_name+"_merged/";
 	ifstream raw_fs(data_dir + "/all.json");
@@ -93,8 +93,10 @@ int main(int argc, char* argv[]) {
 		const bool use_smoother = false;
 		const bool use_filter = false;
 
+
 		Tracker t(
 			to_string(user), 
+			trackers_ref,
 			T_body_to_imu, 
 			T_body_to_decawave, 
 			smoother_lag, 

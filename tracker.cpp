@@ -69,6 +69,7 @@ void get_beacon_info(map<string, tracking>& info, json beacon_data) {
 
 Tracker::Tracker(
     const string id,
+	map<int, Tracker>& others,
     const Pose3 T_body_to_imu,
     const Pose3 T_body_to_decawave,
     const double smoother_lag,
@@ -95,6 +96,8 @@ Tracker::Tracker(
         Eigen::Array<double, 3, 1>::Ones(),
         [](auto& in) { return in.abs(); }
     ),
+
+	other_trackers(others),
 
     // Transforms
     T_body_to_imu(T_body_to_imu),
@@ -127,9 +130,8 @@ Tracker::Tracker(
     use_filter(use_filter),
     use_uwb(use_uwb),
     imu_available(0),
-    prev_status("tracking"),
+	slam_status("tracking"),
     use_smoother(use_smoother)
-
 {
     if (use_smoother) {
         ISAM2Params isam_params;
@@ -449,15 +451,17 @@ void Tracker::processSensor(const json& mes) {
 	}
 	else if (mes["type"] == "aligned_slam_pose") {
 
-		if (prev_status == "tracking" && mes["status"] == "lost") {
+		// slam_status is the state at last measurement
+		// mes["status"] is the state at current measurement
+		if (slam_status == "tracking" && mes["status"] == "lost") {
 			use_filter = true;
 		}
-		else if (prev_status == "lost" && mes["status"] == "tracking"){
+		else if (slam_status == "lost" && mes["status"] == "tracking"){
 			use_filter = false;
 			translation_filt.clear();
 		}
 		
-		prev_status = mes["status"];
+		slam_status = mes["status"];
 
 		if (mes["status"] == "tracking") {
 			if (imu_available == 0) {
@@ -551,6 +555,7 @@ void Tracker::processSLAM(const json& mes)
 
 void Tracker::processUWB(const json& mes)
 {
+
 	log_fs << "Processing range This -> " << mes["id"] << " for t=" << mes["t"] << endl;
 
 	track.Ix++;
@@ -558,6 +563,7 @@ void Tracker::processUWB(const json& mes)
 	track.Ib++;
 
 	double measured_range = (double)mes["range"];
+	int dst_id = (int)mes["id"];
 
 	// Add this key -> timestamp mapping to our map
 	key_timestamps[X(track.Ix)] = (double)mes["t"];
@@ -567,12 +573,40 @@ void Tracker::processUWB(const json& mes)
 		if (id != "") key_timestamps[AnchorKey(id)] = (double)mes["t"];
 	}
 
-	string dst = to_string((int)mes["id"]);
 
-	
-	// Needs "Pose of antenna in body frame" i.e. decawave_to_body
-	graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-		X(track.Ix), AnchorKey(dst), measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
+	if (other_trackers.contains(dst_id) ) { // Another Flock node
+
+		Tracker& other = other_trackers.at(dst_id);
+
+		if (other.slam_status == "tracking"){
+			Pose3 dst_pose = other.track.est_poses.back();
+			// Apply UWB antenna transform
+			// Create a Point3 State
+
+			// you can name the key 'n' node, and then add the range count
+			// Key AnchorKey(string name) {return symbol('s', stoi(name));}
+			// // Assuming we have already called
+			// // get_beacon_info(tracker.anchors, json::parse(beacon_fs));
+			// void Tracker::init_anchor(string id){
+			// 	Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
+			// 	vals.insert(AnchorKey(id), prior_beacon_pose);
+			// 	graph->add(NonlinearEquality<Pose3>(AnchorKey(id), prior_beacon_pose));
+			// }
+
+		}
+		else {
+			log_fs << " Node " << mes["id"] << " lost SLAM tracking, skipping range. " << endl;
+			return;
+		}
+	}
+	else { // A static anchor
+
+		string dst = to_string(dst_id);
+		// Needs "Pose of antenna in body frame" i.e. decawave_to_body
+		graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
+			X(track.Ix), AnchorKey(dst), measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
+	}
+
 
 	log_fs << "Added Range factor to state " << track.Ix << endl;
 

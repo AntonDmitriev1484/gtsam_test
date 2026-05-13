@@ -68,7 +68,8 @@ public:
     string id;
     tracking track;
 
-    std::map<string, tracking> anchors;
+    map<string, tracking> anchors;
+    map<int, Tracker>& other_trackers;
 
 
     ofstream estimated_trajectory_fs;
@@ -82,6 +83,7 @@ public:
     one_euro_filter<Eigen::Array<double, 3, 1>, double> translation_filt;
 
     Tracker(const string id,
+            map<int, Tracker>& others,
             const Pose3 T_body_to_imu,
             const Pose3 T_body_to_decawave,
             const double smoother_lag,
@@ -117,7 +119,8 @@ public:
 	deque<json> gt_pose_buffer;
 	deque<json> range_buffer;
     int imu_available;
-    string prev_status;
+    string slam_status;
+
     void processSensor(const json& mes);
     void processSLAM(const json& mes);
     void processUWB(const json& mes);
