@@ -270,10 +270,10 @@ void Tracker::init_state(json calibration_stream) {
 			Vector3 latest_velocity = result.at<Vector3>(V(track.Iv));
 
 			log_fs << "Prior bias estimate" << std::endl;
-			prior_imu_bias.print();
+			// prior_imu_bias.print();
 
 			log_fs << "Optimized bias applied to preintegrator" << std::endl;
-			imu_preintegrated->print();
+			// imu_preintegrated->print();
 
 
 			track.est_poses.push_back(latest_pose); // We'll take the estimate out of values and put it here.
@@ -432,7 +432,7 @@ void Tracker::processSensor(const json& mes) {
 			imu_preintegrated->integrateMeasurement(accel, gyro, delta_t);
 			imu_available++;
 
-			log_fs << "Preintegration on at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
+			log_fs << "Preintegration at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
 
 			// Just for plotting at IMU frequency
 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
@@ -467,6 +467,7 @@ void Tracker::processSensor(const json& mes) {
 			slam_status = mes["status"];
 
 			if (mes["status"] == "tracking") {
+
 				if (imu_available == 0) {
 					// Pass this measurement and buffer it until the next IMU becomes available
 					log_fs << " Skipped SLAM pose " << endl;
@@ -581,28 +582,28 @@ void Tracker::processUWB(const json& mes)
 
 	if (other_trackers.contains(dst_id) ) { // Another Flock node
 
-	// 	Tracker& other = other_trackers.at(dst_id);
+		Tracker& other = other_trackers.at(dst_id);
 
-	// 	if (other.slam_status == "tracking"){
-	// 		Pose3 other_pose = other.track.est_poses.back();
-	// 		// Apply UWB antenna transform
-	// 		// Create a Point3 State
+		if (other.slam_status == "tracking"){
+			Pose3 other_pose = other.track.est_poses.back();
+			// Apply UWB antenna transform
+			// Create a Point3 State
 
-	// 		Key instantaneous_anchor = symbol('n', track.Ix);
-	// 		Pose3 anchor_pose = other_pose.compose(other.T_body_to_decawave);
-	// 		// TODO: What exactly does GTSAM compose do.
+			Key instantaneous_anchor = symbol('n', track.Ix);
+			Pose3 anchor_pose = other_pose.compose(other.T_body_to_decawave);
+			// TODO: What exactly does GTSAM compose do.
 
-	// 		vals.insert(instantaneous_anchor, anchor_pose);
-	// 		graph->add(NonlinearEquality<Pose3>(instantaneous_anchor, anchor_pose));
+			vals.insert(instantaneous_anchor, anchor_pose);
+			graph->add(NonlinearEquality<Pose3>(instantaneous_anchor, anchor_pose));
 
-	// 		graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-	// 		X(track.Ix), instantaneous_anchor, measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
+			graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
+			X(track.Ix), instantaneous_anchor, measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
 	
-	// 	}
-	// 	else {
-	// 		log_fs << " Node " << mes["id"] << " lost SLAM tracking, skipping range. " << endl;
-	// 		return;
-	// 	}
+		}
+		else {
+			log_fs << " Node " << mes["id"] << " lost SLAM tracking, skipping range. " << endl;
+			// return;
+		}
 	}
 	else { // A static anchor
 
@@ -626,7 +627,7 @@ void Tracker::processUWB(const json& mes)
 
 	graph->add(imu_factor);
 	log_fs << "Added IMU factor " << graph->size() - 1 << endl;
-	imu_preintegrated->print();
+	// imu_preintegrated->print();
 
 	// Predict state and insert
 	// NavState proposed = current_imu_preintegration->predict(prev_state, track.constant_bias);

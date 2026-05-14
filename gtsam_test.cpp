@@ -115,10 +115,8 @@ int main(int argc, char* argv[]) {
 			debug_dir);
 
 		t.init_anchors(anchor_stream);
-		t.init_state(sensor_stream); // TODO! This should be user specific now!
-
-		trackers.emplace(user, std::move(t)); // TODO: Ideally wouldn't have to use move here, might cause problems?
-
+		t.init_state(sensor_stream); 
+		trackers.emplace(user, std::move(t)); 
 	}
 
 	// Main emulation loop!
