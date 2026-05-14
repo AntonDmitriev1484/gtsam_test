@@ -47,7 +47,7 @@ int main(int argc, char* argv[]) {
 
 	for (int user: users) {
 
-		string out_dir = "/home/antond2/Desktop/Research/gtsam_test/results/out/multi/"+to_string(user);
+		string out_dir = "/home/antond2/Desktop/Research/gtsam_test/results/out/multi/"+to_string(user)+"/"+trial_name;
 		string debug_dir = out_dir+"/debug";
 		vector<string> paths = {out_dir, debug_dir};
 		for (string path: paths) {

@@ -90,7 +90,7 @@ def main():
     parser.add_argument("trial_name", help="Trial name")
     args = parser.parse_args()
 
-    results_path = f"/home/antond2/Desktop/Research/gtsam_test/results/out/{args.trial_name}"
+    results_path = f"/home/antond2/Desktop/Research/gtsam_test/results/out/multi/{args.id}/{args.trial_name}"
     exe_path = "/home/antond2/Desktop/Research/gtsam_test/out/build/linux-debug/gtsam_test"
     post_path = f"/home/antond2/Desktop/Research/MultiXR-Post/{args.id}/post/{args.trial_name}_post/"
     optitrack_gt_path = post_path + "opti.txt"

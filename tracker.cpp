@@ -97,6 +97,8 @@ Tracker::Tracker(
         [](auto& in) { return in.abs(); }
     ),
 
+	id(id),
+
 	other_trackers(others),
 
     // Transforms
@@ -556,18 +558,17 @@ void Tracker::processSLAM(const json& mes)
 
 void Tracker::processUWB(const json& mes)
 {
-
-	log_fs << "Processing range This -> " << mes["id"] << " for t=" << mes["t"] << endl;
+	double measured_range = (double)mes["range"];
+	int dst_id = (int)mes["id"];
+	if (dst_id == 3) return;
+	log_fs << "Processing range " + id + " -> " << mes["id"] << " for t=" << mes["t"] << endl;
 
 	track.Ix++;
 	track.Iv++;
 	track.Ib++;
 
-	double measured_range = (double)mes["range"];
-	int dst_id = (int)mes["id"];
 
 	// Hard coding this for opti_multi1:
-	if (dst_id == 3) return;
 
 	// Add this key -> timestamp mapping to our map
 	key_timestamps[X(track.Ix)] = (double)mes["t"];
@@ -580,39 +581,28 @@ void Tracker::processUWB(const json& mes)
 
 	if (other_trackers.contains(dst_id) ) { // Another Flock node
 
-		Tracker& other = other_trackers.at(dst_id);
+	// 	Tracker& other = other_trackers.at(dst_id);
 
-		if (other.slam_status == "tracking"){
-			Pose3 other_pose = other.track.est_poses.back();
-			// Apply UWB antenna transform
-			// Create a Point3 State
+	// 	if (other.slam_status == "tracking"){
+	// 		Pose3 other_pose = other.track.est_poses.back();
+	// 		// Apply UWB antenna transform
+	// 		// Create a Point3 State
 
-			Key instantaneous_anchor = symbol('n', track.Ix);
-			Pose3 anchor_pose = other_pose.compose(other.T_body_to_decawave);
-			// TODO: What exactly does GTSAM compose do.
+	// 		Key instantaneous_anchor = symbol('n', track.Ix);
+	// 		Pose3 anchor_pose = other_pose.compose(other.T_body_to_decawave);
+	// 		// TODO: What exactly does GTSAM compose do.
 
-			vals.insert(instantaneous_anchor, anchor_pose);
-			graph->add(NonlinearEquality<Pose3>(instantaneous_anchor, anchor_pose));
+	// 		vals.insert(instantaneous_anchor, anchor_pose);
+	// 		graph->add(NonlinearEquality<Pose3>(instantaneous_anchor, anchor_pose));
 
-			graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-			X(track.Ix), instantaneous_anchor, measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
+	// 		graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
+	// 		X(track.Ix), instantaneous_anchor, measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
 	
-
-			// you can name the key 'n' node, and then add the range count
-			// Key AnchorKey(string name) {return symbol('s', stoi(name));}
-			// // Assuming we have already called
-			// // get_beacon_info(tracker.anchors, json::parse(beacon_fs));
-			// void Tracker::init_anchor(string id){
-			// 	Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
-			// 	vals.insert(AnchorKey(id), prior_beacon_pose);
-			// 	graph->add(NonlinearEquality<Pose3>(AnchorKey(id), prior_beacon_pose));
-			// }
-
-		}
-		else {
-			log_fs << " Node " << mes["id"] << " lost SLAM tracking, skipping range. " << endl;
-			return;
-		}
+	// 	}
+	// 	else {
+	// 		log_fs << " Node " << mes["id"] << " lost SLAM tracking, skipping range. " << endl;
+	// 		return;
+	// 	}
 	}
 	else { // A static anchor
 
@@ -621,7 +611,6 @@ void Tracker::processUWB(const json& mes)
 		graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
 			X(track.Ix), AnchorKey(dst), measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
 	}
-
 
 	log_fs << "Added Range factor to state " << track.Ix << endl;
 
