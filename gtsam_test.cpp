@@ -35,7 +35,7 @@ int main(int argc, char* argv[]) {
 	bool synthetic = synthetic_trial_name != "none";
 
 
-	vector<int> users {2,3,4};
+	vector<int> users {2,4};
 	map<int, Tracker> trackers;
 	map<int, Tracker>& trackers_ref = trackers;
 
@@ -43,6 +43,7 @@ int main(int argc, char* argv[]) {
 	ifstream raw_fs(data_dir + "/all.json");
 	ifstream anchor_fs(data_dir + "/anchors.json");
 	json sensor_stream = json::parse(raw_fs); // Sensor stream contains all measurements.
+	json anchor_stream = json::parse(anchor_fs);
 
 	for (int user: users) {
 
@@ -113,13 +114,12 @@ int main(int argc, char* argv[]) {
 			out_dir,
 			debug_dir);
 
-		t.init_anchors(json::parse(anchor_fs));
+		t.init_anchors(anchor_stream);
 		t.init_state(sensor_stream); // TODO! This should be user specific now!
 
 		trackers.emplace(user, std::move(t)); // TODO: Ideally wouldn't have to use move here, might cause problems?
 
 	}
-
 
 	// Main emulation loop!
 	for (json mes : sensor_stream) {

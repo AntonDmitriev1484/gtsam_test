@@ -222,7 +222,7 @@ void Tracker::init_state(json calibration_stream) {
 
 	for (json mes: calibration_stream) {
 		// First set all priors
-		if ( mes["type"]=="aligned_slam_pose" && !set_pose_prior) {
+		if ( mes["type"]=="aligned_slam_pose" && (to_string(mes["src"]) == id) && !set_pose_prior) {
 			Pose3 start_slam_pose; 
 			Vector3 start_slam_velocity(0,0,0);
 			double timestamp;
@@ -419,78 +419,79 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 
 void Tracker::processSensor(const json& mes) {
 
-	if (mes["type"] == "imu") {
+	if (to_string(mes["src"]) == id) {
+		if (mes["type"] == "imu") {
 
-		// Add IMU measurement
-		Vector3 accel;
-		Vector3 gyro;
-		get_IMU(mes, accel, gyro);
+			// Add IMU measurement
+			Vector3 accel;
+			Vector3 gyro;
+			get_IMU(mes, accel, gyro);
 
-		imu_preintegrated->integrateMeasurement(accel, gyro, delta_t);
-		imu_available++;
+			imu_preintegrated->integrateMeasurement(accel, gyro, delta_t);
+			imu_available++;
 
-		log_fs << "Preintegration on at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
+			log_fs << "Preintegration on at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
 
-		// Just for plotting at IMU frequency
-		PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-		auto proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
-		report_estimate(proposed.pose(), mes["t"]);
+			// Just for plotting at IMU frequency
+			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+			auto proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
+			report_estimate(proposed.pose(), mes["t"]);
 
-		if (!gt_pose_buffer.empty()) {
-			json mes = gt_pose_buffer.front();
-			gt_pose_buffer.pop_front();
-			processSLAM(mes);
-			imu_available = 0;
-		} else if (!range_buffer.empty()) { // Must be mutually exclusive
-			json mes = range_buffer.front();
-			range_buffer.pop_front();
-			processUWB(mes);
-			imu_available = 0;
+			if (!gt_pose_buffer.empty()) {
+				json mes = gt_pose_buffer.front();
+				gt_pose_buffer.pop_front();
+				processSLAM(mes);
+				imu_available = 0;
+			} else if (!range_buffer.empty()) { // Must be mutually exclusive
+				json mes = range_buffer.front();
+				range_buffer.pop_front();
+				processUWB(mes);
+				imu_available = 0;
+			}
+
 		}
+		else if (mes["type"] == "aligned_slam_pose") {
 
-	}
-	else if (mes["type"] == "aligned_slam_pose") {
+			// slam_status is the state at last measurement
+			// mes["status"] is the state at current measurement
+			if (slam_status == "tracking" && mes["status"] == "lost") {
+				use_filter = true;
+			}
+			else if (slam_status == "lost" && mes["status"] == "tracking"){
+				use_filter = false;
+				translation_filt.clear();
+			}
+			
+			slam_status = mes["status"];
 
-		// slam_status is the state at last measurement
-		// mes["status"] is the state at current measurement
-		if (slam_status == "tracking" && mes["status"] == "lost") {
-			use_filter = true;
+			if (mes["status"] == "tracking") {
+				if (imu_available == 0) {
+					// Pass this measurement and buffer it until the next IMU becomes available
+					log_fs << " Skipped SLAM pose " << endl;
+					gt_pose_buffer.push_back(mes);
+					return;
+				}
+				else {
+					log_fs << "Used SLAM pose " << endl;
+					processSLAM(mes);
+					imu_available = 0;
+				}
+			}
+
 		}
-		else if (slam_status == "lost" && mes["status"] == "tracking"){
-			use_filter = false;
-			translation_filt.clear();
-		}
-		
-		slam_status = mes["status"];
-
-		if (mes["status"] == "tracking") {
-			if (imu_available == 0) {
-				// Pass this measurement and buffer it until the next IMU becomes available
-				log_fs << " Skipped SLAM pose " << endl;
-				gt_pose_buffer.push_back(mes);
-				return;
+		else if ( (mes["type"] == "uwb") && use_uwb) { 
+			if (imu_available == 0) { 
+				log_fs << "Skipped User to "<< mes["id"] << endl;
+				range_buffer.push_back(mes);
+				return; 
 			}
 			else {
-				log_fs << "Used SLAM pose " << endl;
-				processSLAM(mes);
+				log_fs << "Used User to "<< mes["id"] << endl;
+				processUWB(mes);
 				imu_available = 0;
 			}
 		}
-
-	}
-	else if ( (mes["type"] == "uwb") && use_uwb) { 
-		if (imu_available == 0) { 
-			log_fs << "Skipped User to "<< mes["id"] << endl;
-			range_buffer.push_back(mes);
-			return; 
-		}
-		else {
-			log_fs << "Used User to "<< mes["id"] << endl;
-			processUWB(mes);
-			imu_available = 0;
-		}
-	}
-			
+	}	
 }
 
 
@@ -565,6 +566,9 @@ void Tracker::processUWB(const json& mes)
 	double measured_range = (double)mes["range"];
 	int dst_id = (int)mes["id"];
 
+	// Hard coding this for opti_multi1:
+	if (dst_id == 3) return;
+
 	// Add this key -> timestamp mapping to our map
 	key_timestamps[X(track.Ix)] = (double)mes["t"];
 	key_timestamps[V(track.Iv)] = (double)mes["t"];
@@ -579,9 +583,20 @@ void Tracker::processUWB(const json& mes)
 		Tracker& other = other_trackers.at(dst_id);
 
 		if (other.slam_status == "tracking"){
-			Pose3 dst_pose = other.track.est_poses.back();
+			Pose3 other_pose = other.track.est_poses.back();
 			// Apply UWB antenna transform
 			// Create a Point3 State
+
+			Key instantaneous_anchor = symbol('n', track.Ix);
+			Pose3 anchor_pose = other_pose.compose(other.T_body_to_decawave);
+			// TODO: What exactly does GTSAM compose do.
+
+			vals.insert(instantaneous_anchor, anchor_pose);
+			graph->add(NonlinearEquality<Pose3>(instantaneous_anchor, anchor_pose));
+
+			graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
+			X(track.Ix), instantaneous_anchor, measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
+	
 
 			// you can name the key 'n' node, and then add the range count
 			// Key AnchorKey(string name) {return symbol('s', stoi(name));}
