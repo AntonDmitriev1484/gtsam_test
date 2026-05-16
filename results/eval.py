@@ -90,7 +90,11 @@ def main():
     parser.add_argument("trial_name", help="Trial name")
     args = parser.parse_args()
 
-    results_path = f"/home/antond2/Desktop/Research/gtsam_test/results/out/multi/{args.id}/{args.trial_name}"
+    if 'multi' in args.trial_name:
+        results_path = f"/home/antond2/Desktop/Research/gtsam_test/results/out/multi/{args.id}/{args.trial_name}"
+    else:
+        results_path = f"/home/antond2/Desktop/Research/gtsam_test/results/out/{args.trial_name}"
+
     exe_path = "/home/antond2/Desktop/Research/gtsam_test/out/build/linux-debug/gtsam_test"
     post_path = f"/home/antond2/Desktop/Research/MultiXR-Post/{args.id}/post/{args.trial_name}_post/"
     optitrack_gt_path = post_path + "opti.txt"
@@ -126,6 +130,7 @@ def main():
                 est_stride = -1,
                 run_config = run_config,
                 label_text = name,
+                est_path = f"{results_path}/est_{run_config}.json",
                 show=False)
         # Its this call here thats causing it to plot early
         

@@ -35,7 +35,7 @@ int main(int argc, char* argv[]) {
 	bool synthetic = synthetic_trial_name != "none";
 
 
-	vector<int> users {2,4};
+	vector<int> users {2,3,4};
 	map<int, Tracker> trackers;
 	map<int, Tracker>& trackers_ref = trackers;
 

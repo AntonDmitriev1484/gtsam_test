@@ -82,6 +82,8 @@ public:
     bool use_filter;
     one_euro_filter<Eigen::Array<double, 3, 1>, double> translation_filt;
 
+    map<int, double> prev_ranges;
+
     Tracker(const string id,
             map<int, Tracker>& others,
             const Pose3 T_body_to_imu,

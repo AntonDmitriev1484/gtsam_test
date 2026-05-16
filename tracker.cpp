@@ -163,6 +163,14 @@ Tracker::Tracker(
 	estimated_trajectory_fs = ofstream(out_dir + "/est_"+uwb_str+".txt");
 	// slam_trajectory_fs = ofstream(out_dir+"/slam.txt");
 	log_fs = ofstream(out_dir+"/log_dump.txt");
+
+	prev_ranges = {
+		{1, 0.0},
+		{2, 0.0},
+		{3, 0.0},
+		{4, 0.0},
+		{5, 0.0}
+	};
 }
 
 Pose3 Tracker::report_estimate(Pose3 initial, double timestamp){
@@ -561,9 +569,23 @@ void Tracker::processUWB(const json& mes)
 {
 	double measured_range = (double)mes["range"];
 	int dst_id = (int)mes["id"];
-	if (dst_id == 3) return;
-	log_fs << "Processing range " + id + " -> " << mes["id"] << " for t=" << mes["t"] << endl;
 
+	// Why does this cause the whole thing to blow up? ALl my ranges will be set to 0 this way
+	// Really just low pass filter, I don't have the mental capacity for this right now:
+	
+	// double& prev_range = prev_ranges.at(dst_id);
+
+	// if (prev_range < 1e-5) {
+ 	// 	prev_range = measured_range;
+	// }
+	// else {
+	// 	if (abs(measured_range - prev_range) > 0.2) measured_range = prev_range;
+	// 	prev_range = measured_range;
+	// }
+
+	log_fs << "Processing range " + id + " -> " << mes["id"] << " for t=" << mes["t"] << endl;
+	if (slam_status == "lost") log_fs << "Processing range while lost!" << endl;
+	
 	track.Ix++;
 	track.Iv++;
 	track.Ib++;
