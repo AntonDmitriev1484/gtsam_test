@@ -121,9 +121,15 @@ int main(int argc, char* argv[]) {
 
 	// Main emulation loop!
 	for (json mes : sensor_stream) {
-
-		Tracker& t = trackers.at((int)mes["src"]);
-		t.processSensor(mes);
+		try{
+			Tracker& t = trackers.at((int)mes["src"]);
+			t.processSensor(mes);
+		}
+		catch (const std::exception& e) {
+			// Sometimes ranges may have "src" as 5 or 1 when I'm mirroring UWB ranges
+			// Just skip those, they aren't flock nodes
+			continue;
+		}
 	}
 
 	for (auto& [user, t]: trackers) {

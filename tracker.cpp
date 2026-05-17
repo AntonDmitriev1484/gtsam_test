@@ -164,13 +164,13 @@ Tracker::Tracker(
 	// slam_trajectory_fs = ofstream(out_dir+"/slam.txt");
 	log_fs = ofstream(out_dir+"/log_dump.txt");
 
-	prev_ranges = {
-		{1, 0.0},
-		{2, 0.0},
-		{3, 0.0},
-		{4, 0.0},
-		{5, 0.0}
-	};
+	// prev_ranges = {
+	// 	{1, 0.0},
+	// 	{2, 0.0},
+	// 	{3, 0.0},
+	// 	{4, 0.0},
+	// 	{5, 0.0}
+	// };
 }
 
 Pose3 Tracker::report_estimate(Pose3 initial, double timestamp){
@@ -431,7 +431,6 @@ void Tracker::processSensor(const json& mes) {
 
 	if (to_string(mes["src"]) == id) {
 		if (mes["type"] == "imu") {
-
 			// Add IMU measurement
 			Vector3 accel;
 			Vector3 gyro;
@@ -607,13 +606,13 @@ void Tracker::processUWB(const json& mes)
 		Tracker& other = other_trackers.at(dst_id);
 
 		if (other.slam_status == "tracking"){
-			Pose3 other_pose = other.track.est_poses.back();
+			Pose3 other_T_body_to_world = other.track.est_poses.back(); // T_body_to_world
 			// Apply UWB antenna transform
 			// Create a Point3 State
 
 			Key instantaneous_anchor = symbol('n', track.Ix);
-			Pose3 anchor_pose = other_pose.compose(other.T_body_to_decawave);
-			// TODO: What exactly does GTSAM compose do.
+			Pose3 anchor_pose = other_T_body_to_world * other.T_body_to_decawave.inverse(); 
+			// anchor pose should be T_decawave_to_world
 
 			vals.insert(instantaneous_anchor, anchor_pose);
 			graph->add(NonlinearEquality<Pose3>(instantaneous_anchor, anchor_pose));
