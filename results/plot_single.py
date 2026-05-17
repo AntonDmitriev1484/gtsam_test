@@ -90,6 +90,15 @@ def plot_trajectories(trial_dir, slam_stride=0, est_stride=0, show=True, scatter
         ax.plot(slam_inv_positions[:, 0], slam_inv_positions[:, 1], slam_inv_positions[:, 2],
                 label='SLAM Ground Truth', color='green', linewidth=0.5)
 
+        # Estimated trajectory start/end
+    ax.scatter(*est_inv_positions[0], color='cyan', s=60, marker='o', label='Est Start')
+    ax.scatter(*est_inv_positions[-1], color='navy', s=60, marker='x', label='Est End')
+
+    # Optional text labels
+    ax.text(*est_inv_positions[0], "Est Start")
+    ax.text(*est_inv_positions[-1], "Est End")
+
+
     if est_stride > 0:
         for i in range(0, len(est_htms), est_stride):
             T = est_htms[i]

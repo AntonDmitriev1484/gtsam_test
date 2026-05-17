@@ -33,9 +33,10 @@ endif()
 
 # <trial_name> <synthetic_trial_name or 'none'> <'uwb' or 'no_uwb'> <dump (true|false)>"
 enable_testing()
-
+add_test(NAME opti_multi1_passing COMMAND gtsam_test opti_multi1_passing none no_uwb 0.0 true)
+add_test(NAME opti_multi1_test COMMAND gtsam_test opti_multi1_test none no_uwb 0.0 true)
 add_test(NAME opti_circle_test2 COMMAND gtsam_test opti_circle_test2 none no_uwb 0.0 true)
-
+add_test(NAME opti_single_test COMMAND gtsam_test opti_single_test none no_uwb 0.0 true)
 # add_test(NAME irl5_imu_bias_straight3 COMMAND gtsam_test irl5_imu_bias_straight3 none no_uwb 0.0 true)
 # add_test(NAME irl5_imu_bias_worn COMMAND gtsam_test irl5_imu_bias_worn none no_uwb 0.0 true)
 # add_test(NAME irl5_free COMMAND gtsam_test irl5_free none no_uwb 0.0 true)

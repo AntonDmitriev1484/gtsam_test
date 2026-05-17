@@ -39,8 +39,12 @@ int main(int argc, char* argv[]) {
 
 	const int ID = 2;
 
+	// NOTE!!!!!: If multi user, just change this value here vvvvvvv
 	string data_dir = "/home/antond2/Desktop/Research/MultiXR-Post/2/post/"+trial_name+"_post";
+
 	string out_dir = "/home/antond2/Desktop/Research/gtsam_test/results/out/"+trial_name;
+
+
 	if (synthetic) { // TODO: Remove this
 		data_dir += "/synthetic";
 		out_dir += "/"+synthetic_trial_name;
@@ -210,7 +214,7 @@ int main(int argc, char* argv[]) {
 			}
 			range_buffer.clear();
 		}
-		else if (use_gt && mes["type"] == "opti_pose") {
+		else if (use_gt && mes["type"] == "aligned_slam_pose") {
 
 			if (imu_counter == imu_count_at_last_imu_factor) {
 				// Pass this measurement and buffer it until the next IMU becomes available
@@ -284,19 +288,6 @@ int main(int argc, char* argv[]) {
 	ofstream postproc_velocity_fs(out_dir + "/vel_vectors.txt");
 	write_trajectory_KITTI_format( t.postproc_velocity_vectors, postproc_velocity_fs);
 	postproc_velocity_fs.close();
-
-	
-
-	// NOTE: THIS WILL CHANGE FOR EACH DATASET duration
-
-	double duration_s = 45;
-	cout << " Applied " << uwb_counter << " uwb measurements for "<< duration_s<< " seconds of data " << endl;
-	double f_uwb = uwb_counter /duration_s;
-	cout << " UWB frequency in the graph is " << f_uwb << endl;
-
-	cout << " Applied " << gt_counter << " slam measurements for "<< duration_s<< " seconds of data " << endl;
-	double f_gt = gt_counter /duration_s;
-	cout << " GT frequency in the graph is " << f_gt << endl;
 
 	return 0;
 }
