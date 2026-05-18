@@ -197,7 +197,7 @@ Tracker::Tracker(
 
 	for (int id : ids) {
     	range_filt.emplace(id, make_filter());
-
+		prev_ranges.emplace(id , 0.0);
 	}
 
 }
@@ -598,21 +598,29 @@ void Tracker::processUWB(const json& mes)
 	double measured_range = (double)mes["range"];
 	int dst_id = (int)mes["id"];
 
-		// 	Vector3 filtered_translation = translation_filt(initial.translation() , timestamp);
-		// Pose3 good_pose(Pose3(initial.rotation(), filtered_translation));
-		// reported_pose = good_pose;
 
-		// log_fs << "Filtering changed pose by " << (initial.translation().norm() - filtered_translation.norm()) << endl;
-		// track.est_poses.push_back(good_pose);
-		// track.est_timestamps.push_back(timestamp);
-	
-	Eigen::Array<double,1,1> input;
-	input(0) = measured_range;
-	double filtered_range = range_filt.at(dst_id)(input, (double)mes["t"])(0);
-	log_fs << "Filtering changed range by " << filtered_range - measured_range << endl;
+	// Low pass
+	// Eigen::Array<double,1,1> input;
+	// input(0) = measured_range;
+	// double filtered_range = range_filt.at(dst_id)(input, (double)mes["t"])(0);
+	// log_fs << "Filtering changed range by " << filtered_range - measured_range << endl;
+	// measured_range = filtered_range;
 
+	// Cut off
+		double& prev_range = prev_ranges.at(dst_id);
 
-	measured_range = filtered_range;
+	if (prev_range < 1e-5) {
+		log_fs << "Initialized range to " << measured_range << endl;
+ 		prev_range = measured_range; // If we initialize to the wrong range we're cooked
+	}
+	else {
+		if (abs(measured_range - prev_range) > 2) {
+			log_fs << "outlier: " << measured_range << " instead using " << prev_range << endl;
+			measured_range = prev_range;
+		}
+		prev_range = measured_range;
+	}
+
 
 	// if (prev_range < 1e-5) {
 	// 	log_fs << "Initialized range to " << measured_range << endl;

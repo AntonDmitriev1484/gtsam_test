@@ -92,7 +92,7 @@ int main(int argc, char* argv[]) {
 
 		const int smoother_lag = 1;
 		const bool use_smoother = false;
-		const bool use_filter = false;
+		const bool use_filter = false; // basically unused
 
 
 		Tracker t(
