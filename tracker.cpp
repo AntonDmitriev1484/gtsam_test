@@ -67,6 +67,20 @@ void get_beacon_info(map<string, tracking>& info, json beacon_data) {
 	}
 }
 
+one_euro_filter<Eigen::Array<double,1,1>, double>
+make_filter()
+{
+    return one_euro_filter<Eigen::Array<double,1,1>, double>(
+        12.0,
+        Eigen::Array<double,1,1>(0.25),
+        Eigen::Array<double,1,1>(0.01),
+        Eigen::Array<double,1,1>(1.0),
+        Eigen::Array<double,1,1>(0.0),
+        Eigen::Array<double,1,1>(1.0),
+        [](Eigen::Array<double,1,1>& x) { return x.abs(); }
+    );
+}
+
 Tracker::Tracker(
     const string id,
 	map<int, Tracker>& others,
@@ -134,6 +148,7 @@ Tracker::Tracker(
     imu_available(0),
 	slam_status("tracking"),
     use_smoother(use_smoother)
+	
 {
     if (use_smoother) {
         ISAM2Params isam_params;
@@ -164,13 +179,27 @@ Tracker::Tracker(
 	// slam_trajectory_fs = ofstream(out_dir+"/slam.txt");
 	log_fs = ofstream(out_dir+"/log_dump.txt");
 
-	prev_ranges = {
-		{1, 0.0},
-		{2, 0.0},
-		{3, 0.0},
-		{4, 0.0},
-		{5, 0.0}
-	};
+	    // one_euro_filter(double _freq, T _mincutoff, T _beta, T _dcutoff, T zero, T one, std::function<T(T&)> abs)
+        // : freq(_freq)
+        // , mincutoff(_mincutoff)
+        // , beta(_beta)
+        // , dcutoff(_dcutoff)
+        // , zero(zero)
+        // , one(one)
+        // , abs(abs)
+        // , last_time_(-1) { }
+
+	vector<int> ids = {1,2,3,4,5};
+	double freq = 12.;
+	double min_cutoff = 0.25;
+	double beta = 0.01;
+	double dcutoff = 1;
+
+	for (int id : ids) {
+    	range_filt.emplace(id, make_filter());
+
+	}
+
 }
 
 Pose3 Tracker::report_estimate(Pose3 initial, double timestamp){
@@ -569,22 +598,33 @@ void Tracker::processUWB(const json& mes)
 	double measured_range = (double)mes["range"];
 	int dst_id = (int)mes["id"];
 
-	// Why does this cause the whole thing to blow up? ALl my ranges will be set to 0 this way
-	// Really just low pass filter, I don't have the mental capacity for this right now:
-	
-	double& prev_range = prev_ranges.at(dst_id);
+		// 	Vector3 filtered_translation = translation_filt(initial.translation() , timestamp);
+		// Pose3 good_pose(Pose3(initial.rotation(), filtered_translation));
+		// reported_pose = good_pose;
 
-	if (prev_range < 1e-5) {
-		log_fs << "Initialized range to " << measured_range << endl;
- 		prev_range = measured_range; // If we initialize to the wrong range we're cooked
-	}
-	else {
-		if (abs(measured_range - prev_range) > 2) {
-			log_fs << "outlier: " << measured_range << " instead using " << prev_range << endl;
-			measured_range = prev_range;
-		}
-		prev_range = measured_range;
-	}
+		// log_fs << "Filtering changed pose by " << (initial.translation().norm() - filtered_translation.norm()) << endl;
+		// track.est_poses.push_back(good_pose);
+		// track.est_timestamps.push_back(timestamp);
+	
+	Eigen::Array<double,1,1> input;
+	input(0) = measured_range;
+	double filtered_range = range_filt.at(dst_id)(input, (double)mes["t"])(0);
+	log_fs << "Filtering changed range by " << filtered_range - measured_range << endl;
+
+
+	measured_range = filtered_range;
+
+	// if (prev_range < 1e-5) {
+	// 	log_fs << "Initialized range to " << measured_range << endl;
+ 	// 	prev_range = measured_range; // If we initialize to the wrong range we're cooked
+	// }
+	// else {
+	// 	if (abs(measured_range - prev_range) > 2) {
+	// 		log_fs << "outlier: " << measured_range << " instead using " << prev_range << endl;
+	// 		measured_range = prev_range;
+	// 	}
+	// 	prev_range = measured_range;
+	// }
 
 	log_fs << "Processing range " + id + " -> " << mes["id"] << " for t=" << mes["t"] << endl;
 	if (slam_status == "lost") log_fs << "Processing range while lost!" << endl;
