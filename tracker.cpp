@@ -266,6 +266,7 @@ void Tracker::init_state(json calibration_stream) {
 			Vector3 start_slam_velocity(0,0,0);
 			double timestamp;
 
+
 			Pose3 T_world_to_body;
 			// velocity and body pose an no_uwb 0.0 re computed from body poses in the world frame
 			get_pose_from_HTM(mes["T_body_world"],T_world_to_body);
@@ -291,6 +292,7 @@ void Tracker::init_state(json calibration_stream) {
 			last_was_pose = true;
 			set_pose_prior = true;
 
+			start_timestamp = (double)mes["t"];
 
 				// Add this key -> timestamp mapping to our map
 			key_timestamps[X(track.Ix)] = (double)mes["t"];
@@ -394,13 +396,14 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		cerr << "Data timestamp is " << mes_timestamp << endl;
 		graph->saveGraph(debug_dir+"/graph.dot", result);
 		graph->print("");
-		cerr << "Graph dumped to factor_graph.dot" << endl;
 
 		write_trajectory_TUM_format( track.est_poses, track.est_timestamps, estimated_trajectory_fs);
 		estimated_trajectory_fs.close();
 
-		write_trajectory_TUM_format( track.slam_poses, track.slam_timestamps, slam_trajectory_fs);
-		slam_trajectory_fs.close();
+		write_trajectory_HTM_JSON_format (track.est_poses, track.est_timestamps, estimated_trajectory_htm_json_fs, "est_pose");
+		estimated_trajectory_htm_json_fs.close();
+
+		cerr << "Graph dumped to factor_graph.dot" << endl;
 
 		throw; // rethrow
 	}
@@ -471,9 +474,14 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 	}
 }
 
+
 void Tracker::processSensor(const json& mes) {
 
+
+
 	if (to_string(mes["src"]) == id) {
+
+
 		if (mes["type"] == "imu") {
 			// Add IMU measurement
 			Vector3 accel;
@@ -504,7 +512,7 @@ void Tracker::processSensor(const json& mes) {
 
 		}
 		else if (mes["type"] == "aligned_slam_pose") {
-
+			start_graph = true;
 			// slam_status is the state at last measurement
 			// mes["status"] is the state at current measurement
 			if (slam_status == "tracking" && mes["status"] == "lost") {
@@ -533,7 +541,7 @@ void Tracker::processSensor(const json& mes) {
 			}
 
 		}
-		else if ( (mes["type"] == "uwb") && use_uwb) { 
+		else if ( (mes["type"] == "uwb") && use_uwb && start_graph) { 
 			if (imu_available == 0) { 
 				log_fs << "Skipped User to "<< mes["id"] << endl;
 				range_buffer.push_back(mes);
@@ -547,6 +555,87 @@ void Tracker::processSensor(const json& mes) {
 		}
 	}	
 }
+
+// void Tracker::processSensor(const json& mes) {
+
+// 	bool start_graph = false;
+
+// 	if (to_string(mes["src"]) == id) {
+
+// 		start_graph = (double)mes["t"] > start_timestamp;
+
+// 		if (mes["type"] == "imu" && start_graph) {
+// 			// Add IMU measurement
+// 			Vector3 accel;
+// 			Vector3 gyro;
+// 			get_IMU(mes, accel, gyro);
+
+// 			imu_preintegrated->integrateMeasurement(accel, gyro, delta_t);
+// 			imu_available++;
+
+// 			log_fs << "Preintegration at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
+
+// 			// Just for plotting at IMU frequency
+// 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
+// 			auto proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
+// 			report_estimate(proposed.pose(), mes["t"]);
+
+// 			if (!gt_pose_buffer.empty()) {
+// 				json mes = gt_pose_buffer.front();
+// 				gt_pose_buffer.pop_front();
+// 				processSLAM(mes);
+// 				imu_available = 0;
+// 			} else if (!range_buffer.empty()) { // Must be mutually exclusive
+// 				json mes = range_buffer.front();
+// 				range_buffer.pop_front();
+// 				processUWB(mes);
+// 				imu_available = 0;
+// 			}
+
+// 		}
+// 		else if (mes["type"] == "aligned_slam_pose" && start_graph) {
+// 			// slam_status is the state at last measurement
+// 			// mes["status"] is the state at current measurement
+// 			if (slam_status == "tracking" && mes["status"] == "lost") {
+// 				use_filter = true;
+// 			}
+// 			else if (slam_status == "lost" && mes["status"] == "tracking"){
+// 				use_filter = true;
+// 				// translation_filt.clear();
+// 			}
+			
+// 			slam_status = mes["status"];
+
+// 			if (mes["status"] == "tracking") {
+
+// 				if (imu_available == 0) {
+// 					// Pass this measurement and buffer it until the next IMU becomes available
+// 					log_fs << " Skipped SLAM pose " << endl;
+// 					gt_pose_buffer.push_back(mes);
+// 					return;
+// 				}
+// 				else {
+// 					log_fs << "Used SLAM pose " << endl;
+// 					processSLAM(mes);
+// 					imu_available = 0;
+// 				}
+// 			}
+
+// 		}
+// 		else if ( (mes["type"] == "uwb") && use_uwb && start_graph) { 
+// 			if (imu_available == 0) { 
+// 				log_fs << "Skipped User to "<< mes["id"] << endl;
+// 				range_buffer.push_back(mes);
+// 				return; 
+// 			}
+// 			else {
+// 				log_fs << "Used User to "<< mes["id"] << endl;
+// 				processUWB(mes);
+// 				imu_available = 0;
+// 			}
+// 		}
+// 	}	
+// }
 
 
 void Tracker::processSLAM(const json& mes)
@@ -624,22 +713,9 @@ void Tracker::processUWB(const json& mes)
 	// Cut off
 		double& prev_range = prev_ranges.at(dst_id);
 
-	if (prev_range < 1e-5) {
-		log_fs << "Initialized range to " << measured_range << endl;
- 		prev_range = measured_range; // If we initialize to the wrong range we're cooked
-	}
-	else {
-		if (abs(measured_range - prev_range) > 2) {
-			log_fs << "outlier: " << measured_range << " instead using " << prev_range << endl;
-			measured_range = prev_range;
-		}
-		prev_range = measured_range;
-	}
-
-
 	// if (prev_range < 1e-5) {
 	// 	log_fs << "Initialized range to " << measured_range << endl;
- 	// 	prev_range = measured_range; // If we initialize to the wrong range we're cooked
+ 	// 	prev_range = measured_range;
 	// }
 	// else {
 	// 	if (abs(measured_range - prev_range) > 2) {

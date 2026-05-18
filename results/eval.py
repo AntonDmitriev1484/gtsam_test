@@ -109,7 +109,7 @@ def main():
     axt.set_title("")
 
     for run_config, name in [('no_uwb', "IMU"), ('uwb', "Flock")]:
-
+    # for run_config, name in [('no_uwb', "IMU")]:
         ### Run graph executable
         if not args.no_run:
             print(f"Running graph with {run_config}")

@@ -77,7 +77,8 @@ public:
     ofstream slam_trajectory_fs;
     ofstream log_fs;
 
-    double mes_start;
+    double start_timestamp;
+    bool start_graph = false;
 
     bool use_filter;
     one_euro_filter<Eigen::Array<double, 3, 1>, double> translation_filt;
