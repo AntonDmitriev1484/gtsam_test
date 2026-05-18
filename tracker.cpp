@@ -291,7 +291,22 @@ void Tracker::init_state(json calibration_stream) {
 			last_was_pose = true;
 			set_pose_prior = true;
 
-			isam->update(*graph, vals);
+
+				// Add this key -> timestamp mapping to our map
+			key_timestamps[X(track.Ix)] = (double)mes["t"];
+			key_timestamps[V(track.Iv)] = (double)mes["t"];
+			key_timestamps[B(track.Ib)] = (double)mes["t"];
+			for (auto const &[id, tracking_] : anchors) {
+				key_timestamps[AnchorKey(id)] = (double)mes["t"];
+			}
+
+			if (use_smoother) {
+				smoother->update(*graph, vals, key_timestamps); 
+			}
+			else {
+				isam->update(*graph, vals);
+			}
+
 			prev_state = NavState(prior_pose, prior_velocity);
 			imu_preintegrated->resetIntegrationAndSetBias(prior_imu_bias);
 			track.changing_bias = prior_imu_bias;
@@ -416,10 +431,10 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
         }
 		
 		clock_t isam_t;
-		START_TIMER("Start iSAM, "+msg+", ts="+to_string(mes_timestamp), isam_t);
+		START_TIMER("Start Smoother, "+msg+", ts="+to_string(mes_timestamp), isam_t);
 		smoother->update(*graph, vals, key_timestamps); // Crashes on this line specifically
 		result = smoother->calculateEstimate();
-		END_TIMER("Ended iSAM "+msg, isam_t);
+		END_TIMER("Ended Smoother "+msg, isam_t);
 
 		report_estimate(result.at<Pose3>(X(track.Ix)), mes_timestamp);
 
@@ -668,6 +683,8 @@ void Tracker::processUWB(const json& mes)
 
 			vals.insert(instantaneous_anchor, anchor_pose);
 			graph->add(NonlinearEquality<Pose3>(instantaneous_anchor, anchor_pose));
+
+			key_timestamps[instantaneous_anchor] = (double)mes["t"];
 
 			graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
 			X(track.Ix), instantaneous_anchor, measured_range, UWB_noise_model, T_body_to_decawave.inverse()));

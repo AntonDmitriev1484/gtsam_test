@@ -92,7 +92,7 @@ int main(int argc, char* argv[]) {
 
 		const int smoother_lag = 1;
 		const bool use_smoother = false;
-		const bool use_filter = false; // basically unused
+		const bool use_filter = false; // var is basically unused
 
 
 		Tracker t(
@@ -121,14 +121,10 @@ int main(int argc, char* argv[]) {
 
 	// Main emulation loop!
 	for (json mes : sensor_stream) {
-		try{
-			Tracker& t = trackers.at((int)mes["src"]);
+		int src = (int)mes["src"];
+		if (src != 1 && src != 5) {
+			Tracker& t = trackers.at(src);
 			t.processSensor(mes);
-		}
-		catch (const std::exception& e) {
-			// Sometimes ranges may have "src" as 5 or 1 when I'm mirroring UWB ranges
-			// Just skip those, they aren't flock nodes
-			continue;
 		}
 	}
 
