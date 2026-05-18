@@ -88,6 +88,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("id", type=int)
     parser.add_argument("trial_name", help="Trial name")
+    parser.add_argument("--no_run", action="store_true")
     args = parser.parse_args()
 
     if 'multi' in args.trial_name:
@@ -110,18 +111,19 @@ def main():
     for run_config, name in [('no_uwb', "IMU"), ('uwb', "Flock")]:
 
         ### Run graph executable
-        print(f"Running graph with {run_config}")
-        subprocess.run([
-            exe_path,
-            args.trial_name,
-            "none",
-            run_config,
-            "0.0",
-            "true"
-        ],
-        capture_output=True,
-        text=True)
-        print("Graph complete")
+        if not args.no_run:
+            print(f"Running graph with {run_config}")
+            subprocess.run([
+                exe_path,
+                args.trial_name,
+                "none",
+                run_config,
+                "0.0",
+                "true"
+            ],
+            capture_output=True,
+            text=True)
+            print("Graph complete")
 
         # Plot trajectories with MultiXR-Post
         plot_trial(args.id, 
@@ -143,7 +145,8 @@ def main():
 
         traj_ref_sync, traj_est_sync = sync.associate_trajectories(
                                             gt_traj,
-                                            est_traj
+                                            est_traj,
+                                            max_diff = 0.05
                                         )
         print(f"Error Metrics")
         print()

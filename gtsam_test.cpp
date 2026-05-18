@@ -65,7 +65,7 @@ int main(int argc, char* argv[]) {
 		json transforms = json::parse(transform_fs);
 
 		// UWB noise model
-		double uwb_stdev = 0.2;
+		double uwb_stdev = 0.1;
 		noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 		// SLAM noise model - (use to define pose prior)
 		double gt_pos_stdev = 1e-2;

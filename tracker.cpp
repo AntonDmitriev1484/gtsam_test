@@ -164,13 +164,13 @@ Tracker::Tracker(
 	// slam_trajectory_fs = ofstream(out_dir+"/slam.txt");
 	log_fs = ofstream(out_dir+"/log_dump.txt");
 
-	// prev_ranges = {
-	// 	{1, 0.0},
-	// 	{2, 0.0},
-	// 	{3, 0.0},
-	// 	{4, 0.0},
-	// 	{5, 0.0}
-	// };
+	prev_ranges = {
+		{1, 0.0},
+		{2, 0.0},
+		{3, 0.0},
+		{4, 0.0},
+		{5, 0.0}
+	};
 }
 
 Pose3 Tracker::report_estimate(Pose3 initial, double timestamp){
@@ -467,8 +467,8 @@ void Tracker::processSensor(const json& mes) {
 				use_filter = true;
 			}
 			else if (slam_status == "lost" && mes["status"] == "tracking"){
-				use_filter = false;
-				translation_filt.clear();
+				use_filter = true;
+				// translation_filt.clear();
 			}
 			
 			slam_status = mes["status"];
@@ -572,15 +572,19 @@ void Tracker::processUWB(const json& mes)
 	// Why does this cause the whole thing to blow up? ALl my ranges will be set to 0 this way
 	// Really just low pass filter, I don't have the mental capacity for this right now:
 	
-	// double& prev_range = prev_ranges.at(dst_id);
+	double& prev_range = prev_ranges.at(dst_id);
 
-	// if (prev_range < 1e-5) {
- 	// 	prev_range = measured_range;
-	// }
-	// else {
-	// 	if (abs(measured_range - prev_range) > 0.2) measured_range = prev_range;
-	// 	prev_range = measured_range;
-	// }
+	if (prev_range < 1e-5) {
+		log_fs << "Initialized range to " << measured_range << endl;
+ 		prev_range = measured_range; // If we initialize to the wrong range we're cooked
+	}
+	else {
+		if (abs(measured_range - prev_range) > 2) {
+			log_fs << "outlier: " << measured_range << " instead using " << prev_range << endl;
+			measured_range = prev_range;
+		}
+		prev_range = measured_range;
+	}
 
 	log_fs << "Processing range " + id + " -> " << mes["id"] << " for t=" << mes["t"] << endl;
 	if (slam_status == "lost") log_fs << "Processing range while lost!" << endl;
