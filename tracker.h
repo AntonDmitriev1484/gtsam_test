@@ -84,7 +84,7 @@ public:
     one_euro_filter<Eigen::Array<double, 3, 1>, double> translation_filt;
 
     map<int, one_euro_filter<Eigen::Array<double, 1, 1>, double>> range_filt;
-    map<int, double> prev_ranges;
+    map<int, deque<double>> prev_ranges;
     
     Tracker(const string id,
             map<int, Tracker>& others,

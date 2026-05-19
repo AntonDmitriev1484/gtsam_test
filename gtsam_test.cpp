@@ -91,7 +91,7 @@ int main(int argc, char* argv[]) {
 		imu_preintegration_params->setBodyPSensor(T_body_to_imu);
 
 		const int smoother_lag = 1;
-		const bool use_smoother = false;
+		const bool use_smoother = true;
 		const bool use_filter = false; // var is basically unused
 
 

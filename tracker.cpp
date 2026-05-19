@@ -475,14 +475,16 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 }
 
 
+
 void Tracker::processSensor(const json& mes) {
 
-
+	bool start_graph = false;
 
 	if (to_string(mes["src"]) == id) {
 
+		start_graph = (double)mes["t"] > start_timestamp;
 
-		if (mes["type"] == "imu") {
+		if (mes["type"] == "imu" && start_graph) {
 			// Add IMU measurement
 			Vector3 accel;
 			Vector3 gyro;
@@ -511,8 +513,7 @@ void Tracker::processSensor(const json& mes) {
 			}
 
 		}
-		else if (mes["type"] == "aligned_slam_pose") {
-			start_graph = true;
+		else if (mes["type"] == "aligned_slam_pose" && start_graph) {
 			// slam_status is the state at last measurement
 			// mes["status"] is the state at current measurement
 			if (slam_status == "tracking" && mes["status"] == "lost") {
@@ -555,87 +556,6 @@ void Tracker::processSensor(const json& mes) {
 		}
 	}	
 }
-
-// void Tracker::processSensor(const json& mes) {
-
-// 	bool start_graph = false;
-
-// 	if (to_string(mes["src"]) == id) {
-
-// 		start_graph = (double)mes["t"] > start_timestamp;
-
-// 		if (mes["type"] == "imu" && start_graph) {
-// 			// Add IMU measurement
-// 			Vector3 accel;
-// 			Vector3 gyro;
-// 			get_IMU(mes, accel, gyro);
-
-// 			imu_preintegrated->integrateMeasurement(accel, gyro, delta_t);
-// 			imu_available++;
-
-// 			log_fs << "Preintegration at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
-
-// 			// Just for plotting at IMU frequency
-// 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
-// 			auto proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
-// 			report_estimate(proposed.pose(), mes["t"]);
-
-// 			if (!gt_pose_buffer.empty()) {
-// 				json mes = gt_pose_buffer.front();
-// 				gt_pose_buffer.pop_front();
-// 				processSLAM(mes);
-// 				imu_available = 0;
-// 			} else if (!range_buffer.empty()) { // Must be mutually exclusive
-// 				json mes = range_buffer.front();
-// 				range_buffer.pop_front();
-// 				processUWB(mes);
-// 				imu_available = 0;
-// 			}
-
-// 		}
-// 		else if (mes["type"] == "aligned_slam_pose" && start_graph) {
-// 			// slam_status is the state at last measurement
-// 			// mes["status"] is the state at current measurement
-// 			if (slam_status == "tracking" && mes["status"] == "lost") {
-// 				use_filter = true;
-// 			}
-// 			else if (slam_status == "lost" && mes["status"] == "tracking"){
-// 				use_filter = true;
-// 				// translation_filt.clear();
-// 			}
-			
-// 			slam_status = mes["status"];
-
-// 			if (mes["status"] == "tracking") {
-
-// 				if (imu_available == 0) {
-// 					// Pass this measurement and buffer it until the next IMU becomes available
-// 					log_fs << " Skipped SLAM pose " << endl;
-// 					gt_pose_buffer.push_back(mes);
-// 					return;
-// 				}
-// 				else {
-// 					log_fs << "Used SLAM pose " << endl;
-// 					processSLAM(mes);
-// 					imu_available = 0;
-// 				}
-// 			}
-
-// 		}
-// 		else if ( (mes["type"] == "uwb") && use_uwb && start_graph) { 
-// 			if (imu_available == 0) { 
-// 				log_fs << "Skipped User to "<< mes["id"] << endl;
-// 				range_buffer.push_back(mes);
-// 				return; 
-// 			}
-// 			else {
-// 				log_fs << "Used User to "<< mes["id"] << endl;
-// 				processUWB(mes);
-// 				imu_available = 0;
-// 			}
-// 		}
-// 	}	
-// }
 
 
 void Tracker::processSLAM(const json& mes)
@@ -711,19 +631,26 @@ void Tracker::processUWB(const json& mes)
 	// measured_range = filtered_range;
 
 	// Cut off
-		double& prev_range = prev_ranges.at(dst_id);
+	deque<double>& prevs = prev_ranges.at(dst_id);
 
-	// if (prev_range < 1e-5) {
-	// 	log_fs << "Initialized range to " << measured_range << endl;
- 	// 	prev_range = measured_range;
-	// }
-	// else {
-	// 	if (abs(measured_range - prev_range) > 2) {
-	// 		log_fs << "outlier: " << measured_range << " instead using " << prev_range << endl;
-	// 		measured_range = prev_range;
-	// 	}
-	// 	prev_range = measured_range;
-	// }
+	if (prevs.size() < 5) {
+		prevs.push_back(measured_range);
+	}
+	else {
+		vector<double> votes;
+		for (double range: prevs) {
+			if (abs(measured_range - range) > 2 ) votes.push_back(range);
+		}
+		if (votes.size() >= 3) { // If we're more than 1m above all other ranges, it's definitely an outlier
+			log_fs << "outlier: " << measured_range << " instead using " << votes.back() << endl;
+			measured_range = votes.back(); // Use the most recent range instead.
+		} 
+		else {
+			prevs.push_back(measured_range); // If its not an outlier we consider it for future filtering
+			prevs.pop_front();
+		}
+	}
+
 
 	log_fs << "Processing range " + id + " -> " << mes["id"] << " for t=" << mes["t"] << endl;
 	if (slam_status == "lost") log_fs << "Processing range while lost!" << endl;
