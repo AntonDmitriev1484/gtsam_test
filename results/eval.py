@@ -37,16 +37,16 @@ def dump_stats(traj_ref_sync, traj_est_sync):
     ape_metric_trans = metrics.APE(metrics.PoseRelation.translation_part)
     ape_metric_trans.process_data((traj_ref_sync, traj_est_sync))
     ape_stats = ape_metric_trans.get_all_statistics()
-    print(f"    Translation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
-    # print(f" Translation APE {json.dumps(ape_stats, indent=1)}")
+    # print(f"    Translation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
+    print(f" Translation APE {json.dumps(ape_stats, indent=1)}")
 
     # Rotation APE
     ape_metric_rot = metrics.APE(metrics.PoseRelation.rotation_angle_deg)
     ape_metric_rot.process_data((traj_ref_sync, traj_est_sync))
     ape_stats = ape_metric_rot.get_all_statistics()
     # print(f" Rotational APE {json.dumps(ape_stats, indent=1)}")
-    print(f"    Rotation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
-
+    # print(f"    Rotation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
+    print(f" Rotation APE {json.dumps(ape_stats, indent=1)}")
     return ape_metric_trans, ape_metric_rot
 
 def plot_metric_cdf(
