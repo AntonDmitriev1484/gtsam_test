@@ -162,7 +162,6 @@ def main():
                 args.trial_name,
                 slam_stride = -1,
                 est_stride = -1,
-                opti_stride = -1,
                 run_config = run_config,
                 label_text = name,
                 show_live_slam = real_failures,
@@ -254,73 +253,75 @@ def main():
     if real_failures:
         name = "Live SLAM"
         print("Comparing with Live SLAM")
-
-        slam_traj = file_interface.read_tum_trajectory_file(post_path + "aligned_live_slam.txt")
-
-        traj_ref_sync, traj_est_sync = sync.associate_trajectories(
-                                            gt_traj,
-                                            slam_traj,
-                                            max_diff = 0.05
-                                        )
+    else:
+        name = "Synthetic Live SLAM"
         
-        # Add SLAM trajectory to the error metrics:
-        # Print metrics for each individual failure segment
-        for interval in fails:
-            start, end = traj_ref_sync.timestamps[0] + interval["start"] , traj_ref_sync.timestamps[0] + interval["end"]
-            print(f"Failure {interval["start"]}s - {interval["end"]}s")
+    slam_traj = file_interface.read_tum_trajectory_file(post_path + "aligned_live_slam.txt")
 
-            ref_ids = np.where(
-                (traj_ref_sync.timestamps >= start) &
-                (traj_ref_sync.timestamps <= end)
-            )[0]
+    traj_ref_sync, traj_est_sync = sync.associate_trajectories(
+                                        gt_traj,
+                                        slam_traj,
+                                        max_diff = 0.05
+                                    )
+    
+    # Add SLAM trajectory to the error metrics:
+    # Print metrics for each individual failure segment
+    for interval in fails:
+        start, end = traj_ref_sync.timestamps[0] + interval["start"] , traj_ref_sync.timestamps[0] + interval["end"]
+        print(f"Failure {interval["start"]}s - {interval["end"]}s")
 
-            est_ids = np.where(
-                (traj_est_sync.timestamps >= start) &
-                (traj_est_sync.timestamps <= end)
-            )[0]
+        ref_ids = np.where(
+            (traj_ref_sync.timestamps >= start) &
+            (traj_ref_sync.timestamps <= end)
+        )[0]
 
-            # WHY trajectory lengths OFF BY 1 sometimes????
+        est_ids = np.where(
+            (traj_est_sync.timestamps >= start) &
+            (traj_est_sync.timestamps <= end)
+        )[0]
 
-            ids = est_ids
-            
-            cropped_traj_ref_sync = crop_traj_by_time(traj_ref_sync, ids) # Need to limit to the smallest number of poses?
-            cropped_traj_est_sync = crop_traj_by_time(traj_est_sync, ids)
-            crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
+        # WHY trajectory lengths OFF BY 1 sometimes????
 
-            plot_metric_cdf(
-                crop_ape_trans,
-                fig=cfig,
-                ax=caxt,
-                label=name,
-                title=f"Failure {interval["start"]}s - {interval["end"]}s",
-                xlabel="APE Translation Error (m)"
-            )
-            plot_metric_cdf(
-                crop_ape_rot,
-                fig=cfig,
-                ax=caxr,
-                label=name,
-                title=f"Failure {interval["start"]}s - {interval["end"]}s",
-                xlabel="APE Rotation Error (deg)"
-            )
+        ids = est_ids
+        
+        cropped_traj_ref_sync = crop_traj_by_time(traj_ref_sync, ids) # Need to limit to the smallest number of poses?
+        cropped_traj_est_sync = crop_traj_by_time(traj_est_sync, ids)
+        crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
 
-                        # Plot CDF over entire trajectory
-            plot_metric_cdf(
-                crop_rpe_trans,
-                fig=cfig,
-                ax=axt,
-                label=name,
-                title=f"Failure {interval["start"]}s - {interval["end"]}s",
-                xlabel="RPE (Delta=1m) Translation Error (m)"
-            )
-            plot_metric_cdf(
-                crop_rpe_rot,
-                fig=cfig,
-                ax=axr,
-                label=name,
-                title=f"Failure {interval["start"]}s - {interval["end"]}s",
-                xlabel="RPE (Delta=1m) Rotation Error (deg)"
-            )
+        plot_metric_cdf(
+            crop_ape_trans,
+            fig=cfig,
+            ax=caxt,
+            label=name,
+            title=f"Failure {interval["start"]}s - {interval["end"]}s",
+            xlabel="APE Translation Error (m)"
+        )
+        plot_metric_cdf(
+            crop_ape_rot,
+            fig=cfig,
+            ax=caxr,
+            label=name,
+            title=f"Failure {interval["start"]}s - {interval["end"]}s",
+            xlabel="APE Rotation Error (deg)"
+        )
+
+                    # Plot CDF over entire trajectory
+        plot_metric_cdf(
+            crop_rpe_trans,
+            fig=cfig,
+            ax=axt,
+            label=name,
+            title=f"Failure {interval["start"]}s - {interval["end"]}s",
+            xlabel="RPE (Delta=1m) Translation Error (m)"
+        )
+        plot_metric_cdf(
+            crop_rpe_rot,
+            fig=cfig,
+            ax=axr,
+            label=name,
+            title=f"Failure {interval["start"]}s - {interval["end"]}s",
+            xlabel="RPE (Delta=1m) Rotation Error (deg)"
+        )
 
     # Plot error CDF
     plt.tight_layout()

@@ -516,13 +516,14 @@ void Tracker::processSensor(const json& mes) {
 		else if (mes["type"] == "aligned_slam_pose" && start_graph) {
 			// slam_status is the state at last measurement
 			// mes["status"] is the state at current measurement
-			if (slam_status == "tracking" && mes["status"] == "lost") {
-				use_filter = true;
-			}
-			else if (slam_status == "lost" && mes["status"] == "tracking"){
-				use_filter = true;
-				// translation_filt.clear();
-			}
+			use_filter = true;
+			// if (slam_status == "tracking" && mes["status"] == "lost") {
+			// 	use_filter = true;
+			// }
+			// else if (slam_status == "lost" && mes["status"] == "tracking"){
+			// 	use_filter = true;
+			// 	// translation_filt.clear();
+			// }
 			
 			slam_status = mes["status"];
 
@@ -653,8 +654,8 @@ void Tracker::processUWB(const json& mes)
 
 
 	log_fs << "Processing range " + id + " -> " << mes["id"] << " for t=" << mes["t"] << endl;
-	if (slam_status == "lost") log_fs << "Processing range while lost!" << endl;
-	
+	// if (slam_status == "lost") log_fs << "Processing range while lost!" << endl;
+	if (slam_status == "imu" || slam_status == "newmap") log_fs << "Processing range while lost!" << endl;
 	track.Ix++;
 	track.Iv++;
 	track.Ib++;
@@ -675,8 +676,10 @@ void Tracker::processUWB(const json& mes)
 
 		Tracker& other = other_trackers.at(dst_id);
 
-		if (other.slam_status == "tracking"){
+		if (other.slam_status == "tracking" && other.track.slam_poses.size() > 0){
 			Pose3 other_T_body_to_world = other.track.est_poses.back(); // T_body_to_world
+			// Note: This should be taking slam_poses back?
+			
 			// Apply UWB antenna transform
 			// Create a Point3 State
 
