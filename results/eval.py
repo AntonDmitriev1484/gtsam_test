@@ -255,7 +255,7 @@ def main():
         print("Comparing with Live SLAM")
     else:
         name = "Synthetic Live SLAM"
-        
+
     slam_traj = file_interface.read_tum_trajectory_file(post_path + "aligned_live_slam.txt")
 
     traj_ref_sync, traj_est_sync = sync.associate_trajectories(

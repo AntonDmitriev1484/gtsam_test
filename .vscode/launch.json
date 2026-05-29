@@ -6,7 +6,7 @@
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/out/build/linux-debug/gtsam_test",
-      "args": ["multi2_follow_loss2", "none", "uwb", "0.0", "true"],
+      "args": ["multi2_trip_loss", "none", "uwb", "0.0", "true"],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
       "environment": [],
