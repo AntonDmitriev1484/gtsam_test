@@ -90,6 +90,7 @@ Tracker::Tracker(
     const bool use_smoother,
     const bool use_filter,
     const bool use_uwb,
+	const bool synth_live_slam_mode,
     const SharedNoiseModel& SLAM_noise_model,
     const SharedNoiseModel& UWB_noise_model,
     const SharedNoiseModel& Velocity_noise_model,
@@ -145,6 +146,7 @@ Tracker::Tracker(
     // Flags / state
     use_filter(use_filter),
     use_uwb(use_uwb),
+	synth_live_slam_mode(synth_live_slam_mode),
     imu_available(0),
 	slam_status("tracking"),
     use_smoother(use_smoother)
@@ -514,17 +516,7 @@ void Tracker::processSensor(const json& mes) {
 
 		}
 		else if (mes["type"] == "aligned_slam_pose" && start_graph) {
-			// slam_status is the state at last measurement
-			// mes["status"] is the state at current measurement
-			use_filter = true;
-			// if (slam_status == "tracking" && mes["status"] == "lost") {
-			// 	use_filter = true;
-			// }
-			// else if (slam_status == "lost" && mes["status"] == "tracking"){
-			// 	use_filter = true;
-			// 	// translation_filt.clear();
-			// }
-			
+
 			slam_status = mes["status"];
 
 			if (mes["status"] == "tracking") {
@@ -539,6 +531,22 @@ void Tracker::processSensor(const json& mes) {
 					log_fs << "Used SLAM pose " << endl;
 					processSLAM(mes);
 					imu_available = 0;
+				}
+			}
+
+			if (synth_live_slam_mode) {
+				if (mes["status"] == "newmap" || mes["status"] == "tracking") {
+					if (imu_available == 0) {
+						// Pass this measurement and buffer it until the next IMU becomes available
+						log_fs << " Skipped SLAM pose " << endl;
+						gt_pose_buffer.push_back(mes);
+						return;
+					}
+					else {
+						log_fs << "Used SLAM pose " << endl;
+						processSLAM(mes);
+						imu_available = 0;
+					}
 				}
 			}
 

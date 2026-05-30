@@ -94,6 +94,7 @@ public:
             const bool use_smoother,
             const bool use_filter,
             const bool use_uwb,
+            const bool synth_live_slam_mode, 
             const SharedNoiseModel& SLAM_noise_model,
             const SharedNoiseModel& UWB_noise_model,
             const SharedNoiseModel& Velocity_noise_model,
@@ -119,6 +120,7 @@ public:
     
     //emulator parameter, toggles between Flock and IMU only
     bool use_uwb;
+    bool synth_live_slam_mode; // run an imu integration for synthetic live SLAM
 
 	deque<json> gt_pose_buffer;
 	deque<json> range_buffer;

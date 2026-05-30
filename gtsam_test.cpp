@@ -31,6 +31,8 @@ int main(int argc, char* argv[]) {
 	std::string dump_str = argv[5];
     bool log_dump = (dump_str == "true"); // We ignore this and dump anyways
 	bool use_uwb = (uwb_str == "uwb");
+	bool synth_live_slam_mode = (uwb_str == "live-slam-integration");
+
 	bool use_gt = true;
 	bool synthetic = synthetic_trial_name != "none";
 
@@ -92,7 +94,8 @@ int main(int argc, char* argv[]) {
 
 		const int smoother_lag = 1;
 		const bool use_smoother = true;
-		const bool use_filter = false; // var is basically unused
+		const bool use_filter = !(synth_live_slam_mode); 
+		// don't use filter when we're synthesizing a live slam by running integration
 
 
 		Tracker t(
@@ -103,7 +106,8 @@ int main(int argc, char* argv[]) {
 			smoother_lag, 
 			use_smoother, 
 			use_filter,
-			use_uwb, 
+			use_uwb,
+			synth_live_slam_mode,
 			SLAM_noise_model, 
 			UWB_noise_model, 
 			prior_velocity_noise_model,
@@ -131,12 +135,25 @@ int main(int argc, char* argv[]) {
 	for (auto& [user, t]: trackers) {
 		// Dump all tracker trajectories
 
-		write_trajectory_TUM_format( t.track.est_poses, t.track.est_timestamps, t.estimated_trajectory_fs);
-		t.estimated_trajectory_fs.close();
+		if (synth_live_slam_mode) {
+			ofstream result_trajectory_fs("/home/antond2/Desktop/Research/gtsam_test/results/out/multi/"+to_string(user)+"/"+trial_name+"/aligned_live_slam.txt");
+			ofstream result_trajectory_htm_json_fs("/home/antond2/Desktop/Research/gtsam_test/results/out/multi/"+to_string(user)+"/"+trial_name+"/aligned_live_slam.json");
+			write_trajectory_TUM_format( t.track.est_poses, t.track.est_timestamps, result_trajectory_fs);
+			result_trajectory_fs.close();
 
-		// Write estimated poses to a json so they can be plotted
-		write_trajectory_HTM_JSON_format (t.track.est_poses, t.track.est_timestamps, t.estimated_trajectory_htm_json_fs, "est_pose");
-		t.estimated_trajectory_htm_json_fs.close();
+			// Write estimated poses to a json so they can be plotted
+			write_trajectory_HTM_JSON_format (t.track.est_poses, t.track.est_timestamps, result_trajectory_htm_json_fs, "aligned_live_slam_pose");
+			result_trajectory_htm_json_fs.close();
+		}
+		else {
+			write_trajectory_TUM_format( t.track.est_poses, t.track.est_timestamps, t.estimated_trajectory_fs);
+			t.estimated_trajectory_fs.close();
+
+			// Write estimated poses to a json so they can be plotted
+			write_trajectory_HTM_JSON_format (t.track.est_poses, t.track.est_timestamps, t.estimated_trajectory_htm_json_fs, "est_pose");
+			t.estimated_trajectory_htm_json_fs.close();
+		}
+
 	}
 
 	
