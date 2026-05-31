@@ -138,11 +138,14 @@ int main(int argc, char* argv[]) {
 		if (synth_live_slam_mode) {
 			ofstream result_trajectory_fs("/home/antond2/Desktop/Research/gtsam_test/results/out/multi/"+to_string(user)+"/"+trial_name+"/aligned_live_slam.txt");
 			ofstream result_trajectory_htm_json_fs("/home/antond2/Desktop/Research/gtsam_test/results/out/multi/"+to_string(user)+"/"+trial_name+"/aligned_live_slam.json");
-			write_trajectory_TUM_format( t.track.est_poses, t.track.est_timestamps, result_trajectory_fs);
+			
+			// Write estimated poses to TUM so we can use in evaluation.
+			write_trajectory_TUM_format( t.track.slam_poses, t.track.slam_timestamps, result_trajectory_fs);
 			result_trajectory_fs.close();
 
 			// Write estimated poses to a json so they can be plotted
-			write_trajectory_HTM_JSON_format (t.track.est_poses, t.track.est_timestamps, result_trajectory_htm_json_fs, "aligned_live_slam_pose");
+			write_trajectory_HTM_JSON_format (t.track.slam_poses, t.track.slam_timestamps, result_trajectory_htm_json_fs, 
+				"aligned_live_slam_pose", t.start, t.init_newmap, t.end);
 			result_trajectory_htm_json_fs.close();
 		}
 		else {
@@ -150,7 +153,8 @@ int main(int argc, char* argv[]) {
 			t.estimated_trajectory_fs.close();
 
 			// Write estimated poses to a json so they can be plotted
-			write_trajectory_HTM_JSON_format (t.track.est_poses, t.track.est_timestamps, t.estimated_trajectory_htm_json_fs, "est_pose");
+			write_trajectory_HTM_JSON_format (t.track.est_poses, t.track.est_timestamps, t.estimated_trajectory_htm_json_fs, 
+				"est_pose", t.start, t.init_newmap, t.end);
 			t.estimated_trajectory_htm_json_fs.close();
 		}
 

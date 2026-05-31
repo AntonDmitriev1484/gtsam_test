@@ -125,8 +125,11 @@ void write_trajectory_HTM_JSON_format(
     const vector<Pose3>& trajectory,
     const vector<double>& timestamps,
     ofstream& fs,
-    const std::string& pose_type = "est_pose"
-) {
+    const std::string& pose_type,
+    double start,
+    double init_newmap,
+    double end
+){
     json traj_json = json::array();
 
     for (size_t i = 0; i < trajectory.size(); i++) {
@@ -147,6 +150,10 @@ void write_trajectory_HTM_JSON_format(
             {H(2,0), H(2,1), H(2,2), H(2,3)},
             {H(3,0), H(3,1), H(3,2), H(3,3)}
         };
+
+		// Mark down failure intervals
+		string status = "tracking";
+		pose_json["status"] = status; // Re apply status label to newly generated SLAM poses
 
         traj_json.push_back(pose_json);
     }

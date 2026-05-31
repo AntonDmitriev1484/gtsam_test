@@ -295,6 +295,7 @@ void Tracker::init_state(json calibration_stream) {
 			set_pose_prior = true;
 
 			start_timestamp = (double)mes["t"];
+			latest_pose_timestamp = (double)mes["t"];
 
 				// Add this key -> timestamp mapping to our map
 			key_timestamps[X(track.Ix)] = (double)mes["t"];
@@ -402,7 +403,7 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		write_trajectory_TUM_format( track.est_poses, track.est_timestamps, estimated_trajectory_fs);
 		estimated_trajectory_fs.close();
 
-		write_trajectory_HTM_JSON_format (track.est_poses, track.est_timestamps, estimated_trajectory_htm_json_fs, "est_pose");
+		write_trajectory_HTM_JSON_format (track.est_poses, track.est_timestamps, estimated_trajectory_htm_json_fs, "est_pose", 0, 0 ,0);
 		estimated_trajectory_htm_json_fs.close();
 
 		cerr << "Graph dumped to factor_graph.dot" << endl;
@@ -480,6 +481,12 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 
 void Tracker::processSensor(const json& mes) {
 
+	string slamtype = "aligned_slam_pose";
+	if (synth_live_slam_mode) slamtype = "aligned_live_slam_pose"; 
+	// With synth SLAM failures, the aligned_live_slam_pose are essentially the same gravity aligned poses as
+	// aligned SLAM pose, but with a deformation
+	// so to finish making the synthetic failure, we just integrate on top of the aligned_live_slam_pose for some time
+
 	bool start_graph = false;
 
 	if (to_string(mes["src"]) == id) {
@@ -495,11 +502,22 @@ void Tracker::processSensor(const json& mes) {
 			imu_preintegrated->integrateMeasurement(accel, gyro, delta_t);
 			imu_available++;
 
+
 			log_fs << "Preintegration at " << mes["t"] << " a: " << accel.x() << " " << accel.y() << " " << accel.z() << ", g: " << gyro.x() << " " << gyro.y() << " " << gyro.z() << endl;
 
 			// Just for plotting at IMU frequency
 			PreintegratedCombinedMeasurements* current_imu_preintegration = dynamic_cast<PreintegratedCombinedMeasurements*>(imu_preintegrated);
 			auto proposed = current_imu_preintegration->predict(prev_state, track.changing_bias);
+			if (slam_status == "imu" && synth_live_slam_mode){ 
+				// To complete synthetic SLAM failures, insert the integration along with SLAM poses to represent "status": "imu"
+				int skip = (int)200.0/30.0; // Subsampling IMU integration poses to 30Hz to match SLAM
+				 if (imu_counter % skip == 0) {
+					track.slam_poses.push_back(proposed.pose());
+					track.slam_timestamps.push_back(mes["t"]);
+				 }
+				imu_counter++;
+			}
+			
 			report_estimate(proposed.pose(), mes["t"]);
 
 			if (!gt_pose_buffer.empty()) {
@@ -515,27 +533,31 @@ void Tracker::processSensor(const json& mes) {
 			}
 
 		}
-		else if (mes["type"] == "aligned_slam_pose" && start_graph) {
+		else if (mes["type"] == slamtype && start_graph) {
 
-			slam_status = mes["status"];
-
-			if (mes["status"] == "tracking") {
-
-				if (imu_available == 0) {
-					// Pass this measurement and buffer it until the next IMU becomes available
-					log_fs << " Skipped SLAM pose " << endl;
-					gt_pose_buffer.push_back(mes);
-					return;
-				}
-				else {
-					log_fs << "Used SLAM pose " << endl;
-					processSLAM(mes);
-					imu_available = 0;
-				}
-			}
-
+			// Basically just for plotting and evaluating synthetic SLAM
 			if (synth_live_slam_mode) {
 				if (mes["status"] == "newmap" || mes["status"] == "tracking") {
+					if (imu_available == 0) {
+						// Pass this measurement and buffer it until the next IMU becomes available
+						log_fs << " Skipped SLAM pose " << endl;
+						gt_pose_buffer.push_back(mes);
+						return;
+					}
+					else {
+						log_fs << "Used SLAM pose " << endl;
+						processSLAM(mes);
+						imu_available = 0;
+					}
+				}
+				else if (mes["status"] == "imu" ) {
+					slam_status = "imu";
+				}
+			}
+			else {
+				// Actual logic implemented here
+				if (mes["status"] == "tracking") {
+
 					if (imu_available == 0) {
 						// Pass this measurement and buffer it until the next IMU becomes available
 						log_fs << " Skipped SLAM pose " << endl;
@@ -586,6 +608,12 @@ void Tracker::processSLAM(const json& mes)
 
 	track.slam_poses.push_back(gt_pose);
 	track.slam_timestamps.push_back(mes["t"]);
+
+	// Mark down failure intervals
+	// if (mes["status"] == "imu" && slam_status == "tracking") start = mes["t"];
+	// if (mes["status"] == "newmap" && slam_status == "imu") init_newmap = mes["t"];
+	// if (mes["status"] == "tracking" && slam_status == "newmap") end = mes["t"];
+	slam_status = mes["status"];
 
 	// Add IMU factor
 	auto* current_imu_preintegration =
@@ -640,25 +668,25 @@ void Tracker::processUWB(const json& mes)
 	// measured_range = filtered_range;
 
 	// // Cut off
-	// deque<double>& prevs = prev_ranges.at(dst_id);
+	deque<double>& prevs = prev_ranges.at(dst_id);
 
-	// if (prevs.size() < 5) {
-	// 	prevs.push_back(measured_range);
-	// }
-	// else {
-	// 	vector<double> votes;
-	// 	for (double range: prevs) {
-	// 		if (abs(measured_range - range) > 2 ) votes.push_back(range);
-	// 	}
-	// 	if (votes.size() >= 3) { // If we're more than 1m above all other ranges, it's definitely an outlier
-	// 		log_fs << "outlier: " << measured_range << " instead using " << votes.back() << endl;
-	// 		measured_range = votes.back(); // Use the most recent range instead.
-	// 	} 
-	// 	else {
-	// 		prevs.push_back(measured_range); // If its not an outlier we consider it for future filtering
-	// 		prevs.pop_front();
-	// 	}
-	// }
+	if (prevs.size() < 5) {
+		prevs.push_back(measured_range);
+	}
+	else {
+		vector<double> votes;
+		for (double range: prevs) {
+			if (abs(measured_range - range) > 2 ) votes.push_back(range);
+		}
+		if (votes.size() >= 3) { // If we're more than 1m above all other ranges, it's definitely an outlier
+			log_fs << "outlier: " << measured_range << " instead using " << votes.back() << endl;
+			measured_range = votes.back(); // Use the most recent range instead.
+		} 
+		else {
+			prevs.push_back(measured_range); // If its not an outlier we consider it for future filtering
+			prevs.pop_front();
+		}
+	}
 
 
 	log_fs << "Processing range " + id + " -> " << mes["id"] << " for t=" << mes["t"] << endl;

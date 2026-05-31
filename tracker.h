@@ -71,6 +71,9 @@ public:
     map<string, tracking> anchors;
     map<int, Tracker>& other_trackers;
 
+    double start;
+    double init_newmap;
+    double end;
 
     ofstream estimated_trajectory_fs;
     ofstream estimated_trajectory_htm_json_fs;
@@ -121,6 +124,7 @@ public:
     //emulator parameter, toggles between Flock and IMU only
     bool use_uwb;
     bool synth_live_slam_mode; // run an imu integration for synthetic live SLAM
+    int imu_counter = 0;
 
 	deque<json> gt_pose_buffer;
 	deque<json> range_buffer;

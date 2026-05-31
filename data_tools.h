@@ -34,5 +34,8 @@ void write_trajectory_HTM_JSON_format(
     const vector<Pose3>& trajectory,
     const vector<double>& timestamps,
     ofstream& fs,
-    const std::string& pose_type
+    const std::string& pose_type,
+    double start,
+    double init_newmap,
+    double end
 );
