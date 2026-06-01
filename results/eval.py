@@ -34,34 +34,42 @@ def crop_traj_by_time(traj, ids):
 def dump_stats(traj_ref_sync, traj_est_sync):
 
     # Translation APE
-    ape_metric_trans = metrics.APE(metrics.PoseRelation.translation_part)
-    ape_metric_trans.process_data((traj_ref_sync, traj_est_sync))
-    ape_stats = ape_metric_trans.get_all_statistics()
-    # print(f"    Translation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
-    print(f" Translation APE {json.dumps(ape_stats, indent=1)}")
+    ape_metric_trans, ape_metric_rot = (None, None)
+    try:
+        ape_metric_trans = metrics.APE(metrics.PoseRelation.translation_part)
+        ape_metric_trans.process_data((traj_ref_sync, traj_est_sync))
+        ape_stats = ape_metric_trans.get_all_statistics()
+        # print(f"    Translation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
+        print(f" Translation APE {json.dumps(ape_stats, indent=1)}")
 
-    # Rotation APE
-    ape_metric_rot = metrics.APE(metrics.PoseRelation.rotation_angle_deg)
-    ape_metric_rot.process_data((traj_ref_sync, traj_est_sync))
-    ape_stats = ape_metric_rot.get_all_statistics()
-    # print(f" Rotational APE {json.dumps(ape_stats, indent=1)}")
-    # print(f"    Rotation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
-    print(f" Rotation APE {json.dumps(ape_stats, indent=1)}")
+        # Rotation APE
+        ape_metric_rot = metrics.APE(metrics.PoseRelation.rotation_angle_deg)
+        ape_metric_rot.process_data((traj_ref_sync, traj_est_sync))
+        ape_stats = ape_metric_rot.get_all_statistics()
+        # print(f" Rotational APE {json.dumps(ape_stats, indent=1)}")
+        # print(f"    Rotation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
+        print(f" Rotation APE {json.dumps(ape_stats, indent=1)}")
+    except Exception as e:
+        print(e)
 
     # Translation RPE
-    rpe_metric_trans = metrics.RPE(metrics.PoseRelation.translation_part, delta=1.0, delta_unit=metrics.Unit.meters)
-    rpe_metric_trans.process_data((traj_ref_sync, traj_est_sync))
-    rpe_stats = rpe_metric_trans.get_all_statistics()
-    # print(f"    Translation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
-    # print(f" Translation APE {json.dumps(ape_stats, indent=1)}")
+    rpe_metric_trans, rpe_metric_rot = (None, None)
+    try:
+        rpe_metric_trans = metrics.RPE(metrics.PoseRelation.translation_part, delta=1.0, delta_unit=metrics.Unit.meters)
+        rpe_metric_trans.process_data((traj_ref_sync, traj_est_sync))
+        rpe_stats = rpe_metric_trans.get_all_statistics()
+        # print(f"    Translation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
+        # print(f" Translation APE {json.dumps(ape_stats, indent=1)}")
 
-    # Rotation RPE - Can also do seconds? if you upgrade version.
-    rpe_metric_rot = metrics.RPE(metrics.PoseRelation.rotation_angle_deg, delta=1.0, delta_unit=metrics.Unit.meters)
-    rpe_metric_rot.process_data((traj_ref_sync, traj_est_sync))
-    rpe_stats = rpe_metric_rot.get_all_statistics()
-    # print(f" Rotational APE {json.dumps(ape_stats, indent=1)}")
-    # print(f"    Rotation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
-    # print(f" Rotation APE {json.dumps(ape_stats, indent=1)}")
+        # Rotation RPE - Can also do seconds? if you upgrade version.
+        rpe_metric_rot = metrics.RPE(metrics.PoseRelation.rotation_angle_deg, delta=1.0, delta_unit=metrics.Unit.meters)
+        rpe_metric_rot.process_data((traj_ref_sync, traj_est_sync))
+        rpe_stats = rpe_metric_rot.get_all_statistics()
+        # print(f" Rotational APE {json.dumps(ape_stats, indent=1)}")
+        # print(f"    Rotation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
+        # print(f" Rotation APE {json.dumps(ape_stats, indent=1)}")
+    except Exception as e:
+        print(e)
 
     return ape_metric_trans, ape_metric_rot, rpe_metric_trans, rpe_metric_rot
 
@@ -113,7 +121,8 @@ def run_eval(args):
 
     exe_path = "/home/antond2/Desktop/Research/gtsam_test/out/build/linux-debug/gtsam_test"
     post_path = f"/home/antond2/Desktop/Research/MultiXR-Post/{args.id}/post/{args.trial_name}_post/"
-
+    metadata = json.load(open(f"/home/antond2/Desktop/Research/MultiXR-Post/{args.id}/collect/{args.trial_name}_nuc{args.id}_raw/meta.json", 'r'))
+    
     synth_failures_path = f"/home/antond2/Desktop/Research/MultiXR-Post/{args.id}/synth_failures/{args.trial_name}.json"
     try: synth_failures = len(json.load(open(synth_failures_path, 'r'))) > 0
     except Exception as e: synth_failures = False
@@ -154,7 +163,6 @@ def run_eval(args):
             init_newmap = all_data_start_ts + interval["init_newmap"]
             end_fail = all_data_start_ts + interval["end"]
 
-            # Are the timestamps getting shifted somehow????
             for j in output_synth_slam:
                 if init_newmap > j["t"] > start_fail: j["status"] = "imu"
                 elif end_fail > j["t"] >= init_newmap: j["status"] = "init_newmap"
@@ -224,16 +232,17 @@ def run_eval(args):
         eval_paths.est_path = f"{results_path}/est_{run_config}.txt"
         eval_paths.opti_path = f"{post_path}/opti.txt"
 
-        # Plot trajectories with MultiXR-Post
-        plot_report[name] = plot_trial(args.id, 
-                args.trial_name,
-                slam_stride = -1,
-                est_stride = -1,
-                run_config = run_config,
-                label_text = name,
-                show_live_slam = True,
-                paths = plot_paths,
-                show=False)
+        if not args.no_plot:
+            # Plot trajectories with MultiXR-Post
+            plot_report[name] = plot_trial(args.id, 
+                    args.trial_name,
+                    slam_stride = -1,
+                    est_stride = -1,
+                    run_config = run_config,
+                    label_text = name,
+                    show_live_slam = True,
+                    paths = plot_paths,
+                    show=False)
         
         
         # Evaluate with EVO
@@ -242,6 +251,12 @@ def run_eval(args):
 
         est_traj = file_interface.read_tum_trajectory_file(eval_paths.est_path)
         gt_traj = file_interface.read_tum_trajectory_file(eval_paths.opti_path)
+        if len(est_traj.timestamps) == 0:
+            print(f"Empty estimated trajectory: {eval_paths.est_path}")
+            return None, None
+        if len(gt_traj.timestamps) == 0:
+            print(f"Empty ground-truth trajectory: {eval_paths.opti_path}")
+            return None, None
 
 
         traj_ref_sync, traj_est_sync = sync.associate_trajectories(
@@ -258,8 +273,13 @@ def run_eval(args):
         print()
 
         # Print metrics for each individual failure segment
+        # BUG: Somehow the trajectory lengths are greater than 0, but cropping sends them to 0?
+        # BUG: I'm cropping based on the trajectory timestamp, not from the absolute start of the dataset
+        # So this is not the right interval that I'm looking at.
         for interval in fails:
-            start, end = traj_ref_sync.timestamps[0] + interval["start"] , traj_ref_sync.timestamps[0] + interval["end"]
+            # start, end = traj_ref_sync.timestamps[0] + interval["start"] , traj_ref_sync.timestamps[0] + interval["end"]
+            start, end = (metadata["start_ns"] * 1e-9) + interval["start"] , (metadata["start_ns"] * 1e-9) + interval["end"]
+
             print(f"Failure {interval["start"]}s - {interval["end"]}s")
 
             ref_ids = np.where(
@@ -275,45 +295,58 @@ def run_eval(args):
             # WHY trajectory lengths OFF BY 1 sometimes????
 
             ids = est_ids
+
+            if len(traj_est_sync.timestamps) == 0:
+                print(f"Empty estimated trajectory")
+                return None, None
+            if len(traj_ref_sync.timestamps) == 0:
+                print(f"Empty ground-truth trajectory")
+                return None, None
             
-            cropped_traj_ref_sync = crop_traj_by_time(traj_ref_sync, ids) # Need to limit to the smallest number of poses?
-            cropped_traj_est_sync = crop_traj_by_time(traj_est_sync, ids)
+            try:
+                cropped_traj_ref_sync = crop_traj_by_time(traj_ref_sync, ids) # Need to limit to the smallest number of poses?
+                cropped_traj_est_sync = crop_traj_by_time(traj_est_sync, ids)
+            except Exception as e:
+                print(e)
+                return None, None
+
             crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
 
-            plot_metric_cdf(
-                crop_ape_trans,
-                fig=cfig,
-                ax=caxt,
-                label=name,
-                title=f"Failure {interval["start"]}s - {interval["end"]}s",
-                xlabel="APE Translation Error (m)"
-            )
-            plot_metric_cdf(
-                crop_ape_rot,
-                fig=cfig,
-                ax=caxr,
-                label=name,
-                title=f"Failure {interval["start"]}s - {interval["end"]}s",
-                xlabel="APE Rotation Error (deg)"
-            )
+            if not args.no_plot:
+                plot_metric_cdf(
+                    crop_ape_trans,
+                    fig=cfig,
+                    ax=caxt,
+                    label=name,
+                    title=f"Failure {interval["start"]}s - {interval["end"]}s",
+                    xlabel="APE Translation Error (m)"
+                )
+                plot_metric_cdf(
+                    crop_ape_rot,
+                    fig=cfig,
+                    ax=caxr,
+                    label=name,
+                    title=f"Failure {interval["start"]}s - {interval["end"]}s",
+                    xlabel="APE Rotation Error (deg)"
+                )
 
-            # Plot CDF over entire trajectory
-            plot_metric_cdf(
-                crop_rpe_trans,
-                fig=cfig,
-                ax=axt,
-                label=name,
-                title=f"Failure {interval["start"]}s - {interval["end"]}s",
-                xlabel="RPE (Delta=1m) Translation Error (m)"
-            )
-            plot_metric_cdf(
-                crop_rpe_rot,
-                fig=cfig,
-                ax=axr,
-                label=name,
-                title=f"Failure {interval["start"]}s - {interval["end"]}s",
-                xlabel="RPE (Delta=1m) Rotation Error (deg)"
-            )
+                # Plot CDF over entire trajectory
+                plot_metric_cdf(
+                    crop_rpe_trans,
+                    fig=cfig,
+                    ax=axt,
+                    label=name,
+                    title=f"Failure {interval["start"]}s - {interval["end"]}s",
+                    xlabel="RPE (Delta=1m) Translation Error (m)"
+                )
+                plot_metric_cdf(
+                    crop_rpe_rot,
+                    fig=cfig,
+                    ax=axr,
+                    label=name,
+                    title=f"Failure {interval["start"]}s - {interval["end"]}s",
+                    xlabel="RPE (Delta=1m) Rotation Error (deg)"
+                )
 
             metric_report[name].append(
                 {
@@ -347,7 +380,8 @@ def run_eval(args):
                                     )
 
     for interval in fails:
-        start, end = traj_ref_sync.timestamps[0] + interval["start"] , traj_ref_sync.timestamps[0] + interval["end"]
+        # start, end = traj_ref_sync.timestamps[0] + interval["start"] , traj_ref_sync.timestamps[0] + interval["end"]
+        start, end = (metadata["start_ns"] * 1e-9) + interval["start"] , (metadata["start_ns"] * 1e-9) + interval["end"]
         print(f"Failure {interval["start"]}s - {interval["end"]}s")
 
         ref_ids = np.where(
@@ -366,40 +400,41 @@ def run_eval(args):
         cropped_traj_est_sync = crop_traj_by_time(traj_est_sync, ids)
         crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
 
-        plot_metric_cdf(
-            crop_ape_trans,
-            fig=cfig,
-            ax=caxt,
-            label=name,
-            title=f"Failure {interval["start"]}s - {interval["end"]}s",
-            xlabel="APE Translation Error (m)"
-        )
-        plot_metric_cdf(
-            crop_ape_rot,
-            fig=cfig,
-            ax=caxr,
-            label=name,
-            title=f"Failure {interval["start"]}s - {interval["end"]}s",
-            xlabel="APE Rotation Error (deg)"
-        )
+        if not args.no_plot:
+            plot_metric_cdf(
+                crop_ape_trans,
+                fig=cfig,
+                ax=caxt,
+                label=name,
+                title=f"Failure {interval["start"]}s - {interval["end"]}s",
+                xlabel="APE Translation Error (m)"
+            )
+            plot_metric_cdf(
+                crop_ape_rot,
+                fig=cfig,
+                ax=caxr,
+                label=name,
+                title=f"Failure {interval["start"]}s - {interval["end"]}s",
+                xlabel="APE Rotation Error (deg)"
+            )
 
-                    # Plot CDF over entire trajectory
-        plot_metric_cdf(
-            crop_rpe_trans,
-            fig=cfig,
-            ax=axt,
-            label=name,
-            title=f"Failure {interval["start"]}s - {interval["end"]}s",
-            xlabel="RPE (Delta=1m) Translation Error (m)"
-        )
-        plot_metric_cdf(
-            crop_rpe_rot,
-            fig=cfig,
-            ax=axr,
-            label=name,
-            title=f"Failure {interval["start"]}s - {interval["end"]}s",
-            xlabel="RPE (Delta=1m) Rotation Error (deg)"
-        )
+                        # Plot CDF over entire trajectory
+            plot_metric_cdf(
+                crop_rpe_trans,
+                fig=cfig,
+                ax=axt,
+                label=name,
+                title=f"Failure {interval["start"]}s - {interval["end"]}s",
+                xlabel="RPE (Delta=1m) Translation Error (m)"
+            )
+            plot_metric_cdf(
+                crop_rpe_rot,
+                fig=cfig,
+                ax=axr,
+                label=name,
+                title=f"Failure {interval["start"]}s - {interval["end"]}s",
+                xlabel="RPE (Delta=1m) Rotation Error (deg)"
+            )
 
         plot_paths = SimpleNamespace()
         if real_failures: plot_paths.live_slam_path = f"{post_path}/all.json" # Fetch the real live SLAM from all.json
@@ -409,14 +444,15 @@ def run_eval(args):
         plot_paths.opti_path = f"{post_path}/all.json"
         plot_paths.slam_path = f"{post_path}/all.json" # I belive this is unaligned post SLAM always
 
+        if not args.no_plot:
             # Plot trajectories with MultiXR-Post
-        plot_report["Live-SLAM"] = plot_trial(args.id, 
-                args.trial_name,
-                slam_stride = -1,
-                label_text = "Live-SLAM",
-                show_live_slam = True,
-                paths=plot_paths,
-                show=False)
+            plot_report["Live-SLAM"] = plot_trial(args.id, 
+                    args.trial_name,
+                    slam_stride = -1,
+                    label_text = "Live-SLAM",
+                    show_live_slam = True,
+                    paths=plot_paths,
+                    show=False)
 
         metric_report["Live-SLAM"].append(
             {

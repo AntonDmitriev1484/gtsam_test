@@ -668,25 +668,25 @@ void Tracker::processUWB(const json& mes)
 	// measured_range = filtered_range;
 
 	// // Cut off
-	deque<double>& prevs = prev_ranges.at(dst_id);
+	// deque<double>& prevs = prev_ranges.at(dst_id);
 
-	if (prevs.size() < 5) {
-		prevs.push_back(measured_range);
-	}
-	else {
-		vector<double> votes;
-		for (double range: prevs) {
-			if (abs(measured_range - range) > 2 ) votes.push_back(range);
-		}
-		if (votes.size() >= 3) { // If we're more than 1m above all other ranges, it's definitely an outlier
-			log_fs << "outlier: " << measured_range << " instead using " << votes.back() << endl;
-			measured_range = votes.back(); // Use the most recent range instead.
-		} 
-		else {
-			prevs.push_back(measured_range); // If its not an outlier we consider it for future filtering
-			prevs.pop_front();
-		}
-	}
+	// if (prevs.size() < 5) {
+	// 	prevs.push_back(measured_range);
+	// }
+	// else {
+	// 	vector<double> votes;
+	// 	for (double range: prevs) {
+	// 		if (abs(measured_range - range) > 2 ) votes.push_back(range);
+	// 	}
+	// 	if (votes.size() >= 3) { // If we're more than 1m above all other ranges, it's definitely an outlier
+	// 		log_fs << "outlier: " << measured_range << " instead using " << votes.back() << endl;
+	// 		measured_range = votes.back(); // Use the most recent range instead.
+	// 	} 
+	// 	else {
+	// 		prevs.push_back(measured_range); // If its not an outlier we consider it for future filtering
+	// 		prevs.pop_front();
+	// 	}
+	// }
 
 
 	log_fs << "Processing range " + id + " -> " << mes["id"] << " for t=" << mes["t"] << endl;
