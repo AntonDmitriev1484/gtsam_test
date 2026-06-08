@@ -14,7 +14,7 @@ from plot_runtimes import plot_isam_runtimes
 
 import sys
 sys.path.append("/home/antond2/Desktop/Research/MultiXR-Post/")
-from plot_all import plot_trial
+from plot_all import plot_trial_paper
 from types import SimpleNamespace
 
 import copy
@@ -31,7 +31,7 @@ def crop_traj_by_time(traj, ids):
         timestamps=traj.timestamps[ids]
     )
 
-def dump_stats(traj_ref_sync, traj_est_sync):
+def dump_stats(traj_ref_sync, traj_est_sync, print_stat=True):
 
     # Translation APE
     ape_metric_trans, ape_metric_rot = (None, None)
@@ -40,7 +40,7 @@ def dump_stats(traj_ref_sync, traj_est_sync):
         ape_metric_trans.process_data((traj_ref_sync, traj_est_sync))
         ape_stats = ape_metric_trans.get_all_statistics()
         # print(f"    Translation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
-        print(f" Translation APE {json.dumps(ape_stats, indent=1)}")
+        if print_stat: print(f" Translation APE {json.dumps(ape_stats, indent=1)}")
 
         # Rotation APE
         ape_metric_rot = metrics.APE(metrics.PoseRelation.rotation_angle_deg)
@@ -48,7 +48,7 @@ def dump_stats(traj_ref_sync, traj_est_sync):
         ape_stats = ape_metric_rot.get_all_statistics()
         # print(f" Rotational APE {json.dumps(ape_stats, indent=1)}")
         # print(f"    Rotation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
-        print(f" Rotation APE {json.dumps(ape_stats, indent=1)}")
+        if print_stat: print(f" Rotation APE {json.dumps(ape_stats, indent=1)}")
     except Exception as e:
         print(e)
 
@@ -234,10 +234,11 @@ def run_eval(args):
 
         if not args.no_plot:
             # Plot trajectories with MultiXR-Post
-            plot_report[name] = plot_trial(args.id, 
+            plot_report[name] = plot_trial_paper(args.id, 
                     args.trial_name,
-                    slam_stride = -1,
+                    slam_stride = -2,
                     est_stride = -1,
+                    opti_stride = -1,
                     run_config = run_config,
                     label_text = name,
                     show_live_slam = True,
@@ -248,16 +249,20 @@ def run_eval(args):
         # Evaluate with EVO
         # We have the estimated trajectory as a .txt in TUM format and .json in HTM format
         # We have the optitrack trajectory as a .json in all.json
-
-        est_traj = file_interface.read_tum_trajectory_file(eval_paths.est_path)
-        gt_traj = file_interface.read_tum_trajectory_file(eval_paths.opti_path)
-        if len(est_traj.timestamps) == 0:
-            print(f"Empty estimated trajectory: {eval_paths.est_path}")
+        est_traj = []
+        gt_traj = []
+        try:
+            est_traj = file_interface.read_tum_trajectory_file(eval_paths.est_path)
+            gt_traj = file_interface.read_tum_trajectory_file(eval_paths.opti_path)
+            if len(est_traj.timestamps) == 0:
+                print(f"Empty estimated trajectory: {eval_paths.est_path}")
+                return None, None
+            if len(gt_traj.timestamps) == 0:
+                print(f"Empty ground-truth trajectory: {eval_paths.opti_path}")
+                return None, None
+        except Exception as e:
+            print(e)
             return None, None
-        if len(gt_traj.timestamps) == 0:
-            print(f"Empty ground-truth trajectory: {eval_paths.opti_path}")
-            return None, None
-
 
         traj_ref_sync, traj_est_sync = sync.associate_trajectories(
                                             gt_traj,
@@ -269,7 +274,16 @@ def run_eval(args):
 
         # Print metrics over entire trajectory
         # print(f"Entire trajectory")
-        # ape_metric_trans, ape_metric_rot, _, _ = dump_stats(traj_ref_sync, traj_est_sync)
+        ape_trans, ape_rot, rpe_trans, rpe_rot = dump_stats(traj_ref_sync, traj_est_sync, print_stat=False)
+        metric_report[name].append(
+            {
+                "full_traj": True,
+                "ape_trans": ape_trans,
+                "ape_rot": ape_rot,
+                "rpe_trans": rpe_trans,
+                "rpe_rot": rpe_rot,
+            }
+        )
         print()
 
         # Print metrics for each individual failure segment
@@ -371,13 +385,30 @@ def run_eval(args):
         name = "Synthetic Live SLAM"
     print(f"Comparing with {name}")
 
-    slam_traj = file_interface.read_tum_trajectory_file(eval_paths.slam_path)
+    slam_traj = []
+    try:
+        slam_traj = file_interface.read_tum_trajectory_file(eval_paths.slam_path)
+    except Exception as e:
+        print(e)
+        return None, None
 
     traj_ref_sync, traj_est_sync = sync.associate_trajectories(
                                         gt_traj,
                                         slam_traj,
                                         max_diff = 0.05
                                     )
+    
+    ape_trans, ape_rot, rpe_trans, rpe_rot = dump_stats(traj_ref_sync, traj_est_sync, print_stat=False)
+    metric_report["Live-SLAM"].append(
+        {
+            "full_traj": True,
+            "ape_trans": ape_trans,
+            "ape_rot": ape_rot,
+            "rpe_trans": rpe_trans,
+            "rpe_rot": rpe_rot,
+        }
+    )
+    print()
 
     for interval in fails:
         # start, end = traj_ref_sync.timestamps[0] + interval["start"] , traj_ref_sync.timestamps[0] + interval["end"]
@@ -446,7 +477,7 @@ def run_eval(args):
 
         if not args.no_plot:
             # Plot trajectories with MultiXR-Post
-            plot_report["Live-SLAM"] = plot_trial(args.id, 
+            plot_report["Live-SLAM"] = plot_trial_paper(args.id, 
                     args.trial_name,
                     slam_stride = -1,
                     label_text = "Live-SLAM",
@@ -477,6 +508,7 @@ if __name__ == "__main__":
     parser.add_argument("trial_name", help="Trial name")
     parser.add_argument("--no_run", action="store_true")
     parser.add_argument("--hide_plots", action="store_true")
+    parser.add_argument("--no_plot", action="store_true")
     args = parser.parse_args()
 
     run_eval(args)

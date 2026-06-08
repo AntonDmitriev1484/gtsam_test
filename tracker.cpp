@@ -70,15 +70,33 @@ void get_beacon_info(map<string, tracking>& info, json beacon_data) {
 one_euro_filter<Eigen::Array<double,1,1>, double>
 make_filter()
 {
-    return one_euro_filter<Eigen::Array<double,1,1>, double>(
-        12.0,
-        Eigen::Array<double,1,1>(0.25),
-        Eigen::Array<double,1,1>(0.01),
-        Eigen::Array<double,1,1>(1.0),
-        Eigen::Array<double,1,1>(0.0),
-        Eigen::Array<double,1,1>(1.0),
-        [](Eigen::Array<double,1,1>& x) { return x.abs(); }
-    );
+	// return one_euro_filter<Eigen::Array<double,1,1>, double>(
+	// 	200.0,
+	// 	Eigen::Array<double,1,1>(0.025),
+	// 	Eigen::Array<double,1,1>(0.001),
+	// 	Eigen::Array<double,1,1>(0.1),
+	// 	Eigen::Array<double,1,1>(0.0),
+	// 	Eigen::Array<double,1,1>(1.0),
+	// 	[](Eigen::Array<double,1,1>& x) { return x.abs(); }
+	// );
+	// return one_euro_filter<Eigen::Array<double,1,1>, double>(
+	// 	200.0,
+	// 	Eigen::Array<double,1,1>(0.25),
+	// 	Eigen::Array<double,1,1>(100),
+	// 	Eigen::Array<double,1,1>(0.1),
+	// 	Eigen::Array<double,1,1>(0.0),
+	// 	Eigen::Array<double,1,1>(1.0),
+	// 	[](Eigen::Array<double,1,1>& x) { return x.abs(); }
+	// );
+	return one_euro_filter<Eigen::Array<double,1,1>, double>(
+		1.0,
+		Eigen::Array<double,1,1>(100),
+		Eigen::Array<double,1,1>(100),
+		Eigen::Array<double,1,1>(100),
+		Eigen::Array<double,1,1>(0.0),
+		Eigen::Array<double,1,1>(1.0),
+		[](Eigen::Array<double,1,1>& x) { return x.abs(); }
+	);
 }
 
 Tracker::Tracker(
@@ -111,6 +129,16 @@ Tracker::Tracker(
         Eigen::Array<double, 3, 1>::Ones(),
         [](auto& in) { return in.abs(); }
     ),
+
+	// translation_filt(
+    //     200.,
+    //     Eigen::Array<double, 3, 1>::Constant(0.25),
+    //     Eigen::Array<double, 3, 1>::Constant(5),
+    //     Eigen::Array<double, 3, 1>::Constant(1),
+    //     Eigen::Array<double, 3, 1>::Zero(),
+    //     Eigen::Array<double, 3, 1>::Ones(),
+    //     [](auto& in) { return in.abs(); }
+    // ),
 
 	id(id),
 
