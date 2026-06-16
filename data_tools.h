@@ -39,3 +39,8 @@ void write_trajectory_HTM_JSON_format(
     double init_newmap,
     double end
 );
+
+struct tracking;
+void write_anchor_positions(
+    map<string, tracking>& anchors,
+    ofstream& fs);

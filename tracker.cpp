@@ -67,37 +67,10 @@ void get_beacon_info(map<string, tracking>& info, json beacon_data) {
 	}
 }
 
-one_euro_filter<Eigen::Array<double,1,1>, double>
-make_filter()
-{
-	// return one_euro_filter<Eigen::Array<double,1,1>, double>(
-	// 	200.0,
-	// 	Eigen::Array<double,1,1>(0.025),
-	// 	Eigen::Array<double,1,1>(0.001),
-	// 	Eigen::Array<double,1,1>(0.1),
-	// 	Eigen::Array<double,1,1>(0.0),
-	// 	Eigen::Array<double,1,1>(1.0),
-	// 	[](Eigen::Array<double,1,1>& x) { return x.abs(); }
-	// );
-	// return one_euro_filter<Eigen::Array<double,1,1>, double>(
-	// 	200.0,
-	// 	Eigen::Array<double,1,1>(0.25),
-	// 	Eigen::Array<double,1,1>(100),
-	// 	Eigen::Array<double,1,1>(0.1),
-	// 	Eigen::Array<double,1,1>(0.0),
-	// 	Eigen::Array<double,1,1>(1.0),
-	// 	[](Eigen::Array<double,1,1>& x) { return x.abs(); }
-	// );
-	return one_euro_filter<Eigen::Array<double,1,1>, double>(
-		1.0,
-		Eigen::Array<double,1,1>(100),
-		Eigen::Array<double,1,1>(100),
-		Eigen::Array<double,1,1>(100),
-		Eigen::Array<double,1,1>(0.0),
-		Eigen::Array<double,1,1>(1.0),
-		[](Eigen::Array<double,1,1>& x) { return x.abs(); }
-	);
-}
+// one_euro_filter<Eigen::Array<double,1,1>, double>
+// make_filter()
+// {
+// }
 
 Tracker::Tracker(
     const string id,
@@ -120,6 +93,8 @@ Tracker::Tracker(
     const string debug_dir
 ) :
     // Filters
+	
+	// Smooth, lower APE
     translation_filt(
         200.,
         Eigen::Array<double, 3, 1>::Constant(0.25),
@@ -130,6 +105,7 @@ Tracker::Tracker(
         [](auto& in) { return in.abs(); }
     ),
 
+	// Jittery, higher APE
 	// translation_filt(
     //     200.,
     //     Eigen::Array<double, 3, 1>::Constant(0.25),
@@ -219,16 +195,16 @@ Tracker::Tracker(
         // , abs(abs)
         // , last_time_(-1) { }
 
-	vector<int> ids = {1,2,3,4,5};
-	double freq = 12.;
-	double min_cutoff = 0.25;
-	double beta = 0.01;
-	double dcutoff = 1;
+	// vector<int> ids = {1,2,3,4,5};
+	// double freq = 12.;
+	// double min_cutoff = 0.25;
+	// double beta = 0.01;
+	// double dcutoff = 1;
 
-	for (int id : ids) {
-    	range_filt.emplace(id, make_filter());
-		prev_ranges.emplace(id , 0.0);
-	}
+	// for (int id : ids) {
+    // 	range_filt.emplace(id, make_filter());
+	// 	prev_ranges.emplace(id , 0.0);
+	// }
 
 }
 
@@ -260,9 +236,17 @@ Key AnchorKey(string name) {return symbol('s', stoi(name));}
 // Assuming we have already called
 // get_beacon_info(tracker.anchors, json::parse(beacon_fs));
 void Tracker::init_anchor(string id){
-    Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
+
+	// Assuming prior knowledge
+    // Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
+    // vals.insert(AnchorKey(id), prior_beacon_pose);
+    // graph->add(NonlinearEquality<Pose3>(AnchorKey(id), prior_beacon_pose));
+
+	// For selfloc
+	Pose3 prior_beacon_pose;
+	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(0, 0, 0));
     vals.insert(AnchorKey(id), prior_beacon_pose);
-    graph->add(NonlinearEquality<Pose3>(AnchorKey(id), prior_beacon_pose));
+	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, SLAM_noise_model));
 }
 
 void Tracker::init_anchors(json anchor_json) {
@@ -416,6 +400,15 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
 		track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
 
+		// Save estimate poses for all anchors also
+		for (auto& [id, anchor_track]: anchors){
+			if (id !="") {
+				anchor_track.est_timestamps.push_back(mes_timestamp);
+				anchor_track.est_poses.push_back(result.at<Pose3>(AnchorKey(id)));
+			}
+
+		}		
+
 		// Clear for next iteration
 		graph->resize(0);
 		vals.clear();
@@ -476,10 +469,14 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 
 		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
 
-		track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
+		// Save estimate poses for all anchors also
+		for (auto& [id, anchor_track]: anchors){
+			if (id !="") {
+				anchor_track.est_timestamps.push_back(mes_timestamp);
+				anchor_track.est_poses.push_back(result.at<Pose3>(AnchorKey(id)));
+			}
 
-		log_fs << " Bias estimate " << endl;
-		track.changing_bias.print();
+		}	
 
 		// Clear for next iteration
 		graph->resize(0);
@@ -687,36 +684,6 @@ void Tracker::processUWB(const json& mes)
 	double measured_range = (double)mes["range"];
 	int dst_id = (int)mes["id"];
 
-
-	// Low pass
-	// Eigen::Array<double,1,1> input;
-	// input(0) = measured_range;
-	// double filtered_range = range_filt.at(dst_id)(input, (double)mes["t"])(0);
-	// log_fs << "Filtering changed range by " << filtered_range - measured_range << endl;
-	// measured_range = filtered_range;
-
-	// // Cut off
-	// deque<double>& prevs = prev_ranges.at(dst_id);
-
-	// if (prevs.size() < 5) {
-	// 	prevs.push_back(measured_range);
-	// }
-	// else {
-	// 	vector<double> votes;
-	// 	for (double range: prevs) {
-	// 		if (abs(measured_range - range) > 2 ) votes.push_back(range);
-	// 	}
-	// 	if (votes.size() >= 3) { // If we're more than 1m above all other ranges, it's definitely an outlier
-	// 		log_fs << "outlier: " << measured_range << " instead using " << votes.back() << endl;
-	// 		measured_range = votes.back(); // Use the most recent range instead.
-	// 	} 
-	// 	else {
-	// 		prevs.push_back(measured_range); // If its not an outlier we consider it for future filtering
-	// 		prevs.pop_front();
-	// 	}
-	// }
-
-
 	log_fs << "Processing range " + id + " -> " << mes["id"] << " for t=" << mes["t"] << endl;
 	// if (slam_status == "lost") log_fs << "Processing range while lost!" << endl;
 	if (slam_status == "imu" || slam_status == "newmap") log_fs << "Processing range while lost!" << endl;
@@ -725,7 +692,6 @@ void Tracker::processUWB(const json& mes)
 	track.Ib++;
 
 
-	// Hard coding this for opti_multi1:
 
 	// Add this key -> timestamp mapping to our map
 	key_timestamps[X(track.Ix)] = (double)mes["t"];
@@ -765,7 +731,7 @@ void Tracker::processUWB(const json& mes)
 			// return;
 		}
 	}
-	else { // A static anchor
+	else { // Range to a static anchor
 
 		string dst = to_string(dst_id);
 		// Needs "Pose of antenna in body frame" i.e. decawave_to_body

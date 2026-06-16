@@ -94,8 +94,8 @@ int main(int argc, char* argv[]) {
 
 		const int smoother_lag = 1;
 		const bool use_smoother = true;
-		// const bool use_filter = !(synth_live_slam_mode); 
-		const bool use_filter = true;
+		const bool use_filter = !(synth_live_slam_mode); 
+		// const bool use_filter = true;
 		// don't use filter when we're synthesizing a live slam by running integration
 
 
@@ -150,13 +150,33 @@ int main(int argc, char* argv[]) {
 			result_trajectory_htm_json_fs.close();
 		}
 		else {
+			// Write estimated trajectory as TUM for EVO
 			write_trajectory_TUM_format( t.track.est_poses, t.track.est_timestamps, t.estimated_trajectory_fs);
 			t.estimated_trajectory_fs.close();
 
-			// Write estimated poses to a json so they can be plotted
+			// Write estimated poses to a json so they can be plotted with plot_all
 			write_trajectory_HTM_JSON_format (t.track.est_poses, t.track.est_timestamps, t.estimated_trajectory_htm_json_fs, 
 				"est_pose", t.start, t.init_newmap, t.end);
 			t.estimated_trajectory_htm_json_fs.close();
+
+			// Write estimated anchor trajectories as TUM
+
+			// Dump the full trajectory for each anchor
+			for (auto& [id, anchor_track]: t.anchors){
+
+				// This can be used for plotting with plot all
+				ofstream anchor_optimization_trajectory_htm_json_fs(t.out_dir + "/anchor_"+id+"_optimization.json");
+				write_trajectory_HTM_JSON_format(anchor_track.est_poses, anchor_track.est_timestamps, anchor_optimization_trajectory_htm_json_fs,
+					"est_pose", 0, 0, 0);
+				anchor_optimization_trajectory_htm_json_fs.close();
+
+			}
+
+			// Output anchor translation in world frame
+			ofstream anchor_positions_fs(t.out_dir + "/anchors_estimate.json");
+			write_anchor_positions(t.anchors, anchor_positions_fs);
+			anchor_positions_fs.close();
+
 		}
 
 	}

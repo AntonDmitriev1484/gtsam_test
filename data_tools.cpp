@@ -161,6 +161,29 @@ void write_trajectory_HTM_JSON_format(
     fs << traj_json.dump(2);  // pretty print with indent=2
 }
 
+void write_anchor_positions(
+    std::map<string, tracking>& anchors,
+    std::ofstream& fs)
+{
+    json output = json::array();
+
+    for (const auto& [id, tracking] : anchors) {
+
+        if (tracking.est_poses.empty()) {
+            continue;
+        }
+
+        const auto p = tracking.est_poses.back().translation();
+
+        output.push_back({
+            {"ID", id},
+            {"position", {p.x(), p.y(), p.z()}}
+        });
+    }
+
+    fs << output.dump(4);
+}
+
 void write_timestamps(vector<Pose3> trajectory, vector<double> timestamps, ofstream& fs) {
 	fs << std::fixed << std::setprecision(6);  // For 6 digits after the decimal
 
