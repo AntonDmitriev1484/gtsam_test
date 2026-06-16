@@ -94,8 +94,8 @@ int main(int argc, char* argv[]) {
 
 		const int smoother_lag = 1;
 		const bool use_smoother = true;
-		// const bool use_filter = !(synth_live_slam_mode); 
-		const bool use_filter = true;
+		const bool use_filter = !(synth_live_slam_mode); 
+		// const bool use_filter = true;
 		// don't use filter when we're synthesizing a live slam by running integration
 
 
