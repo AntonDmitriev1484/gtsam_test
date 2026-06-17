@@ -14,7 +14,7 @@ from plot_runtimes import plot_isam_runtimes
 
 import sys
 sys.path.append("/home/antond2/Desktop/Research/MultiXR-Post/")
-from plot_all import plot_trial_paper
+from plot_all import plot_trial
 from types import SimpleNamespace
 
 import copy
@@ -234,7 +234,7 @@ def run_eval(args):
 
         if not args.no_plot:
             # Plot trajectories with MultiXR-Post
-            plot_report[name] = plot_trial_paper(args.id, 
+            plot_report[name] = plot_trial(args.id, 
                     args.trial_name,
                     slam_stride = -2,
                     est_stride = -1,
@@ -375,6 +375,37 @@ def run_eval(args):
         print()
         print("----------------------------------")
 
+        # If running Flock, evaluate anchor self-localization results
+        if run_config == "uwb":
+
+            for id in [1,5]:
+                plot_paths.anchor_optimization_path = f"{results_path}/anchor_{id}_optimization.json"
+                plot_paths.final_anchor_estimate_path = f"{results_path}/anchors_estimate.json"
+                eval_paths.final_anchor_estimate_path = plot_paths.final_anchor_estimate_path
+
+                anchors_est = json.load(open(eval_paths.final_anchor_estimate_path, 'r'))
+                anchors_gt = json.load(open(f"{post_path}anchors.json", 'r'))
+
+                if not args.no_plot:
+                    # Plot trajectories with MultiXR-Post
+                    plot_report[name] = plot_trial(args.id, 
+                            args.trial_name,
+                            slam_stride = -2,
+                            est_stride = -1,
+                            opti_stride = -1,
+                            run_config = run_config,
+                            label_text = name,
+                            show_live_slam = True,
+                            paths = plot_paths,
+                            anchors = True,
+                            show=False)
+                    
+
+                anchor_est = [j["position"] for j in anchors_est if j["ID"] == id][0]
+                anchor_gt = [j["position"] for j in anchors_gt if j["ID"] == id][0]
+
+                print(f"Anchor {id} error: {np.linalg.norm(np.array(anchor_est) - np.array(anchor_gt))}")
+
     
     # Add SLAM trajectory to the error metrics:
     # Print metrics for each individual failure segment
@@ -477,7 +508,7 @@ def run_eval(args):
 
         if not args.no_plot:
             # Plot trajectories with MultiXR-Post
-            plot_report["Live-SLAM"] = plot_trial_paper(args.id, 
+            plot_report["Live-SLAM"] = plot_trial(args.id, 
                     args.trial_name,
                     slam_stride = -1,
                     label_text = "Live-SLAM",
@@ -500,6 +531,8 @@ def run_eval(args):
         plt.show()
 
     return metric_report, plot_report
+
+
 
 if __name__ == "__main__":
 

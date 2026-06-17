@@ -175,8 +175,9 @@ void write_anchor_positions(
 
         const auto p = tracking.est_poses.back().translation();
 
+		// int id_ = stoi(id);
         output.push_back({
-            {"ID", id},
+            {"ID", stoi(id)},
             {"position", {p.x(), p.y(), p.z()}}
         });
     }
