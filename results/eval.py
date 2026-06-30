@@ -401,10 +401,12 @@ def run_eval(args):
                             show=False)
                     
 
+                # GTSAM test and post_process both write the position of the anchor in the world frame already
                 anchor_est = [j["position"] for j in anchors_est if j["ID"] == id][0]
                 anchor_gt = [j["position"] for j in anchors_gt if j["ID"] == id][0]
 
-                print(f"Anchor {id} error: {np.linalg.norm(np.array(anchor_est) - np.array(anchor_gt))}")
+                distance = np.linalg.norm(np.array(anchor_est) - np.array(anchor_gt))
+                print(f"Anchor {id} error: {distance}")
 
     
     # Add SLAM trajectory to the error metrics:

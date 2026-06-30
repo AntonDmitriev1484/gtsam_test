@@ -69,6 +69,10 @@ int main(int argc, char* argv[]) {
 		// UWB noise model
 		double uwb_stdev = 0.1;
 		noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
+		// Anchor noise model - (use to define anchor pose prior)
+		double anchor_pos_stdev = 3e-1;
+		double anchor_ori_stdev = 3e-1;
+		noiseModel::Diagonal::shared_ptr Anchor_noise_model = noiseModel::Diagonal::Sigmas(Vector6(anchor_pos_stdev, anchor_pos_stdev, anchor_pos_stdev, anchor_ori_stdev, anchor_ori_stdev, anchor_ori_stdev));
 		// SLAM noise model - (use to define pose prior)
 		double gt_pos_stdev = 1e-2;
 		double gt_ori_stdev = 1e-2;
@@ -113,6 +117,7 @@ int main(int argc, char* argv[]) {
 			UWB_noise_model, 
 			prior_velocity_noise_model,
 			prior_bias_noise_model,
+			Anchor_noise_model,
 			imu_preintegration_params,
 			prior_imu_bias,
 			prior_velocity,

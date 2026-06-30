@@ -61,6 +61,7 @@ public:
     SharedNoiseModel UWB_noise_model;
     SharedNoiseModel Velocity_noise_model;
     SharedNoiseModel Bias_noise_model;
+    SharedNoiseModel Anchor_noise_model;
 
     string debug_dir, out_dir;
 
@@ -102,6 +103,7 @@ public:
             const SharedNoiseModel& UWB_noise_model,
             const SharedNoiseModel& Velocity_noise_model,
             const SharedNoiseModel& Bias_noise_model,
+            const SharedNoiseModel& Anchor_noise_model,
 			std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params,
             const Vector6 prior_imu_bias,
             const Vector3 prior_velocity,

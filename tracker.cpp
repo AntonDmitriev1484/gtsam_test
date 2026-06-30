@@ -86,6 +86,7 @@ Tracker::Tracker(
     const SharedNoiseModel& UWB_noise_model,
     const SharedNoiseModel& Velocity_noise_model,
     const SharedNoiseModel& Bias_noise_model,
+	const SharedNoiseModel& Anchor_noise_model,
     std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params,
     const Vector6 prior_imu_bias,
     const Vector3 prior_velocity,
@@ -143,6 +144,7 @@ Tracker::Tracker(
     UWB_noise_model(UWB_noise_model),
     Velocity_noise_model(Velocity_noise_model),
     Bias_noise_model(Bias_noise_model),
+    Anchor_noise_model(Anchor_noise_model),
 
     // Graph
     graph(new NonlinearFactorGraph()),
@@ -243,10 +245,30 @@ void Tracker::init_anchor(string id){
     // graph->add(NonlinearEquality<Pose3>(AnchorKey(id), prior_beacon_pose));
 
 	// For selfloc
-	Pose3 prior_beacon_pose;
-	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(0, 0, 0));
-    vals.insert(AnchorKey(id), prior_beacon_pose);
-	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, SLAM_noise_model));
+
+	// 0 prior
+	// Pose3 prior_beacon_pose;
+	// prior_beacon_pose = Pose3(Rot3::Identity(), Point3(0, 0, 0));
+    // vals.insert(AnchorKey(id), prior_beacon_pose);
+	// graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, SLAM_noise_model));
+
+	if (id == "1") {
+		Pose3 prior_beacon_pose;
+		prior_beacon_pose = Pose3(Rot3::Identity(), Point3(-2.5432664840720627,
+								3.1706829696740797,
+								0.12732356031622472));
+		vals.insert(AnchorKey(id), prior_beacon_pose);
+		graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, Anchor_noise_model));
+	}
+	else if (id == "5") {
+		Pose3 prior_beacon_pose;
+		prior_beacon_pose = Pose3(Rot3::Identity(), Point3(1.6420235179980649,
+								-2.3033634112002345,
+								0.07176977664742756));
+		vals.insert(AnchorKey(id), prior_beacon_pose);
+		graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, Anchor_noise_model));
+	}
+
 }
 
 void Tracker::init_anchors(json anchor_json) {
@@ -703,6 +725,7 @@ void Tracker::processUWB(const json& mes)
 
 
 	if (other_trackers.contains(dst_id) ) { // Another Flock node
+		log_fs << "Range to user " << dst_id << endl;
 
 		Tracker& other = other_trackers.at(dst_id);
 
@@ -734,9 +757,11 @@ void Tracker::processUWB(const json& mes)
 	else { // Range to a static anchor
 
 		string dst = to_string(dst_id);
+
 		// Needs "Pose of antenna in body frame" i.e. decawave_to_body
 		graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
 			X(track.Ix), AnchorKey(dst), measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
+		log_fs << " Range to anchor " << mes["id"] << endl;
 	}
 
 	log_fs << "Added Range factor to state " << track.Ix << endl;
