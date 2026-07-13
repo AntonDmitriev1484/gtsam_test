@@ -136,6 +136,7 @@ public:
     void processSensor(const json& mes);
     void processSLAM(const json& mes);
     void processUWB(const json& mes);
+    void processOtherUWBOnAnchor(const json& mes);
 };
 
 // Moved in here because circular includes confuse me

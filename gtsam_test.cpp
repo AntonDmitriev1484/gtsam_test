@@ -72,7 +72,14 @@ int main(int argc, char* argv[]) {
 		// Anchor noise model - (use to define anchor pose prior)
 		double anchor_pos_stdev = 3e-1;
 		double anchor_ori_stdev = 3e-1;
-		noiseModel::Diagonal::shared_ptr Anchor_noise_model = noiseModel::Diagonal::Sigmas(Vector6(anchor_pos_stdev, anchor_pos_stdev, anchor_pos_stdev, anchor_ori_stdev, anchor_ori_stdev, anchor_ori_stdev));
+		// Wait is it rpyxyz or xyzrpy???? The ordering really matters here...
+		// This causes optimization to displace us only along the Z-axis
+		// noiseModel::Diagonal::shared_ptr Anchor_noise_model = noiseModel::Diagonal::Sigmas(
+		// 	Vector6(anchor_pos_stdev, anchor_pos_stdev, 1e-5, 
+		// 		1e-5, 1e-5, anchor_ori_stdev));
+		noiseModel::Diagonal::shared_ptr Anchor_noise_model = noiseModel::Diagonal::Sigmas(
+			Vector6(1e-5, 1e-5, 1e-5, 
+				anchor_pos_stdev, anchor_pos_stdev, 1e-5));
 		// SLAM noise model - (use to define pose prior)
 		double gt_pos_stdev = 1e-2;
 		double gt_ori_stdev = 1e-2;
@@ -133,8 +140,13 @@ int main(int argc, char* argv[]) {
 	for (json mes : sensor_stream) {
 		int src = (int)mes["src"];
 		if (src != 1 && src != 5) {
-			Tracker& t = trackers.at(src);
-			t.processSensor(mes);
+			for (auto& [user, t]: trackers) {
+				t.processSensor(mes);
+				// Let every tracker have a chance to process the measurement
+				// Sometimes tracker 2 might need a range from user 4->1 in order to self localize anchor 1
+			}
+			// Tracker& t = trackers.at(src);
+			// t.processSensor(mes);
 		}
 	}
 

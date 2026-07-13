@@ -247,27 +247,27 @@ void Tracker::init_anchor(string id){
 	// For selfloc
 
 	// 0 prior
-	// Pose3 prior_beacon_pose;
-	// prior_beacon_pose = Pose3(Rot3::Identity(), Point3(0, 0, 0));
-    // vals.insert(AnchorKey(id), prior_beacon_pose);
-	// graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, SLAM_noise_model));
+	Pose3 prior_beacon_pose;
+	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(0, 0, 0));
+    vals.insert(AnchorKey(id), prior_beacon_pose);
+	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, Anchor_noise_model));
 
-	if (id == "1") {
-		Pose3 prior_beacon_pose;
-		prior_beacon_pose = Pose3(Rot3::Identity(), Point3(-2.5432664840720627,
-								3.1706829696740797,
-								0.12732356031622472));
-		vals.insert(AnchorKey(id), prior_beacon_pose);
-		graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, Anchor_noise_model));
-	}
-	else if (id == "5") {
-		Pose3 prior_beacon_pose;
-		prior_beacon_pose = Pose3(Rot3::Identity(), Point3(1.6420235179980649,
-								-2.3033634112002345,
-								0.07176977664742756));
-		vals.insert(AnchorKey(id), prior_beacon_pose);
-		graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, Anchor_noise_model));
-	}
+	// if (id == "1") {
+	// 	Pose3 prior_beacon_pose;
+	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(-2.5432664840720627,
+	// 							3.1706829696740797,
+	// 							0.12732356031622472));
+	// 	vals.insert(AnchorKey(id), prior_beacon_pose);
+	// 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, Anchor_noise_model));
+	// }
+	// else if (id == "5") {
+	// 	Pose3 prior_beacon_pose;
+	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(1.6420235179980649,
+	// 							-2.3033634112002345,
+	// 							0.07176977664742756));
+	// 	vals.insert(AnchorKey(id), prior_beacon_pose);
+	// 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, Anchor_noise_model));
+	// }
 
 }
 
@@ -536,7 +536,7 @@ void Tracker::processSensor(const json& mes) {
 
 	bool start_graph = false;
 
-	if (to_string(mes["src"]) == id) {
+	if (to_string(mes["src"]) == this->id) {
 
 		start_graph = (double)mes["t"] > start_timestamp;
 
@@ -632,6 +632,14 @@ void Tracker::processSensor(const json& mes) {
 				imu_available = 0;
 			}
 		}
+	}
+	else { // If we check a measurement thats not our ID, but is 2,3, or 4
+		// and is an UWB measurement to one of the anchors
+		// We can use that for self-localizing anchors.
+		if (mes["type"] == "uwb" && (mes["id"] == 1 || mes["id"] == 5)) {
+			log_fs << "Calling processOtherUWB with " << mes["src"] << " whereas this->id " << this->id << endl;
+			processOtherUWBOnAnchor(mes); //<- so this
+		}
 	}	
 }
 
@@ -701,6 +709,118 @@ void Tracker::processSLAM(const json& mes)
 
 }
 
+// If we're trying to self localze anchor 1
+// this would add a range factor to anchor 1, connected to user 4's pose, and a range between 4-1.
+int other_uwb_counter = 0;
+void Tracker::processOtherUWBOnAnchor(const json& mes) {
+
+	double measured_range = (double)mes["range"];
+	int dst_id = (int)mes["id"];
+
+	log_fs << "User: " << this->id << " Processing range " << mes["src"] << " -> " << mes["id"] << " for t=" << mes["t"] << endl;
+	// if (slam_status == "lost") log_fs << "Processing range while lost!" << endl;
+	if (slam_status == "imu" || slam_status == "newmap") log_fs << "Processing range while lost!" << endl;
+	// track.Ix++;
+	// track.Iv++;
+	// track.Ib++;
+	other_uwb_counter++;
+
+	// Add this key -> timestamp mapping to our map
+	for (auto const &[id, tracking_] : anchors) {
+		if (id != "") key_timestamps[AnchorKey(id)] = (double)mes["t"];
+	}
+
+	if (!other_trackers.contains(dst_id)) { // Ranging to a static anchor
+
+		string dst = to_string(dst_id);
+
+		// Extract GT pose
+		Pose3 T_world_to_body;
+		string usrname;
+		get_pose_from_HTM(mes["embedded_slam_pose"]["T_body_world"],T_world_to_body);
+		Pose3 T_body_to_world = T_world_to_body.inverse();
+
+		// Make an instantaneous anchor, to represent the other node's range to an anchor
+		Key instantaneous_anchor = symbol('t', other_uwb_counter);
+		Pose3 anchor_pose = T_body_to_world * T_body_to_decawave.inverse(); 
+		
+		vals.insert(instantaneous_anchor, anchor_pose);
+		// graph->add(NonlinearEquality<Pose3>(instantaneous_anchor, anchor_pose));
+		key_timestamps[instantaneous_anchor] = (double)mes["t"];
+		
+		// graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
+		// 	instantaneous_anchor, AnchorKey(dst), measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
+		log_fs << " Range to anchor " << mes["id"] << endl;
+	}
+
+	log_fs << "User " << this->id << " added other user's Range factor to our anchor state at " << track.Ix << endl;
+
+	double mes_timestamp = mes["t"];
+	// Will always use smoother:
+	Values result;
+
+	// NOT GOING TO log_fs? What the fuck
+            log_fs << "Keys in vals: " << endl;
+            for (const auto& key : vals.keys()) {
+                log_fs << DefaultKeyFormatter(key) << " ";
+            }
+            log_fs << endl;
+
+            log_fs << "Keys in graph: " << endl;
+            for (const auto& f : *graph) {
+                auto keys = f->keys();
+                for (Key k : keys) {
+                    log_fs << DefaultKeyFormatter(k) << " ";
+                }
+            }
+            log_fs << endl;
+
+			log_fs << "key_timestamps:\n";
+			for (const auto& [key, timestamp] : key_timestamps) {
+				log_fs << "  "
+						<< DefaultKeyFormatter(key)
+						<< " -> "
+						<< std::fixed << std::setprecision(6)
+						<< timestamp
+						<< '\n';
+			}
+
+
+	try {
+        
+		
+		smoother->update(*graph, vals, key_timestamps); // Crashes on this line specifically
+		result = smoother->calculateEstimate();
+		// Save estimate poses for all anchors also
+		for (auto& [id, anchor_track]: anchors){
+			if (id !="") {
+				anchor_track.est_timestamps.push_back(mes_timestamp);
+				anchor_track.est_poses.push_back(result.at<Pose3>(AnchorKey(id)));
+			}
+
+		}	
+
+		// Clear for next iteration
+		graph->resize(0);
+		vals.clear();
+		key_timestamps.clear();
+	}
+	catch (const std::exception& e) {
+		cerr << "Optimizer update failed: " << e.what() << endl;
+		cerr << "Data timestamp is " << mes_timestamp << endl;
+		graph->saveGraph(debug_dir+"/graph.dot", result);
+		graph->print("");
+		cerr << "Graph dumped to factor_graph.dot" << endl;
+
+		write_trajectory_TUM_format( track.est_poses, track.est_timestamps, estimated_trajectory_fs);
+		estimated_trajectory_fs.close();
+
+		write_trajectory_TUM_format( track.slam_poses, track.slam_timestamps, slam_trajectory_fs);
+		slam_trajectory_fs.close();
+		throw; // rethrow
+	}
+}
+
 void Tracker::processUWB(const json& mes)
 {
 	double measured_range = (double)mes["range"];
@@ -712,7 +832,6 @@ void Tracker::processUWB(const json& mes)
 	track.Ix++;
 	track.Iv++;
 	track.Ib++;
-
 
 
 	// Add this key -> timestamp mapping to our map
