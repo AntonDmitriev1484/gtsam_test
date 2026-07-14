@@ -637,8 +637,9 @@ void Tracker::processSensor(const json& mes) {
 		// and is an UWB measurement to one of the anchors
 		// We can use that for self-localizing anchors.
 		if (mes["type"] == "uwb" && (mes["id"] == 1 || mes["id"] == 5)) {
-			log_fs << "Calling processOtherUWB with " << mes["src"] << " whereas this->id " << this->id << endl;
-			processOtherUWBOnAnchor(mes); //<- so this
+			log_fs << "Buffering " << mes["src"] << " whereas this->id " << this->id << endl;
+			// processOtherUWBOnAnchor(mes); //<- so this
+			other_range_buffer.push_back(mes);
 		}
 	}	
 }
@@ -709,11 +710,8 @@ void Tracker::processSLAM(const json& mes)
 
 }
 
-// If we're trying to self localze anchor 1
-// this would add a range factor to anchor 1, connected to user 4's pose, and a range between 4-1.
-int other_uwb_counter = 0;
-void Tracker::processOtherUWBOnAnchor(const json& mes) {
-
+void Tracker::processOtherUWBOnAnchor(const json& mes, double timestamp)
+{
 	double measured_range = (double)mes["range"];
 	int dst_id = (int)mes["id"];
 
@@ -723,12 +721,12 @@ void Tracker::processOtherUWBOnAnchor(const json& mes) {
 	// track.Ix++;
 	// track.Iv++;
 	// track.Ib++;
-	other_uwb_counter++;
+	other_range_counter++;
 
 	// Add this key -> timestamp mapping to our map
-	for (auto const &[id, tracking_] : anchors) {
-		if (id != "") key_timestamps[AnchorKey(id)] = (double)mes["t"];
-	}
+	// for (auto const &[id, tracking_] : anchors) {
+	// 	if (id != "") key_timestamps[AnchorKey(id)] = (double)mes["t"];
+	// }
 
 	if (!other_trackers.contains(dst_id)) { // Ranging to a static anchor
 
@@ -741,84 +739,21 @@ void Tracker::processOtherUWBOnAnchor(const json& mes) {
 		Pose3 T_body_to_world = T_world_to_body.inverse();
 
 		// Make an instantaneous anchor, to represent the other node's range to an anchor
-		Key instantaneous_anchor = symbol('t', other_uwb_counter);
+		Key instantaneous_anchor = symbol('t', other_range_counter);
 		Pose3 anchor_pose = T_body_to_world * T_body_to_decawave.inverse(); 
 		
 		vals.insert(instantaneous_anchor, anchor_pose);
-		// graph->add(NonlinearEquality<Pose3>(instantaneous_anchor, anchor_pose));
-		key_timestamps[instantaneous_anchor] = (double)mes["t"];
+		graph->add(NonlinearEquality<Pose3>(instantaneous_anchor, anchor_pose));
+		// key_timestamps[instantaneous_anchor] = (double)mes["t"];
+		key_timestamps[instantaneous_anchor] = timestamp;
 		
-		// graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-		// 	instantaneous_anchor, AnchorKey(dst), measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
+		graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
+			instantaneous_anchor, AnchorKey(dst), measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
 		log_fs << " Range to anchor " << mes["id"] << endl;
 	}
 
 	log_fs << "User " << this->id << " added other user's Range factor to our anchor state at " << track.Ix << endl;
 
-	double mes_timestamp = mes["t"];
-	// Will always use smoother:
-	Values result;
-
-	// NOT GOING TO log_fs? What the fuck
-            log_fs << "Keys in vals: " << endl;
-            for (const auto& key : vals.keys()) {
-                log_fs << DefaultKeyFormatter(key) << " ";
-            }
-            log_fs << endl;
-
-            log_fs << "Keys in graph: " << endl;
-            for (const auto& f : *graph) {
-                auto keys = f->keys();
-                for (Key k : keys) {
-                    log_fs << DefaultKeyFormatter(k) << " ";
-                }
-            }
-            log_fs << endl;
-
-			log_fs << "key_timestamps:\n";
-			for (const auto& [key, timestamp] : key_timestamps) {
-				log_fs << "  "
-						<< DefaultKeyFormatter(key)
-						<< " -> "
-						<< std::fixed << std::setprecision(6)
-						<< timestamp
-						<< '\n';
-			}
-
-
-	try {
-        
-		
-		smoother->update(*graph, vals, key_timestamps); // Crashes on this line specifically
-		result = smoother->calculateEstimate();
-		// Save estimate poses for all anchors also
-		for (auto& [id, anchor_track]: anchors){
-			if (id !="") {
-				anchor_track.est_timestamps.push_back(mes_timestamp);
-				anchor_track.est_poses.push_back(result.at<Pose3>(AnchorKey(id)));
-			}
-
-		}	
-
-		// Clear for next iteration
-		graph->resize(0);
-		vals.clear();
-		key_timestamps.clear();
-	}
-	catch (const std::exception& e) {
-		cerr << "Optimizer update failed: " << e.what() << endl;
-		cerr << "Data timestamp is " << mes_timestamp << endl;
-		graph->saveGraph(debug_dir+"/graph.dot", result);
-		graph->print("");
-		cerr << "Graph dumped to factor_graph.dot" << endl;
-
-		write_trajectory_TUM_format( track.est_poses, track.est_timestamps, estimated_trajectory_fs);
-		estimated_trajectory_fs.close();
-
-		write_trajectory_TUM_format( track.slam_poses, track.slam_timestamps, slam_trajectory_fs);
-		slam_trajectory_fs.close();
-		throw; // rethrow
-	}
 }
 
 void Tracker::processUWB(const json& mes)
@@ -881,6 +816,26 @@ void Tracker::processUWB(const json& mes)
 		graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
 			X(track.Ix), AnchorKey(dst), measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
 		log_fs << " Range to anchor " << mes["id"] << endl;
+
+		// Add all other measurements buffered onto that static anchor.
+		// SO iterate through the buffer, when done, clear all ranges that we used to that static anchor.
+
+		vector<json> next_buffer;
+		for (json other_mes: other_range_buffer) {
+			// If the range we just added goes to 1
+			// take all other measurements that go to 1
+			if (other_mes["id"] == dst_id) {
+				processOtherUWBOnAnchor(other_mes, mes["t"]); // So you must use the timestamp for this measurement
+				// Not the measurement's actual timestamp, otherwise the smoother will explode.
+				
+				// processOtherUWBOnAnchor(other_mes, other_mes["t"]); 
+				// Regardless of the other timestamp, register every range under the current measurement's timestamp
+			}
+			else {
+				next_buffer.push_back(other_mes);
+			}
+		}
+		other_range_buffer = next_buffer;
 	}
 
 	log_fs << "Added Range factor to state " << track.Ix << endl;

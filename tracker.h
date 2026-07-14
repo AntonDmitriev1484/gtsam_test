@@ -127,16 +127,18 @@ public:
     bool use_uwb;
     bool synth_live_slam_mode; // run an imu integration for synthetic live SLAM
     int imu_counter = 0;
+    int other_range_counter = 0;
 
 	deque<json> gt_pose_buffer;
 	deque<json> range_buffer;
+    vector<json> other_range_buffer;
     int imu_available;
     string slam_status;
 
     void processSensor(const json& mes);
     void processSLAM(const json& mes);
     void processUWB(const json& mes);
-    void processOtherUWBOnAnchor(const json& mes);
+    void processOtherUWBOnAnchor(const json& mes, double timestamp);
 };
 
 // Moved in here because circular includes confuse me
