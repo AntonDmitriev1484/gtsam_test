@@ -121,6 +121,7 @@ def run_eval(args):
 
     exe_path = "/home/antond2/Desktop/Research/gtsam_test/out/build/linux-debug/gtsam_test"
     post_path = f"/home/antond2/Desktop/Research/MultiXR-Post/{args.id}/post/{args.trial_name}_post/"
+    merge_path = f"/home/antond2/Desktop/Research/MultiXR-Post/merged/{args.trial_name}_merged/"
     metadata = json.load(open(f"/home/antond2/Desktop/Research/MultiXR-Post/{args.id}/collect/{args.trial_name}_nuc{args.id}_raw/meta.json", 'r'))
     
     synth_failures_path = f"/home/antond2/Desktop/Research/MultiXR-Post/{args.id}/synth_failures/{args.trial_name}.json"
@@ -188,7 +189,8 @@ def run_eval(args):
     metric_report = {
         "IMU": [],
         "Flock": [],
-        "Live-SLAM": []
+        "Live-SLAM": [],
+        "Anchors": []
     }
 
     plot_report = {
@@ -274,7 +276,7 @@ def run_eval(args):
 
         # Print metrics over entire trajectory
         # print(f"Entire trajectory")
-        ape_trans, ape_rot, rpe_trans, rpe_rot = dump_stats(traj_ref_sync, traj_est_sync, print_stat=False)
+        ape_trans, ape_rot, rpe_trans, rpe_rot = dump_stats(traj_ref_sync, traj_est_sync, print_stat=True)
         metric_report[name].append(
             {
                 "full_traj": True,
@@ -371,11 +373,13 @@ def run_eval(args):
                     "rpe_rot": crop_rpe_rot,
                 }
             )
+
         
         print()
         print("----------------------------------")
 
         # If running Flock, evaluate anchor self-localization results
+
         if run_config == "uwb":
 
             for id in [1,5]:
@@ -384,7 +388,7 @@ def run_eval(args):
                 eval_paths.final_anchor_estimate_path = plot_paths.final_anchor_estimate_path
 
                 anchors_est = json.load(open(eval_paths.final_anchor_estimate_path, 'r'))
-                anchors_gt = json.load(open(f"{post_path}anchors.json", 'r'))
+                anchors_gt = json.load(open(f"{merge_path}anchors_gt.json", 'r'))
 
                 if not args.no_plot:
                     # Plot trajectories with MultiXR-Post
@@ -407,6 +411,8 @@ def run_eval(args):
 
                 distance = np.linalg.norm(np.array(anchor_est) - np.array(anchor_gt))
                 print(f"Anchor {id} error: {distance}")
+                metric_report["Anchors"].append({"id":id, "error": distance})
+
 
     
     # Add SLAM trajectory to the error metrics:
@@ -431,7 +437,7 @@ def run_eval(args):
                                         max_diff = 0.05
                                     )
     
-    ape_trans, ape_rot, rpe_trans, rpe_rot = dump_stats(traj_ref_sync, traj_est_sync, print_stat=False)
+    ape_trans, ape_rot, rpe_trans, rpe_rot = dump_stats(traj_ref_sync, traj_est_sync, print_stat=True)
     metric_report["Live-SLAM"].append(
         {
             "full_traj": True,
@@ -531,6 +537,8 @@ def run_eval(args):
     if not args.hide_plots:
         plt.tight_layout()
         plt.show()
+    
+    print(metric_report)
 
     return metric_report, plot_report
 

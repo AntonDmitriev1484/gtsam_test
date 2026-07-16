@@ -244,14 +244,20 @@ void Tracker::init_anchor(string id){
     // vals.insert(AnchorKey(id), prior_beacon_pose);
     // graph->add(NonlinearEquality<Pose3>(AnchorKey(id), prior_beacon_pose));
 
-	// For selfloc
+	// Assuming priors, that post_process.py can add manual errors to beforehand.
+    Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
+    vals.insert(AnchorKey(id), prior_beacon_pose);
+    graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, Anchor_noise_model));
+
+	// For selfloc testing on opti_multi1_free_circle
 
 	// 0 prior
-	Pose3 prior_beacon_pose;
-	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(0, 0, 0));
-    vals.insert(AnchorKey(id), prior_beacon_pose);
-	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, Anchor_noise_model));
+	// Pose3 prior_beacon_pose;
+	// prior_beacon_pose = Pose3(Rot3::Identity(), Point3(0, 0, 0));
+    // vals.insert(AnchorKey(id), prior_beacon_pose);
+	// graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, Anchor_noise_model));
 
+	// 1.5m off prior
 	// if (id == "1") {
 	// 	Pose3 prior_beacon_pose;
 	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(-2.5432664840720627,
@@ -264,6 +270,42 @@ void Tracker::init_anchor(string id){
 	// 	Pose3 prior_beacon_pose;
 	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(1.6420235179980649,
 	// 							-2.3033634112002345,
+	// 							0.07176977664742756));
+	// 	vals.insert(AnchorKey(id), prior_beacon_pose);
+	// 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, Anchor_noise_model));
+	// }
+
+	// 1m off prior
+	// if (id == "1") {
+	// 	Pose3 prior_beacon_pose;
+	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(-2.3432664840720627,
+	// 							2.8706829696740797,
+	// 							0.12732356031622472));
+	// 	vals.insert(AnchorKey(id), prior_beacon_pose);
+	// 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, Anchor_noise_model));
+	// }
+	// else if (id == "5") {
+	// 	Pose3 prior_beacon_pose;
+	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(1.4420235179980649,
+	// 							-2.0033634112002345,
+	// 							0.07176977664742756));
+	// 	vals.insert(AnchorKey(id), prior_beacon_pose);
+	// 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, Anchor_noise_model));
+	// }
+
+	// 0.5m off prior
+	// if (id == "1") {
+	// 	Pose3 prior_beacon_pose;
+	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(-1.8432664840720627,
+	// 							2.8706829696740797,
+	// 							0.12732356031622472));
+	// 	vals.insert(AnchorKey(id), prior_beacon_pose);
+	// 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, Anchor_noise_model));
+	// }
+	// else if (id == "5") {
+	// 	Pose3 prior_beacon_pose;
+	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(0.9420235179980649,
+	// 							-2.0033634112002345,
 	// 							0.07176977664742756));
 	// 	vals.insert(AnchorKey(id), prior_beacon_pose);
 	// 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, Anchor_noise_model));
@@ -827,7 +869,7 @@ void Tracker::processUWB(const json& mes)
 			if (other_mes["id"] == dst_id) {
 				processOtherUWBOnAnchor(other_mes, mes["t"]); // So you must use the timestamp for this measurement
 				// Not the measurement's actual timestamp, otherwise the smoother will explode.
-				
+
 				// processOtherUWBOnAnchor(other_mes, other_mes["t"]); 
 				// Regardless of the other timestamp, register every range under the current measurement's timestamp
 			}

@@ -67,11 +67,12 @@ int main(int argc, char* argv[]) {
 		json transforms = json::parse(transform_fs);
 
 		// UWB noise model
-		double uwb_stdev = 0.1;
+		// double uwb_stdev = 0.1;
+		double uwb_stdev = 0.4;
 		noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 		// Anchor noise model - (use to define anchor pose prior)
-		double anchor_pos_stdev = 3e-1;
-		double anchor_ori_stdev = 3e-1;
+		double anchor_pos_stdev = 1e-1;
+		double anchor_ori_stdev = 1e-1;
 		// Wait is it rpyxyz or xyzrpy???? The ordering really matters here...
 		// This causes optimization to displace us only along the Z-axis
 		// noiseModel::Diagonal::shared_ptr Anchor_noise_model = noiseModel::Diagonal::Sigmas(
