@@ -545,7 +545,6 @@ def run_eval(args):
     return metric_report, plot_report
 
 
-
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
@@ -554,8 +553,8 @@ if __name__ == "__main__":
     parser.add_argument("--no_run", action="store_true")
     parser.add_argument("--hide_plots", action="store_true")
     parser.add_argument("--no_plot", action="store_true")
-    parser.add_argument("--anchor_selfloc_strategy", type="str", default="pre-loc")
-    
+    parser.add_argument("--anchor_selfloc_strategy", type=str, default="pre-loc")
+
     args = parser.parse_args()
 
     run_eval(args)

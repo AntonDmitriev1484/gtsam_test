@@ -201,9 +201,7 @@ const SharedNoiseModel& Tracker::UWBNoiseModel() {
 			return selfloc_UWB_noise_model;
 		}
 	}
-	else {
-		return UWB_noise_model;
-	}
+	return UWB_noise_model;
 }
 
 Pose3 Tracker::report_estimate(Pose3 initial, double timestamp){
