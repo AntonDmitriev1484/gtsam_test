@@ -61,7 +61,8 @@ public:
     SharedNoiseModel UWB_noise_model;
     SharedNoiseModel Velocity_noise_model;
     SharedNoiseModel Bias_noise_model;
-    SharedNoiseModel Anchor_noise_model;
+    SharedNoiseModel selfloc_Anchor_noise_model;
+    SharedNoiseModel selfloc_UWB_noise_model;
 
     string debug_dir, out_dir;
 
@@ -99,11 +100,13 @@ public:
             const bool use_filter,
             const bool use_uwb,
             const bool synth_live_slam_mode, 
+            const string anchor_loc_strategy,
             const SharedNoiseModel& SLAM_noise_model,
             const SharedNoiseModel& UWB_noise_model,
             const SharedNoiseModel& Velocity_noise_model,
             const SharedNoiseModel& Bias_noise_model,
-            const SharedNoiseModel& Anchor_noise_model,
+            const SharedNoiseModel& selfloc_UWB_noise_model,
+            const SharedNoiseModel& selfloc_Anchor_noise_model,
 			std::shared_ptr<PreintegratedCombinedMeasurements::Params> imu_preintegration_params,
             const Vector6 prior_imu_bias,
             const Vector3 prior_velocity,
@@ -129,6 +132,13 @@ public:
     int imu_counter = 0;
     int other_range_counter = 0;
 
+    //emulator parameter, determines how Flock handles anchors
+    // valid strings are 'none', 'self-loc', 'pre-loc'
+    string anchor_loc_strategy;
+    // Returns a referencew to one of two possible noise models based on anchor_loc_strategy
+    const SharedNoiseModel& AnchorNoiseModel();
+    const SharedNoiseModel& UWBNoiseModel();
+
 	deque<json> gt_pose_buffer;
 	deque<json> range_buffer;
     vector<json> other_range_buffer;
@@ -139,6 +149,8 @@ public:
     void processSLAM(const json& mes);
     void processUWB(const json& mes);
     void processOtherUWBOnAnchor(const json& mes, double timestamp);
+
+
 };
 
 // Moved in here because circular includes confuse me

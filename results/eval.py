@@ -146,7 +146,8 @@ def run_eval(args):
                 "none",
                 run_config,
                 "0.0",
-                "true"
+                "true",
+                "no-loc"
             ],
             capture_output=True,
             text=True)
@@ -210,7 +211,8 @@ def run_eval(args):
                 "none",
                 run_config,
                 "0.0",
-                "true"
+                "true",
+                args.anchor_selfloc_strategy
             ],
             capture_output=True,
             text=True)
@@ -552,6 +554,8 @@ if __name__ == "__main__":
     parser.add_argument("--no_run", action="store_true")
     parser.add_argument("--hide_plots", action="store_true")
     parser.add_argument("--no_plot", action="store_true")
+    parser.add_argument("--anchor_selfloc_strategy", type="str", default="pre-loc")
+    
     args = parser.parse_args()
 
     run_eval(args)

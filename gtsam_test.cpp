@@ -20,8 +20,10 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 
 int main(int argc, char* argv[]) {
 
-	if (argc != 6) {
-        std::cerr << "Usage: " << argv[0] << " <trial_name> <synthetic_trial_name or 'none'> <'uwb' or 'no_uwb'> <uwb_noise> <dump (true|false)>" << std::endl;
+	if (argc != 7) {
+        std::cerr << "Usage: " << argv[0] 
+		<< " <trial_name> <synthetic_trial_name or 'none'> <'uwb' or 'no_uwb'> <uwb_noise> <dump (true|false)>" 
+		<< " <anchor_loc>" << std::endl;
         return 1;
     }
 	std::string trial_name = argv[1];
@@ -29,13 +31,14 @@ int main(int argc, char* argv[]) {
 	std::string uwb_str = argv[3];
 	std::string uwb_noise_str = argv[4];
 	std::string dump_str = argv[5];
+	string anchor_loc_strategy = argv[6]; // should be, none, self-loc, pre-loc.
+
     bool log_dump = (dump_str == "true"); // We ignore this and dump anyways
 	bool use_uwb = (uwb_str == "uwb");
 	bool synth_live_slam_mode = (uwb_str == "live-slam-integration");
 
 	bool use_gt = true;
 	bool synthetic = synthetic_trial_name != "none";
-
 
 	vector<int> users {2,3,4};
 	map<int, Tracker> trackers;
@@ -67,18 +70,12 @@ int main(int argc, char* argv[]) {
 		json transforms = json::parse(transform_fs);
 
 		// UWB noise model
-		// double uwb_stdev = 0.1;
-		double uwb_stdev = 0.4;
-		noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
-		// Anchor noise model - (use to define anchor pose prior)
+		noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, 1e-1);
+		noiseModel::Isotropic::shared_ptr selfloc_UWB_noise_model = noiseModel::Isotropic::Sigma(1, 4e-1);
+		// Anchor noise model - anchor pose prior when anchor_loc_strategy == self-loc
 		double anchor_pos_stdev = 1e-1;
 		double anchor_ori_stdev = 1e-1;
-		// Wait is it rpyxyz or xyzrpy???? The ordering really matters here...
-		// This causes optimization to displace us only along the Z-axis
-		// noiseModel::Diagonal::shared_ptr Anchor_noise_model = noiseModel::Diagonal::Sigmas(
-		// 	Vector6(anchor_pos_stdev, anchor_pos_stdev, 1e-5, 
-		// 		1e-5, 1e-5, anchor_ori_stdev));
-		noiseModel::Diagonal::shared_ptr Anchor_noise_model = noiseModel::Diagonal::Sigmas(
+		noiseModel::Diagonal::shared_ptr selfloc_Anchor_noise_model = noiseModel::Diagonal::Sigmas(
 			Vector6(1e-5, 1e-5, 1e-5, 
 				anchor_pos_stdev, anchor_pos_stdev, 1e-5));
 		// SLAM noise model - (use to define pose prior)
@@ -121,11 +118,13 @@ int main(int argc, char* argv[]) {
 			use_filter,
 			use_uwb,
 			synth_live_slam_mode,
+			anchor_loc_strategy,
 			SLAM_noise_model, 
 			UWB_noise_model, 
 			prior_velocity_noise_model,
 			prior_bias_noise_model,
-			Anchor_noise_model,
+			selfloc_UWB_noise_model,
+			selfloc_Anchor_noise_model,
 			imu_preintegration_params,
 			prior_imu_bias,
 			prior_velocity,
@@ -146,8 +145,6 @@ int main(int argc, char* argv[]) {
 				// Let every tracker have a chance to process the measurement
 				// Sometimes tracker 2 might need a range from user 4->1 in order to self localize anchor 1
 			}
-			// Tracker& t = trackers.at(src);
-			// t.processSensor(mes);
 		}
 	}
 
