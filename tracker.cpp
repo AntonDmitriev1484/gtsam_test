@@ -531,7 +531,8 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 		report_estimate(result.at<Pose3>(X(track.Ix)), mes_timestamp);
 
 		track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
-
+		track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
+		
 		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
 
 		// Save estimate poses for all anchors also
@@ -678,7 +679,8 @@ void Tracker::processSensor(const json& mes) {
 	else { // If we check a measurement thats not our ID, but is 2,3, or 4
 		// and is an UWB measurement to one of the anchors
 		// We can use that for self-localizing anchors.
-		if (mes["type"] == "uwb" && (mes["id"] == 1 || mes["id"] == 5)) {
+		if (mes["type"] == "uwb" && (mes["id"] == 1 || mes["id"] == 5) 
+			&& (anchor_loc_strategy == "self-loc")) {
 			log_fs << "Buffering " << mes["src"] << " whereas this->id " << this->id << endl;
 			// processOtherUWBOnAnchor(mes); //<- so this
 			other_range_buffer.push_back(mes);
