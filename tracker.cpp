@@ -530,7 +530,8 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 		report_estimate(result.at<Pose3>(X(track.Ix)), mes_timestamp);
 
 		track.est_velocities.push_back(result.at<Vector3>(V(track.Iv)));
-
+		track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
+		
 		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
 
 		// Save estimate poses for all anchors also
