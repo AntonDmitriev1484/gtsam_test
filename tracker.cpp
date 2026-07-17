@@ -240,14 +240,14 @@ Key AnchorKey(string name) {return symbol('s', stoi(name));}
 void Tracker::init_anchor(string id){
 
 	// Assuming prior knowledge
-    // Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
-    // vals.insert(AnchorKey(id), prior_beacon_pose);
-    // graph->add(NonlinearEquality<Pose3>(AnchorKey(id), prior_beacon_pose));
-
-	// Assuming priors, that post_process.py can add manual errors to beforehand.
     Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
     vals.insert(AnchorKey(id), prior_beacon_pose);
-    graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, Anchor_noise_model));
+    graph->add(NonlinearEquality<Pose3>(AnchorKey(id), prior_beacon_pose));
+
+	// Assuming priors, that post_process.py can add manual errors to beforehand.
+    // Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
+    // vals.insert(AnchorKey(id), prior_beacon_pose);
+    // graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, Anchor_noise_model));
 
 	// For selfloc testing on opti_multi1_free_circle
 
@@ -678,7 +678,7 @@ void Tracker::processSensor(const json& mes) {
 	else { // If we check a measurement thats not our ID, but is 2,3, or 4
 		// and is an UWB measurement to one of the anchors
 		// We can use that for self-localizing anchors.
-		if (mes["type"] == "uwb" && (mes["id"] == 1 || mes["id"] == 5)) {
+		if (mes["type"] == "uwb" && use_uwb && (mes["id"] == 1 || mes["id"] == 5)) {
 			log_fs << "Buffering " << mes["src"] << " whereas this->id " << this->id << endl;
 			// processOtherUWBOnAnchor(mes); //<- so this
 			other_range_buffer.push_back(mes);

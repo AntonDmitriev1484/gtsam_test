@@ -132,6 +132,7 @@ int main(int argc, char* argv[]) {
 			out_dir,
 			debug_dir);
 
+		// if (use_uwb) {t.init_anchors(anchor_stream);}
 		t.init_anchors(anchor_stream);
 		t.init_state(sensor_stream); 
 		trackers.emplace(user, std::move(t)); 
@@ -142,7 +143,7 @@ int main(int argc, char* argv[]) {
 		int src = (int)mes["src"];
 		if (src != 1 && src != 5) {
 			for (auto& [user, t]: trackers) {
-				t.processSensor(mes);
+				t.processSensor(mes);// <- loop is culprit?????
 				// Let every tracker have a chance to process the measurement
 				// Sometimes tracker 2 might need a range from user 4->1 in order to self localize anchor 1
 			}

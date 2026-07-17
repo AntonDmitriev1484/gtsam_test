@@ -6,7 +6,7 @@
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/out/build/linux-debug/gtsam_test",
-      "args": ["opti_multi1_free_circle", "none", "uwb", "0.0", "true"],
+      "args": ["opti_multi1_free_circle", "none", "no_uwb", "0.0", "true"],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
       "environment": [],
