@@ -71,8 +71,8 @@ int main(int argc, char* argv[]) {
 
 		// UWB noise model
 		noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, 1e-1);
-		// noiseModel::Isotropic::shared_ptr selfloc_UWB_noise_model = noiseModel::Isotropic::Sigma(1, 4e-1);
-		noiseModel::Isotropic::shared_ptr selfloc_UWB_noise_model = UWB_noise_model;
+		noiseModel::Isotropic::shared_ptr selfloc_UWB_noise_model = noiseModel::Isotropic::Sigma(1, 4e-1);
+		// noiseModel::Isotropic::shared_ptr selfloc_UWB_noise_model = UWB_noise_model;
 		// Anchor noise model - anchor pose prior when anchor_loc_strategy == self-loc
 		double anchor_pos_stdev = 1e-1;
 		double anchor_ori_stdev = 1e-1;

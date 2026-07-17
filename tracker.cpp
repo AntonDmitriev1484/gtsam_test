@@ -148,7 +148,7 @@ Tracker::Tracker(
     Bias_noise_model(Bias_noise_model),
     selfloc_Anchor_noise_model(selfloc_Anchor_noise_model),
 	selfloc_UWB_noise_model(selfloc_UWB_noise_model),
-	
+
     // Graph
     graph(new NonlinearFactorGraph()),
 
@@ -158,6 +158,7 @@ Tracker::Tracker(
 	synth_live_slam_mode(synth_live_slam_mode),
     imu_available(0),
 	slam_status("tracking"),
+	anchor_loc_strategy(anchor_loc_strategy),
     use_smoother(use_smoother)
 	
 {
@@ -237,16 +238,34 @@ Pose3 Tracker::report_estimate(Pose3 initial, double timestamp){
 
 Key AnchorKey(string name) {return symbol('s', stoi(name));}
 
+const SharedNoiseModel& Tracker::UWBNoiseModel() {
+	if (slam_status == "tracking" ) {
+		// selfloc noise model applies so long as user has tracking.
+		if (anchor_loc_strategy == "self-loc") {
+			return selfloc_UWB_noise_model;
+		}
+	}
+	return UWB_noise_model;
+}
 
 // Assuming we have already called
 // get_beacon_info(tracker.anchors, json::parse(beacon_fs));
 void Tracker::init_anchor(string id){
-
-	// Assuming prior knowledge
-    Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
-    vals.insert(AnchorKey(id), prior_beacon_pose);
-    graph->add(NonlinearEquality<Pose3>(AnchorKey(id), prior_beacon_pose));
-
+	
+	if (anchor_loc_strategy == "pre-loc") {
+		Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
+		vals.insert(AnchorKey(id), prior_beacon_pose);
+		graph->add(NonlinearEquality<Pose3>(AnchorKey(id), prior_beacon_pose));
+	}
+	else if (anchor_loc_strategy == "self-loc") {
+		// Assuming priors, that post_process.py can add manual errors to beforehand.
+		Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
+		vals.insert(AnchorKey(id), prior_beacon_pose);
+		graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, selfloc_Anchor_noise_model));
+	}
+	else if (anchor_loc_strategy == "no-loc") {
+		// Do nothing, don't even add the anchors into the graph.
+	}
 	// Assuming priors, that post_process.py can add manual errors to beforehand.
     // Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
     // vals.insert(AnchorKey(id), prior_beacon_pose);
@@ -380,8 +399,10 @@ void Tracker::init_state(json calibration_stream) {
 			key_timestamps[X(track.Ix)] = (double)mes["t"];
 			key_timestamps[V(track.Iv)] = (double)mes["t"];
 			key_timestamps[B(track.Ib)] = (double)mes["t"];
-			for (auto const &[id, tracking_] : anchors) {
-				key_timestamps[AnchorKey(id)] = (double)mes["t"];
+			if (anchor_loc_strategy != "no-loc") {
+				for (auto const &[id, tracking_] : anchors) {
+					if (id != "") key_timestamps[AnchorKey(id)] = (double)mes["t"];
+				}
 			}
 
 			if (use_smoother) {
@@ -467,14 +488,17 @@ void Tracker::exec_iSAM(NavState& proposed, double mes_timestamp,
 		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
 		track.changing_bias = result.at<PreintegrationBase::Bias>(B(track.Ib));
 
-		// Save estimate poses for all anchors also
-		for (auto& [id, anchor_track]: anchors){
-			if (id !="") {
-				anchor_track.est_timestamps.push_back(mes_timestamp);
-				anchor_track.est_poses.push_back(result.at<Pose3>(AnchorKey(id)));
-			}
+		if (anchor_loc_strategy != "no-loc") {
+			// Save estimate poses for all anchors also
+			for (auto& [id, anchor_track]: anchors){
+				if (id !="") {
+					anchor_track.est_timestamps.push_back(mes_timestamp);
+					anchor_track.est_poses.push_back(result.at<Pose3>(AnchorKey(id)));
+				}
 
-		}		
+			}
+		}
+	
 
 		// Clear for next iteration
 		graph->resize(0);
@@ -537,14 +561,27 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 		
 		prev_state = NavState(result.at<Pose3>(X(track.Ix)), result.at<Vector3>(V(track.Iv)));
 
-		// Save estimate poses for all anchors also
-		for (auto& [id, anchor_track]: anchors){
-			if (id !="") {
-				anchor_track.est_timestamps.push_back(mes_timestamp);
-				anchor_track.est_poses.push_back(result.at<Pose3>(AnchorKey(id)));
-			}
+		if (anchor_loc_strategy != "no-loc") {
+			// Save estimate poses for all anchors also
+			for (auto& [id, anchor_track]: anchors){
+				if (id !="") {
+					anchor_track.est_timestamps.push_back(mes_timestamp);
+					anchor_track.est_poses.push_back(result.at<Pose3>(AnchorKey(id)));
+				}
 
-		}	
+			}
+		}
+		else {
+						// Save estimate poses for all anchors also
+			for (auto& [id, anchor_track]: anchors){
+				if (id !="") {
+					anchor_track.est_timestamps.push_back(mes_timestamp);
+					anchor_track.est_poses.push_back(anchor_track.slam_poses.back());
+				}
+
+			}
+		}
+	
 
 		// Clear for next iteration
 		graph->resize(0);
@@ -725,8 +762,10 @@ void Tracker::processSLAM(const json& mes)
 	key_timestamps[X(track.Ix)] = (double)mes["t"];
 	key_timestamps[V(track.Iv)] = (double)mes["t"];
 	key_timestamps[B(track.Ib)] = (double)mes["t"];
-	for (auto const &[id, tracking_] : anchors) {
-		key_timestamps[AnchorKey(id)] = (double)mes["t"];
+	if (anchor_loc_strategy != "no-loc") {
+		for (auto const &[id, tracking_] : anchors) {
+			if (id != "") key_timestamps[AnchorKey(id)] = (double)mes["t"];
+		}
 	}
 
 	CombinedImuFactor imu_factor(
@@ -761,6 +800,9 @@ void Tracker::processOtherUWBOnAnchor(const json& mes, double timestamp)
 	double measured_range = (double)mes["range"];
 	int dst_id = (int)mes["id"];
 
+	// Only add extra constraints on anchors if we are self localizing them!
+	if (anchor_loc_strategy != "self-loc") return;
+
 	log_fs << "User: " << this->id << " Processing range " << mes["src"] << " -> " << mes["id"] << " for t=" << mes["t"] << endl;
 	// if (slam_status == "lost") log_fs << "Processing range while lost!" << endl;
 	if (slam_status == "imu" || slam_status == "newmap") log_fs << "Processing range while lost!" << endl;
@@ -769,10 +811,6 @@ void Tracker::processOtherUWBOnAnchor(const json& mes, double timestamp)
 	// track.Ib++;
 	other_range_counter++;
 
-	// Add this key -> timestamp mapping to our map
-	// for (auto const &[id, tracking_] : anchors) {
-	// 	if (id != "") key_timestamps[AnchorKey(id)] = (double)mes["t"];
-	// }
 
 	if (!other_trackers.contains(dst_id)) { // Ranging to a static anchor
 
@@ -794,7 +832,7 @@ void Tracker::processOtherUWBOnAnchor(const json& mes, double timestamp)
 		key_timestamps[instantaneous_anchor] = timestamp;
 		
 		graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-			instantaneous_anchor, AnchorKey(dst), measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
+			instantaneous_anchor, AnchorKey(dst), measured_range, UWBNoiseModel(), T_body_to_decawave.inverse()));
 		log_fs << " Range to anchor " << mes["id"] << endl;
 	}
 
@@ -806,6 +844,9 @@ void Tracker::processUWB(const json& mes)
 {
 	double measured_range = (double)mes["range"];
 	int dst_id = (int)mes["id"];
+
+	// If we aren't localizing anchors, don't use any ranges to anchors.
+	if (anchor_loc_strategy=="no-loc" && (dst_id==1 || dst_id==5)) return;
 
 	log_fs << "Processing range " + id + " -> " << mes["id"] << " for t=" << mes["t"] << endl;
 	// if (slam_status == "lost") log_fs << "Processing range while lost!" << endl;
@@ -819,8 +860,10 @@ void Tracker::processUWB(const json& mes)
 	key_timestamps[X(track.Ix)] = (double)mes["t"];
 	key_timestamps[V(track.Iv)] = (double)mes["t"];
 	key_timestamps[B(track.Ib)] = (double)mes["t"];
-	for (auto const &[id, tracking_] : anchors) {
-		if (id != "") key_timestamps[AnchorKey(id)] = (double)mes["t"];
+	if (anchor_loc_strategy != "no-loc") {
+		for (auto const &[id, tracking_] : anchors) {
+			if (id != "") key_timestamps[AnchorKey(id)] = (double)mes["t"];
+		}
 	}
 
 
@@ -846,7 +889,7 @@ void Tracker::processUWB(const json& mes)
 			key_timestamps[instantaneous_anchor] = (double)mes["t"];
 
 			graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-			X(track.Ix), instantaneous_anchor, measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
+			X(track.Ix), instantaneous_anchor, measured_range, UWBNoiseModel(), T_body_to_decawave.inverse()));
 	
 		}
 		else {
@@ -860,7 +903,7 @@ void Tracker::processUWB(const json& mes)
 
 		// Needs "Pose of antenna in body frame" i.e. decawave_to_body
 		graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-			X(track.Ix), AnchorKey(dst), measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
+			X(track.Ix), AnchorKey(dst), measured_range, UWBNoiseModel(), T_body_to_decawave.inverse()));
 		log_fs << " Range to anchor " << mes["id"] << endl;
 
 		// Add all other measurements buffered onto that static anchor.
