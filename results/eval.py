@@ -278,7 +278,7 @@ def run_eval(args):
 
         # Print metrics over entire trajectory
         # print(f"Entire trajectory")
-        ape_trans, ape_rot, rpe_trans, rpe_rot = dump_stats(traj_ref_sync, traj_est_sync, print_stat=True)
+        ape_trans, ape_rot, rpe_trans, rpe_rot = dump_stats(traj_ref_sync, traj_est_sync, print_stat=False)
         metric_report[name].append(
             {
                 "full_traj": True,

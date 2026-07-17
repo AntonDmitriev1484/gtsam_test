@@ -233,84 +233,89 @@ Key AnchorKey(string name) {return symbol('s', stoi(name));}
 // get_beacon_info(tracker.anchors, json::parse(beacon_fs));
 void Tracker::init_anchor(string id){
 
-	// Assuming prior knowledge
-	if (anchor_loc_strategy == "pre-loc") {
-		Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
+	Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
 		vals.insert(AnchorKey(id), prior_beacon_pose);
 		graph->add(NonlinearEquality<Pose3>(AnchorKey(id), prior_beacon_pose));
-	}
-	else if (anchor_loc_strategy == "self-loc") {
-		// Assuming priors, that post_process.py can add manual errors to beforehand.
-		Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
-		vals.insert(AnchorKey(id), prior_beacon_pose);
-		graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, selfloc_Anchor_noise_model));
-	}
-	else if (anchor_loc_strategy == "no-loc") {
-		// Do nothing, don't even add the anchors into the graph.
-	}
+	
 
-
-	// For selfloc testing on opti_multi1_free_circle
-
-	// 0 prior
-	// Pose3 prior_beacon_pose;
-	// prior_beacon_pose = Pose3(Rot3::Identity(), Point3(0, 0, 0));
-    // vals.insert(AnchorKey(id), prior_beacon_pose);
-	// graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, selfloc_Anchor_noise_model));
-
-	// 1.5m off prior
-	// if (id == "1") {
-	// 	Pose3 prior_beacon_pose;
-	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(-2.5432664840720627,
-	// 							3.1706829696740797,
-	// 							0.12732356031622472));
+	// // Assuming prior knowledge
+	// if (anchor_loc_strategy == "pre-loc") {
+	// 	Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
+	// 	vals.insert(AnchorKey(id), prior_beacon_pose);
+	// 	graph->add(NonlinearEquality<Pose3>(AnchorKey(id), prior_beacon_pose));
+	// }
+	// else if (anchor_loc_strategy == "self-loc") {
+	// 	// Assuming priors, that post_process.py can add manual errors to beforehand.
+	// 	Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
 	// 	vals.insert(AnchorKey(id), prior_beacon_pose);
 	// 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, selfloc_Anchor_noise_model));
 	// }
-	// else if (id == "5") {
-	// 	Pose3 prior_beacon_pose;
-	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(1.6420235179980649,
-	// 							-2.3033634112002345,
-	// 							0.07176977664742756));
-	// 	vals.insert(AnchorKey(id), prior_beacon_pose);
-	// 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, selfloc_Anchor_noise_model));
+	// else if (anchor_loc_strategy == "no-loc") {
+	// 	// Do nothing, don't even add the anchors into the graph.
 	// }
 
-	// 1m off prior
-	// if (id == "1") {
-	// 	Pose3 prior_beacon_pose;
-	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(-2.3432664840720627,
-	// 							2.8706829696740797,
-	// 							0.12732356031622472));
-	// 	vals.insert(AnchorKey(id), prior_beacon_pose);
-	// 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, selfloc_Anchor_noise_model));
-	// }
-	// else if (id == "5") {
-	// 	Pose3 prior_beacon_pose;
-	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(1.4420235179980649,
-	// 							-2.0033634112002345,
-	// 							0.07176977664742756));
-	// 	vals.insert(AnchorKey(id), prior_beacon_pose);
-	// 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, selfloc_Anchor_noise_model));
-	// }
 
-	// 0.5m off prior
-	// if (id == "1") {
-	// 	Pose3 prior_beacon_pose;
-	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(-1.8432664840720627,
-	// 							2.8706829696740797,
-	// 							0.12732356031622472));
-	// 	vals.insert(AnchorKey(id), prior_beacon_pose);
-	// 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, selfloc_Anchor_noise_model));
-	// }
-	// else if (id == "5") {
-	// 	Pose3 prior_beacon_pose;
-	// 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(0.9420235179980649,
-	// 							-2.0033634112002345,
-	// 							0.07176977664742756));
-	// 	vals.insert(AnchorKey(id), prior_beacon_pose);
-	// 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, selfloc_Anchor_noise_model));
-	// }
+	// // For selfloc testing on opti_multi1_free_circle
+
+	// // 0 prior
+	// // Pose3 prior_beacon_pose;
+	// // prior_beacon_pose = Pose3(Rot3::Identity(), Point3(0, 0, 0));
+    // // vals.insert(AnchorKey(id), prior_beacon_pose);
+	// // graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, selfloc_Anchor_noise_model));
+
+	// // 1.5m off prior
+	// // if (id == "1") {
+	// // 	Pose3 prior_beacon_pose;
+	// // 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(-2.5432664840720627,
+	// // 							3.1706829696740797,
+	// // 							0.12732356031622472));
+	// // 	vals.insert(AnchorKey(id), prior_beacon_pose);
+	// // 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, selfloc_Anchor_noise_model));
+	// // }
+	// // else if (id == "5") {
+	// // 	Pose3 prior_beacon_pose;
+	// // 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(1.6420235179980649,
+	// // 							-2.3033634112002345,
+	// // 							0.07176977664742756));
+	// // 	vals.insert(AnchorKey(id), prior_beacon_pose);
+	// // 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, selfloc_Anchor_noise_model));
+	// // }
+
+	// // 1m off prior
+	// // if (id == "1") {
+	// // 	Pose3 prior_beacon_pose;
+	// // 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(-2.3432664840720627,
+	// // 							2.8706829696740797,
+	// // 							0.12732356031622472));
+	// // 	vals.insert(AnchorKey(id), prior_beacon_pose);
+	// // 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, selfloc_Anchor_noise_model));
+	// // }
+	// // else if (id == "5") {
+	// // 	Pose3 prior_beacon_pose;
+	// // 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(1.4420235179980649,
+	// // 							-2.0033634112002345,
+	// // 							0.07176977664742756));
+	// // 	vals.insert(AnchorKey(id), prior_beacon_pose);
+	// // 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, selfloc_Anchor_noise_model));
+	// // }
+
+	// // 0.5m off prior
+	// // if (id == "1") {
+	// // 	Pose3 prior_beacon_pose;
+	// // 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(-1.8432664840720627,
+	// // 							2.8706829696740797,
+	// // 							0.12732356031622472));
+	// // 	vals.insert(AnchorKey(id), prior_beacon_pose);
+	// // 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, selfloc_Anchor_noise_model));
+	// // }
+	// // else if (id == "5") {
+	// // 	Pose3 prior_beacon_pose;
+	// // 	prior_beacon_pose = Pose3(Rot3::Identity(), Point3(0.9420235179980649,
+	// // 							-2.0033634112002345,
+	// // 							0.07176977664742756));
+	// // 	vals.insert(AnchorKey(id), prior_beacon_pose);
+	// // 	graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, selfloc_Anchor_noise_model));
+	// // }
 
 }
 
@@ -759,8 +764,9 @@ void Tracker::processOtherUWBOnAnchor(const json& mes, double timestamp)
 	double measured_range = (double)mes["range"];
 	int dst_id = (int)mes["id"];
 
-	// If we aren't using anchors, skip this function entirely when we see 1 or 5
-	if ((dst_id == 1) || (dst_id == 5) && (anchor_loc_strategy == "no-loc")) { return; }
+	// If we aren't using anchors or are assuming pre-localized anchors, skip this function entirely when we see 1 or 5
+	if ((dst_id == 1) || (dst_id == 5) && (anchor_loc_strategy != "self-loc")) { return; }
+	// Also does not solve the issue.
 
 	log_fs << "User: " << this->id << " Processing range " << mes["src"] << " -> " << mes["id"] << " for t=" << mes["t"] << endl;
 	// if (slam_status == "lost") log_fs << "Processing range while lost!" << endl;
@@ -788,7 +794,7 @@ void Tracker::processOtherUWBOnAnchor(const json& mes, double timestamp)
 		key_timestamps[instantaneous_anchor] = timestamp;
 		
 		graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-			instantaneous_anchor, AnchorKey(dst), measured_range, UWBNoiseModel(), T_body_to_decawave.inverse()));
+			instantaneous_anchor, AnchorKey(dst), measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
 		log_fs << " Range to anchor " << mes["id"] << endl;
 	}
 
@@ -844,7 +850,7 @@ void Tracker::processUWB(const json& mes)
 			key_timestamps[instantaneous_anchor] = (double)mes["t"];
 
 			graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-			X(track.Ix), instantaneous_anchor, measured_range, UWBNoiseModel(), T_body_to_decawave.inverse()));
+			X(track.Ix), instantaneous_anchor, measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
 	
 		}
 		else {
@@ -858,7 +864,7 @@ void Tracker::processUWB(const json& mes)
 
 		// Needs "Pose of antenna in body frame" i.e. decawave_to_body
 		graph->add(RangeFactorWithTransform<Pose3, Pose3, double>(
-			X(track.Ix), AnchorKey(dst), measured_range, UWBNoiseModel(), T_body_to_decawave.inverse()));
+			X(track.Ix), AnchorKey(dst), measured_range, UWB_noise_model, T_body_to_decawave.inverse()));
 		log_fs << " Range to anchor " << mes["id"] << endl;
 
 		// Add all other measurements buffered onto that static anchor.
