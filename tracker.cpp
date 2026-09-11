@@ -98,26 +98,26 @@ Tracker::Tracker(
     // Filters
 	
 	// Smooth, higher APE
-    translation_filt(
-        200.,
-        Eigen::Array<double, 3, 1>::Constant(0.25),
-        Eigen::Array<double, 3, 1>::Constant(0.01),
-        Eigen::Array<double, 3, 1>::Constant(1),
-        Eigen::Array<double, 3, 1>::Zero(),
-        Eigen::Array<double, 3, 1>::Ones(),
-        [](auto& in) { return in.abs(); }
-    ),
-
-	// Jittery, lower APE
-	// translation_filt(
+    // translation_filt(
     //     200.,
     //     Eigen::Array<double, 3, 1>::Constant(0.25),
-    //     Eigen::Array<double, 3, 1>::Constant(5),
+    //     Eigen::Array<double, 3, 1>::Constant(0.01),
     //     Eigen::Array<double, 3, 1>::Constant(1),
     //     Eigen::Array<double, 3, 1>::Zero(),
     //     Eigen::Array<double, 3, 1>::Ones(),
     //     [](auto& in) { return in.abs(); }
     // ),
+
+	// Jittery, lower APE
+	translation_filt(
+        200.,
+        Eigen::Array<double, 3, 1>::Constant(0.25),
+        Eigen::Array<double, 3, 1>::Constant(5),
+        Eigen::Array<double, 3, 1>::Constant(1),
+        Eigen::Array<double, 3, 1>::Zero(),
+        Eigen::Array<double, 3, 1>::Ones(),
+        [](auto& in) { return in.abs(); }
+    ),
 
 	id(id),
 
