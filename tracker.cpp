@@ -510,7 +510,7 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 void Tracker::processSensor(const json& mes) {
 
 	string slamtype = "aligned_slam_pose";
-	if (synth_live_slam_mode) slamtype = "aligned_live_slam_pose"; 
+	if (synth_live_slam_mode) slamtype = INTEGRATION_POSE_NAME; 
 	// With synth SLAM failures, the aligned_live_slam_pose are essentially the same gravity aligned poses as
 	// aligned SLAM pose, but with a deformation
 	// so to finish making the synthetic failure, we just integrate on top of the aligned_live_slam_pose for some time

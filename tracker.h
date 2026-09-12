@@ -124,6 +124,7 @@ public:
     //emulator parameter, toggles between Flock and IMU only
     bool use_uwb;
     bool synth_live_slam_mode; // run an imu integration for synthetic live SLAM
+    string INTEGRATION_POSE_NAME;
     int imu_counter = 0;
 
 	deque<json> gt_pose_buffer;

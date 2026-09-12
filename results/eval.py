@@ -137,44 +137,49 @@ def run_eval(args):
     if synth_failures:
         # Need to complete the synthetic failure by running the graph in live-SLAM mode
         if not args.no_run:
-            run_config = "live-slam-integration"
-            print(f"Completing synthetic failure! Running graph with {run_config}")
-            subprocess.run([
-                exe_path,
-                args.trial_name,
-                "none",
-                run_config,
-                "0.0",
-                "true"
-            ],
-            capture_output=True,
-            text=True)
-            print("Graph complete")
-            # /home/antond2/Desktop/Research/MultiXR-Post/2/collect/opti_multi1_free_circle_nuc2_raw/meta.json
 
-        output_synth_slam = json.load(open(f"{results_path}/aligned_live_slam.json",'r')) # Fetch what we generated with the graph
-        metadata = json.load(open(f"/home/antond2/Desktop/Research/MultiXR-Post/{args.id}/collect/{args.trial_name}_nuc{args.id}_raw/meta.json", 'r'))
-        all_data_start_ts = metadata["start_ns"] * 1e-9
+            # Complete the integration once in the aligned frame, then once in the local frame (for Cappella)
+            for run_config in ["live-slam-integration", "localframe-live-slam-integration"]:
 
-        input_synth_slam = [j for j in json.load(open(f"{post_path}/all.json")) if j["type"] == "aligned_live_slam_pose"]
+                print(f"Completing synthetic failure! Running graph with {run_config}")
+                subprocess.run([
+                    exe_path,
+                    args.trial_name,
+                    "none",
+                    run_config,
+                    "0.0",
+                    "true"
+                ],
+                capture_output=True,
+                text=True)
+                print("Graph complete")
+                # /home/antond2/Desktop/Research/MultiXR-Post/2/collect/opti_multi1_free_circle_nuc2_raw/meta.json
 
-        for interval in fails:
-            start_fail = all_data_start_ts + interval["start"]
-            init_newmap = all_data_start_ts + interval["init_newmap"]
-            end_fail = all_data_start_ts + interval["end"]
+        # Now re-apply annotations to the completed synthetic trajectories.
+        for filename in ["aligned_live_slam", "localframe_live_slam"]:
+            output_synth_slam = json.load(open(f"{results_path}/{filename}.json",'r')) # Fetch what we generated with the graph
+            metadata = json.load(open(f"/home/antond2/Desktop/Research/MultiXR-Post/{args.id}/collect/{args.trial_name}_nuc{args.id}_raw/meta.json", 'r'))
+            all_data_start_ts = metadata["start_ns"] * 1e-9
 
-            for j in output_synth_slam:
-                if init_newmap > j["t"] > start_fail: j["status"] = "imu"
-                elif end_fail > j["t"] >= init_newmap: j["status"] = "init_newmap"
+            # input_synth_slam = [j for j in json.load(open(f"{post_path}/all.json")) if j["type"] == "aligned_live_slam_pose"]
 
-        class NumpyEncoder(json.JSONEncoder):
-            def default(self, obj):
-                if isinstance(obj, np.ndarray):
-                    return obj.tolist()
-                if hasattr(obj, '__dict__'):
-                    return vars(obj)
-                return super().default(obj)
-        json.dump(output_synth_slam, open(f"{results_path}/aligned_live_slam.json",'w'), cls=NumpyEncoder, indent=1)
+            for interval in fails:
+                start_fail = all_data_start_ts + interval["start"]
+                init_newmap = all_data_start_ts + interval["init_newmap"]
+                end_fail = all_data_start_ts + interval["end"]
+
+                for j in output_synth_slam:
+                    if init_newmap > j["t"] > start_fail: j["status"] = "imu"
+                    elif end_fail > j["t"] >= init_newmap: j["status"] = "init_newmap"
+
+            class NumpyEncoder(json.JSONEncoder):
+                def default(self, obj):
+                    if isinstance(obj, np.ndarray):
+                        return obj.tolist()
+                    if hasattr(obj, '__dict__'):
+                        return vars(obj)
+                    return super().default(obj)
+            json.dump(output_synth_slam, open(f"{results_path}/{filename}.json",'w'), cls=NumpyEncoder, indent=1)
 
     print()
 
@@ -375,7 +380,15 @@ def run_eval(args):
         print()
         print("----------------------------------")
 
-    
+    for run_config, name in [('uwb', "Cappella")]:
+
+        ### call a run_cappella function
+            # loads data
+            # converts to cappella format
+            # feeds to cappella
+            
+        continue
+
     # Add SLAM trajectory to the error metrics:
     # Print metrics for each individual failure segment
 

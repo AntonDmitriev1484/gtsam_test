@@ -31,7 +31,16 @@ int main(int argc, char* argv[]) {
 	std::string dump_str = argv[5];
     bool log_dump = (dump_str == "true"); // We ignore this and dump anyways
 	bool use_uwb = (uwb_str == "uwb");
-	bool synth_live_slam_mode = (uwb_str == "live-slam-integration");
+
+	// arg 'live-slam-integration' -> use "aligned_live_slam_pose" This was for the original evaluation
+	// arg 'localframe-live-slam-integration' -> use "localframe_live_slam_pose" This is for evaluating synthetic failures with Cappella
+
+	bool synth_live_slam_mode = (uwb_str == "live-slam-integration") || (uwb_str == "localframe-live-slam-integration");
+	string INTEGRATION_POSE_NAME = "aligned_live_slam_pose";
+	if (uwb_str == "localframe-live-slam-integration") {
+		INTEGRATION_POSE_NAME = "localframe_live_slam_pose";
+	}
+
 
 	bool use_gt = true;
 	bool synthetic = synthetic_trial_name != "none";
@@ -118,6 +127,8 @@ int main(int argc, char* argv[]) {
 			prior_velocity,
 			out_dir,
 			debug_dir);
+		
+		t.INTEGRATION_POSE_NAME = INTEGRATION_POSE_NAME;
 
 		t.init_anchors(anchor_stream);
 		t.init_state(sensor_stream); 
@@ -137,17 +148,32 @@ int main(int argc, char* argv[]) {
 		// Dump all tracker trajectories
 
 		if (synth_live_slam_mode) {
-			ofstream result_trajectory_fs("/home/antond2/Desktop/Research/gtsam_test/results/out/multi/"+to_string(user)+"/"+trial_name+"/aligned_live_slam.txt");
-			ofstream result_trajectory_htm_json_fs("/home/antond2/Desktop/Research/gtsam_test/results/out/multi/"+to_string(user)+"/"+trial_name+"/aligned_live_slam.json");
-			
-			// Write estimated poses to TUM so we can use in evaluation.
-			write_trajectory_TUM_format( t.track.slam_poses, t.track.slam_timestamps, result_trajectory_fs);
-			result_trajectory_fs.close();
+			if ((uwb_str == "live-slam-integration")){
+				ofstream result_trajectory_fs("/home/antond2/Desktop/Research/gtsam_test/results/out/multi/"+to_string(user)+"/"+trial_name+"/aligned_live_slam.txt");
+				ofstream result_trajectory_htm_json_fs("/home/antond2/Desktop/Research/gtsam_test/results/out/multi/"+to_string(user)+"/"+trial_name+"/aligned_live_slam.json");
+				
+				// Write estimated poses to TUM so we can use in evaluation.
+				write_trajectory_TUM_format( t.track.slam_poses, t.track.slam_timestamps, result_trajectory_fs);
+				result_trajectory_fs.close();
 
-			// Write estimated poses to a json so they can be plotted
-			write_trajectory_HTM_JSON_format (t.track.slam_poses, t.track.slam_timestamps, result_trajectory_htm_json_fs, 
-				"aligned_live_slam_pose", t.start, t.init_newmap, t.end);
-			result_trajectory_htm_json_fs.close();
+				// Write estimated poses to a json so they can be plotted
+				write_trajectory_HTM_JSON_format (t.track.slam_poses, t.track.slam_timestamps, result_trajectory_htm_json_fs, 
+					"aligned_live_slam_pose", t.start, t.init_newmap, t.end);
+				result_trajectory_htm_json_fs.close();
+			}
+			else if (uwb_str == "localframe-live-slam-integration") {
+				ofstream result_trajectory_fs("/home/antond2/Desktop/Research/gtsam_test/results/out/multi/"+to_string(user)+"/"+trial_name+"/localframe_live_slam.txt");
+				ofstream result_trajectory_htm_json_fs("/home/antond2/Desktop/Research/gtsam_test/results/out/multi/"+to_string(user)+"/"+trial_name+"/localframe_live_slam.json");
+				
+				// Write estimated poses to TUM so we can use in evaluation.
+				write_trajectory_TUM_format( t.track.slam_poses, t.track.slam_timestamps, result_trajectory_fs);
+				result_trajectory_fs.close();
+
+				// Write estimated poses to a json so they can be plotted
+				write_trajectory_HTM_JSON_format (t.track.slam_poses, t.track.slam_timestamps, result_trajectory_htm_json_fs, 
+					"localframe_live_slam_pose", t.start, t.init_newmap, t.end);
+				result_trajectory_htm_json_fs.close();
+			}
 		}
 		else {
 			write_trajectory_TUM_format( t.track.est_poses, t.track.est_timestamps, t.estimated_trajectory_fs);
