@@ -14,7 +14,10 @@ from plot_runtimes import plot_isam_runtimes
 
 import sys
 sys.path.append("/home/antond2/Desktop/Research/MultiXR-Post/")
+sys.path.append("/home/antond2/Desktop/Research/Cappella/")
 from plot_all import plot_trial_paper
+from convert_to_cappella import convert_to_cappella
+from run_cappella import run_cappella
 from types import SimpleNamespace
 
 import copy
@@ -193,13 +196,15 @@ def run_eval(args):
     metric_report = {
         "IMU": [],
         "Flock": [],
+        "Cappella": [],
         "Live-SLAM": []
     }
 
     plot_report = {
-        "IMU": None,
-        "Flock": None,
-        "Live-SLAM": None
+        "IMU": [],
+        "Flock": [],
+        "Cappella": [],
+        "Live-SLAM": []
     }
 
 
@@ -380,14 +385,114 @@ def run_eval(args):
         print()
         print("----------------------------------")
 
-    for run_config, name in [('uwb', "Cappella")]:
+    for _, name in [('uwb', "Cappella")]:
 
-        ### call a run_cappella function
-            # loads data
-            # converts to cappella format
-            # feeds to cappella
+        print(f"Running {name}")
+
+        real_trials = [
+            'multi2_follow_loss2',
+            'multi2_trip_loss',
+            'multi2_board_loss3'
+        ]
+        trial_with_real_failures = args.trial_name in real_trials
+
+        # Assuming all failures have been added.
+        convert_to_cappella(args.trial_name, real_failures=trial_with_real_failures)
+        run_cappella(args.trial_name, plot=False)
+
+        eval_paths = SimpleNamespace()
+        eval_paths.est_path = f"/home/antond2/Desktop/Research/Cappella/results/out/multi/{args.id}/{args.trial_name}/est_cappella.txt"
+        eval_paths.opti_path = f"{post_path}/opti.txt"
+
+        
+        # Evaluate with EVO
+        # We have the estimated trajectory as a .txt in TUM format and .json in HTM format
+        # We have the optitrack trajectory as a .json in all.json
+        est_traj = []
+        gt_traj = []
+        try:
+            est_traj = file_interface.read_tum_trajectory_file(eval_paths.est_path)
+            gt_traj = file_interface.read_tum_trajectory_file(eval_paths.opti_path)
+            if len(est_traj.timestamps) == 0:
+                print(f"Empty estimated trajectory: {eval_paths.est_path}")
+                return None, None
+            if len(gt_traj.timestamps) == 0:
+                print(f"Empty ground-truth trajectory: {eval_paths.opti_path}")
+                return None, None
+        except Exception as e:
+            print(e)
+            return None, None
+
+        traj_ref_sync, traj_est_sync = sync.associate_trajectories(
+                                            gt_traj,
+                                            est_traj,
+                                            max_diff = 0.05
+                                        )
+        print(f"Error Metrics")
+        print()
+
+        # Print metrics over entire trajectory
+        # print(f"Entire trajectory")
+        ape_trans, ape_rot, rpe_trans, rpe_rot = dump_stats(traj_ref_sync, traj_est_sync, print_stat=False)
+        metric_report[name].append(
+            {
+                "full_traj": True,
+                "ape_trans": ape_trans,
+                "ape_rot": ape_rot,
+                "rpe_trans": rpe_trans,
+                "rpe_rot": rpe_rot,
+            }
+        )
+        print()
+
+        # Print metrics for each individual failure segment
+        # So this is not the right interval that I'm looking at.
+        for interval in fails:
+            # start, end = traj_ref_sync.timestamps[0] + interval["start"] , traj_ref_sync.timestamps[0] + interval["end"]
+            start, end = (metadata["start_ns"] * 1e-9) + interval["start"] , (metadata["start_ns"] * 1e-9) + interval["end"]
+
+            print(f"Failure {interval["start"]}s - {interval["end"]}s")
+
+            ref_ids = np.where(
+                (traj_ref_sync.timestamps >= start) &
+                (traj_ref_sync.timestamps <= end)
+            )[0]
+
+            est_ids = np.where(
+                (traj_est_sync.timestamps >= start) &
+                (traj_est_sync.timestamps <= end)
+            )[0]
+
+            ids = est_ids
+
+            if len(traj_est_sync.timestamps) == 0:
+                print(f"Empty estimated trajectory")
+                return None, None
+            if len(traj_ref_sync.timestamps) == 0:
+                print(f"Empty ground-truth trajectory")
+                return None, None
             
-        continue
+            try:
+                cropped_traj_ref_sync = crop_traj_by_time(traj_ref_sync, ids) # Need to limit to the smallest number of poses?
+                cropped_traj_est_sync = crop_traj_by_time(traj_est_sync, ids)
+            except Exception as e:
+                print(e)
+                return None, None
+
+            crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
+
+            metric_report[name].append(
+                {
+                    "fail": interval,
+                    "ape_trans": crop_ape_trans,
+                    "ape_rot": crop_ape_rot,
+                    "rpe_trans": crop_rpe_trans,
+                    "rpe_rot": crop_rpe_rot,
+                }
+            )
+        
+        print()
+        print("----------------------------------")
 
     # Add SLAM trajectory to the error metrics:
     # Print metrics for each individual failure segment
@@ -397,6 +502,12 @@ def run_eval(args):
     else:
         name = "Synthetic Live SLAM"
     print(f"Comparing with {name}")
+
+    eval_paths = SimpleNamespace()
+    if real_failures: eval_paths.slam_path = f"{post_path}/aligned_live_slam.txt" # Fetch the real live SLAM from all.json
+    else: eval_paths.slam_path = f"{results_path}/aligned_live_slam.txt" # Fetch what we generated with the graph
+    eval_paths.est_path = f"{results_path}/est_{run_config}.txt"
+    eval_paths.opti_path = f"{post_path}/opti.txt"
 
     slam_traj = []
     try:
