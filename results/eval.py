@@ -7,6 +7,7 @@ import json
 import numpy as np
 
 from evo.tools import file_interface
+from evo.tools import plot as evo_plot
 from evo.core import metrics
 from evo.core import sync
 from evo.core.trajectory import PoseTrajectory3D
@@ -33,8 +34,28 @@ def crop_traj_by_time(traj, ids):
         orientations_quat_wxyz=traj.orientations_quat_wxyz[ids],
         timestamps=traj.timestamps[ids]
     )
+def angle_between(v1, v2):
+    cos_theta = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+    cos_theta = np.clip(cos_theta, -1.0, 1.0)
+    return np.degrees(np.arccos(cos_theta))
 
-def dump_stats(traj_ref_sync, traj_est_sync, print_stat=True):
+
+def dump_stats(traj_ref_sync, traj_est_sync, print_stat=True, label=""):
+
+    # Plot the synced reference/estimate pair with evo's own trajectory plotter
+    # try:
+    #     evo_fig = plt.figure(figsize=(7, 6))
+    #     evo_ax = evo_plot.prepare_axis(evo_fig, evo_plot.PlotMode.xyz)
+    #     evo_plot.traj(evo_ax, evo_plot.PlotMode.xyz, traj_ref_sync,
+    #                   style='--', color='gray', label='reference',
+    #                   plot_start_end_markers=True)
+    #     evo_plot.traj(evo_ax, evo_plot.PlotMode.xyz, traj_est_sync,
+    #                   style='-', color='blue', label='estimate',
+    #                   plot_start_end_markers=True)
+    #     evo_ax.set_title(f"{label} ({len(traj_est_sync.timestamps)} synced poses)")
+    #     evo_ax.legend()
+    # except Exception as e:
+    #     print(e)
 
     # Translation APE
     ape_metric_trans, ape_metric_rot = (None, None)
@@ -42,16 +63,14 @@ def dump_stats(traj_ref_sync, traj_est_sync, print_stat=True):
         ape_metric_trans = metrics.APE(metrics.PoseRelation.translation_part)
         ape_metric_trans.process_data((traj_ref_sync, traj_est_sync))
         ape_stats = ape_metric_trans.get_all_statistics()
-        # print(f"    Translation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
-        if print_stat: print(f" Translation APE {json.dumps(ape_stats, indent=1)}")
+        # if print_stat: print(f" Translation APE {json.dumps(ape_stats, indent=1)}")
 
         # Rotation APE
         ape_metric_rot = metrics.APE(metrics.PoseRelation.rotation_angle_deg)
         ape_metric_rot.process_data((traj_ref_sync, traj_est_sync))
         ape_stats = ape_metric_rot.get_all_statistics()
-        # print(f" Rotational APE {json.dumps(ape_stats, indent=1)}")
-        # print(f"    Rotation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
-        if print_stat: print(f" Rotation APE {json.dumps(ape_stats, indent=1)}")
+       
+        # if print_stat: print(f" Rotation APE {json.dumps(ape_stats, indent=1)}")
     except Exception as e:
         print(e)
 
@@ -68,13 +87,61 @@ def dump_stats(traj_ref_sync, traj_est_sync, print_stat=True):
         rpe_metric_rot = metrics.RPE(metrics.PoseRelation.rotation_angle_deg, delta=1.0, delta_unit=metrics.Unit.meters)
         rpe_metric_rot.process_data((traj_ref_sync, traj_est_sync))
         rpe_stats = rpe_metric_rot.get_all_statistics()
-        # print(f" Rotational APE {json.dumps(ape_stats, indent=1)}")
-        # print(f"    Rotation APE,\n\t{ape_stats["mean"]=},\n\t{ape_stats["rmse"]=}")
-        # print(f" Rotation APE {json.dumps(ape_stats, indent=1)}")
+
     except Exception as e:
         print(e)
 
-    return ape_metric_trans, ape_metric_rot, rpe_metric_trans, rpe_metric_rot
+    try:
+        # Jitter
+        jitter = [] # This is only considering translational jitter.
+        jitter_est = [] # non-normalized
+        jitter_est_displacement = [] # non-normalized and no angle scaling.
+
+        ref_pos = traj_ref_sync.positions_xyz
+        est_pos = traj_est_sync.positions_xyz
+
+        for i in range(len(est_pos) - 2):
+
+            # Compute on est
+            window = est_pos[i:i+3]
+            d1 = window[1] - window[0]
+            d2 = window[2] - window[1] # displacement of jitter
+            theta = 180 - angle_between(d1, d2)
+            est_displacement = np.linalg.norm(d1) + np.linalg.norm(d2)
+            est_angle = (theta/360)
+
+            # Compute on ref
+            window = ref_pos[i:i+3]
+            d1 = window[1] - window[0]
+            d2 = window[2] - window[1] # displacement of jitter
+            theta = 180  - angle_between(d1, d2)
+            ref_displacement = np.linalg.norm(d1) + np.linalg.norm(d2)
+            ref_angle = (theta/360)
+
+            jitter.append( (est_displacement*est_angle) - (ref_displacement*ref_angle) )
+            jitter_est.append((est_displacement*est_angle))
+            jitter_est_displacement.append(est_displacement)
+
+
+        if print_stat and len(jitter) > 0:
+            for name, arr in [("Jitter",jitter), ("Jitter Estimate-only", jitter_est), \
+                              ("Jitter Estimate-displacement", jitter_est_displacement)]:
+                arr = np.array(arr)
+                jitter_stats = {
+                    "mean": float(np.nanmean(arr)),
+                    "median": float(np.nanmedian(arr)),
+                    "min": float(np.nanmin(arr)),
+                    "max": float(np.nanmax(arr)),
+                    "std": float(np.nanstd(arr)),
+                    "rmse": float(np.sqrt(np.nanmean(arr ** 2))),
+                }
+                print(f" {name} {json.dumps(jitter_stats, indent=1)}")
+
+    except Exception as e:
+        print(e)
+
+    return ape_metric_trans, ape_metric_rot, rpe_metric_trans, rpe_metric_rot, \
+        jitter, jitter_est, jitter_est_displacement
 
 def plot_metric_cdf(
     metric,
@@ -284,7 +351,7 @@ def run_eval(args):
 
         # Print metrics over entire trajectory
         # print(f"Entire trajectory")
-        ape_trans, ape_rot, rpe_trans, rpe_rot = dump_stats(traj_ref_sync, traj_est_sync, print_stat=False)
+        ape_trans, ape_rot, rpe_trans, rpe_rot, jitter, jitter_est, jitter_est_displacement = dump_stats(traj_ref_sync, traj_est_sync)
         metric_report[name].append(
             {
                 "full_traj": True,
@@ -334,7 +401,7 @@ def run_eval(args):
                 print(e)
                 return None, None
 
-            crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
+            crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot, crop_jitter, crop_jitter_est, crop_jitter_est_displacement = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
 
             if not args.no_plot:
                 plot_metric_cdf(
@@ -433,7 +500,9 @@ def run_eval(args):
 
         # Print metrics over entire trajectory
         # print(f"Entire trajectory")
-        ape_trans, ape_rot, rpe_trans, rpe_rot = dump_stats(traj_ref_sync, traj_est_sync, print_stat=False)
+        ape_trans, ape_rot, rpe_trans, rpe_rot, jitter, jitter_est, jitter_est_displacement = dump_stats(traj_ref_sync, traj_est_sync)
+
+
         metric_report[name].append(
             {
                 "full_traj": True,
@@ -479,7 +548,7 @@ def run_eval(args):
                 print(e)
                 return None, None
 
-            crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
+            crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot, crop_jitter, crop_jitter_est, crop_jitter_est_displacement = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
 
             metric_report[name].append(
                 {
@@ -522,7 +591,7 @@ def run_eval(args):
                                         max_diff = 0.05
                                     )
     
-    ape_trans, ape_rot, rpe_trans, rpe_rot = dump_stats(traj_ref_sync, traj_est_sync, print_stat=False)
+    ape_trans, ape_rot, rpe_trans, rpe_rot, jitter, jitter_est, jitter_est_displacement = dump_stats(traj_ref_sync, traj_est_sync)
     metric_report["Live-SLAM"].append(
         {
             "full_traj": True,
@@ -553,7 +622,7 @@ def run_eval(args):
         
         cropped_traj_ref_sync = crop_traj_by_time(traj_ref_sync, ids) # Need to limit to the smallest number of poses?
         cropped_traj_est_sync = crop_traj_by_time(traj_est_sync, ids)
-        crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
+        crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot, crop_jitter, crop_jitter_est, crop_jitter_est_displacement = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
 
         if not args.no_plot:
             plot_metric_cdf(

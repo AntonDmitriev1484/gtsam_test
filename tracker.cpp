@@ -107,6 +107,7 @@ Tracker::Tracker(
     const double smoother_lag,
     const bool use_smoother,
     const bool use_filter,
+	const bool use_rcf,
     const bool use_uwb,
 	const bool synth_live_slam_mode,
     const SharedNoiseModel& SLAM_noise_model,
@@ -120,25 +121,28 @@ Tracker::Tracker(
     const string debug_dir
 ) :
     // Filters
-    translation_filt(
-        200.,
-        Eigen::Array<double, 3, 1>::Constant(0.25),
-        Eigen::Array<double, 3, 1>::Constant(0.01),
-        Eigen::Array<double, 3, 1>::Constant(1),
-        Eigen::Array<double, 3, 1>::Zero(),
-        Eigen::Array<double, 3, 1>::Ones(),
-        [](auto& in) { return in.abs(); }
-    ),
-
-	// translation_filt(
+	
+	// Smooth, higher APE
+    // translation_filt(
     //     200.,
     //     Eigen::Array<double, 3, 1>::Constant(0.25),
-    //     Eigen::Array<double, 3, 1>::Constant(5),
+    //     Eigen::Array<double, 3, 1>::Constant(0.01),
     //     Eigen::Array<double, 3, 1>::Constant(1),
     //     Eigen::Array<double, 3, 1>::Zero(),
     //     Eigen::Array<double, 3, 1>::Ones(),
     //     [](auto& in) { return in.abs(); }
     // ),
+
+	// Jittery, lower APE
+	translation_filt(
+        200.,
+        Eigen::Array<double, 3, 1>::Constant(0.25),
+        Eigen::Array<double, 3, 1>::Constant(5),
+        Eigen::Array<double, 3, 1>::Constant(1),
+        Eigen::Array<double, 3, 1>::Zero(),
+        Eigen::Array<double, 3, 1>::Ones(),
+        [](auto& in) { return in.abs(); }
+    ),
 
 	id(id),
 
@@ -173,6 +177,7 @@ Tracker::Tracker(
 
     // Flags / state
     use_filter(use_filter),
+	use_rcf(use_rcf),
     use_uwb(use_uwb),
 	synth_live_slam_mode(synth_live_slam_mode),
     imu_available(0),

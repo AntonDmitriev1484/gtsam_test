@@ -85,6 +85,7 @@ public:
 
     bool use_filter;
     one_euro_filter<Eigen::Array<double, 3, 1>, double> translation_filt;
+    bool use_rcf;
 
     map<int, one_euro_filter<Eigen::Array<double, 1, 1>, double>> range_filt;
     map<int, deque<double>> prev_ranges;
@@ -96,6 +97,7 @@ public:
             const double smoother_lag,
             const bool use_smoother,
             const bool use_filter,
+            const bool use_rcf,
             const bool use_uwb,
             const bool synth_live_slam_mode, 
             const SharedNoiseModel& SLAM_noise_model,

@@ -7,6 +7,8 @@
 #include "/home/antond2/gnuplot-iostream/gnuplot-iostream.h"
 #include <boost/iostreams/stream.hpp>
 #include <boost/iostreams/device/file_descriptor.hpp>
+#include <gtsam/linear/NoiseModel.h>
+#include <gtsam/linear/LossFunctions.h>
 
 
 using PreintegrationType = gtsam::PreintegrationBase;
@@ -19,16 +21,29 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 
 
 int main(int argc, char* argv[]) {
+	// Optional flags, may appear anywhere on the command line:
+	//   --lpf-off : turn OFF the low pass filter on the output (on by default)
+	//   --rcf-on  : turn ON the robust cost function for ranges (off by default)
+	bool lpf_on = true; // low pass filter on output
+	bool rcf_on = false;  // robust cost function for ranges
+	std::vector<std::string> args;
+	for (int i = 1; i < argc; i++) {
+		std::string arg = argv[i];
+		if (arg == "--lpf-off") lpf_on = false;
+		else if (arg == "--rcf-on") rcf_on = true;
+		else args.push_back(arg);
+	}
 
-	if (argc != 6) {
-        std::cerr << "Usage: " << argv[0] << " <trial_name> <synthetic_trial_name or 'none'> <'uwb' or 'no_uwb'> <uwb_noise> <dump (true|false)>" << std::endl;
+	if (args.size() != 5) {
+        std::cerr << "Usage: " << argv[0] << " <trial_name> <synthetic_trial_name or 'none'>"
+		 << " <'uwb' or 'no_uwb'> <uwb_noise> <dump (true|false)> [--lpf-off] [--rcf-on]" << std::endl;
         return 1;
     }
-	std::string trial_name = argv[1];
-    std::string synthetic_trial_name = argv[2];
-	std::string uwb_str = argv[3];
-	std::string uwb_noise_str = argv[4];
-	std::string dump_str = argv[5];
+	std::string trial_name = args[0];
+    std::string synthetic_trial_name = args[1];
+	std::string uwb_str = args[2];
+	std::string uwb_noise_str = args[3];
+	std::string dump_str = args[4];
     bool log_dump = (dump_str == "true"); // We ignore this and dump anyways
 	bool use_uwb = (uwb_str == "uwb");
 
@@ -77,7 +92,12 @@ int main(int argc, char* argv[]) {
 
 		// UWB noise model
 		double uwb_stdev = 0.1;
-		noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
+		noiseModel::Isotropic::shared_ptr uwb_gaussian_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
+		SharedNoiseModel UWB_noise_model = uwb_gaussian_noise_model;
+		if (rcf_on) { // robust cost function downweights range outliers
+			UWB_noise_model = noiseModel::Robust::Create(
+				noiseModel::mEstimator::Huber::Create(1.345), uwb_gaussian_noise_model);
+		}
 		// SLAM noise model - (use to define pose prior)
 		double gt_pos_stdev = 1e-2;
 		double gt_ori_stdev = 1e-2;
@@ -103,7 +123,7 @@ int main(int argc, char* argv[]) {
 
 		const int smoother_lag = 1;
 		const bool use_smoother = true;
-		const bool use_filter = !(synth_live_slam_mode); 
+		const bool use_filter = lpf_on && !(synth_live_slam_mode); 
 		// const bool use_filter = true;
 		// don't use filter when we're synthesizing a live slam by running integration
 
@@ -116,6 +136,7 @@ int main(int argc, char* argv[]) {
 			smoother_lag, 
 			use_smoother, 
 			use_filter,
+			rcf_on,
 			use_uwb,
 			synth_live_slam_mode,
 			SLAM_noise_model, 
