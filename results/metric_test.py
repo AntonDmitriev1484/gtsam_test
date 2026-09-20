@@ -17,8 +17,10 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  (registers the 3d projection)
 
 from evo.tools import file_interface
+from evo.tools import plot as evo_plot
 from evo.core import metrics
 from evo.core import sync
+from evo.core.trajectory import PoseTrajectory3D
 
 
 RUN_CONFIGS = [("no_uwb", "IMU"), ("uwb", "Flock")]
@@ -28,6 +30,23 @@ CONFIG_COLORS = {"no_uwb": "tab:orange", "uwb": "tab:blue"}
 
 JITTER_METRICS = ["Jitter", "Jitter Estimate-only", "Jitter Estimate-displacement"]
 
+
+def read_inverted_tum_trajectory_file(path):
+    """
+    Read a TUM trajectory and invert every pose, keeping evo's format.
+
+    The .txt files store T_body_world (write_trajectory_TUM_format applies
+    .inverse() before writing, and post_process.py builds opti.txt the same
+    way), so the raw translation is the world origin in the body frame rather
+    than the body position in the world. Inverting recovers T_world_body,
+    which is what plot_all plots and what APE/jitter should be computed on.
+    """
+    traj = file_interface.read_tum_trajectory_file(path)
+
+    return PoseTrajectory3D(
+        poses_se3=[np.linalg.inv(pose) for pose in traj.poses_se3],
+        timestamps=traj.timestamps
+    )
 
 def angle_between(v1, v2):
     cos_theta = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
@@ -71,7 +90,7 @@ def compute_jitter(traj_ref_sync, traj_est_sync):
         d1 = window[1] - window[0]
         d2 = window[2] - window[1]  # displacement of jitter
         theta = 180 - angle_between(d1, d2)
-        est_displacement = np.linalg.norm(d1) + np.linalg.norm(d2)
+        est_displacement = (np.linalg.norm(d1) + np.linalg.norm(d2)) / np.linalg.norm(window[2]-window[0])
         est_angle = (theta / 360)
 
         # Compute on ref
@@ -79,7 +98,7 @@ def compute_jitter(traj_ref_sync, traj_est_sync):
         d1 = window[1] - window[0]
         d2 = window[2] - window[1]  # displacement of jitter
         theta = 180 - angle_between(d1, d2)
-        ref_displacement = np.linalg.norm(d1) + np.linalg.norm(d2)
+        ref_displacement = (np.linalg.norm(d1) + np.linalg.norm(d2)) / np.linalg.norm(window[2]-window[0])
         ref_angle = (theta / 360)
 
         jitter.append((est_displacement * est_angle) - (ref_displacement * ref_angle))
@@ -219,7 +238,7 @@ def run_metric_test(args):
     opti_path = f"{post_path}/opti.txt"
 
     try:
-        gt_traj = file_interface.read_tum_trajectory_file(opti_path)
+        gt_traj = read_inverted_tum_trajectory_file(opti_path)
     except Exception as e:
         print(f"Could not read ground-truth trajectory {opti_path}: {e}")
         return None
@@ -238,7 +257,7 @@ def run_metric_test(args):
             continue
 
         try:
-            est_traj = file_interface.read_tum_trajectory_file(est_path)
+            est_traj = read_inverted_tum_trajectory_file(est_path)
         except Exception as e:
             print(f"Could not read {est_path}: {e}")
             continue

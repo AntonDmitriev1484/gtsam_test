@@ -24,6 +24,24 @@ from types import SimpleNamespace
 import copy
 
 
+def read_inverted_tum_trajectory_file(path):
+    """
+    Read a TUM trajectory and invert every pose, keeping evo's format.
+
+    The .txt files store T_body_world (write_trajectory_TUM_format applies
+    .inverse() before writing, and post_process.py builds opti.txt the same
+    way), so the raw translation is the world origin in the body frame rather
+    than the body position in the world. Inverting recovers T_world_body,
+    which is what plot_all plots and what APE/jitter should be computed on.
+    """
+    traj = file_interface.read_tum_trajectory_file(path)
+
+    return PoseTrajectory3D(
+        poses_se3=[np.linalg.inv(pose) for pose in traj.poses_se3],
+        timestamps=traj.timestamps
+    )
+
+
 def crop_traj_by_time(traj, ids):
     """
     Crop evo trajectory to timestamps in [t_start, t_end]
@@ -63,7 +81,7 @@ def dump_stats(traj_ref_sync, traj_est_sync, print_stat=True, label=""):
         ape_metric_trans = metrics.APE(metrics.PoseRelation.translation_part)
         ape_metric_trans.process_data((traj_ref_sync, traj_est_sync))
         ape_stats = ape_metric_trans.get_all_statistics()
-        # if print_stat: print(f" Translation APE {json.dumps(ape_stats, indent=1)}")
+        if print_stat: print(f" Translation APE {json.dumps(ape_stats, indent=1)}")
 
         # Rotation APE
         ape_metric_rot = metrics.APE(metrics.PoseRelation.rotation_angle_deg)
@@ -135,7 +153,7 @@ def dump_stats(traj_ref_sync, traj_est_sync, print_stat=True, label=""):
                     "std": float(np.nanstd(arr)),
                     "rmse": float(np.sqrt(np.nanmean(arr ** 2))),
                 }
-                print(f" {name} {json.dumps(jitter_stats, indent=1)}")
+                # print(f" {name} {json.dumps(jitter_stats, indent=1)}")
 
     except Exception as e:
         print(e)
@@ -276,6 +294,7 @@ def run_eval(args):
 
 
     for run_config, name in [('no_uwb', "IMU"), ('uwb', "Flock")]:
+
         ### Run graph executable
         if not args.no_run:
             print(f"Running graph with {run_config}")
@@ -329,8 +348,8 @@ def run_eval(args):
         est_traj = []
         gt_traj = []
         try:
-            est_traj = file_interface.read_tum_trajectory_file(eval_paths.est_path)
-            gt_traj = file_interface.read_tum_trajectory_file(eval_paths.opti_path)
+            est_traj = read_inverted_tum_trajectory_file(eval_paths.est_path)
+            gt_traj = read_inverted_tum_trajectory_file(eval_paths.opti_path)
             if len(est_traj.timestamps) == 0:
                 print(f"Empty estimated trajectory: {eval_paths.est_path}")
                 return None, None
@@ -346,6 +365,7 @@ def run_eval(args):
                                             est_traj,
                                             max_diff = 0.05
                                         )
+        print(f"{name}")
         print(f"Error Metrics")
         print()
 
@@ -478,8 +498,8 @@ def run_eval(args):
         est_traj = []
         gt_traj = []
         try:
-            est_traj = file_interface.read_tum_trajectory_file(eval_paths.est_path)
-            gt_traj = file_interface.read_tum_trajectory_file(eval_paths.opti_path)
+            est_traj = read_inverted_tum_trajectory_file(eval_paths.est_path)
+            gt_traj = read_inverted_tum_trajectory_file(eval_paths.opti_path)
             if len(est_traj.timestamps) == 0:
                 print(f"Empty estimated trajectory: {eval_paths.est_path}")
                 return None, None
@@ -580,7 +600,7 @@ def run_eval(args):
 
     slam_traj = []
     try:
-        slam_traj = file_interface.read_tum_trajectory_file(eval_paths.slam_path)
+        slam_traj = read_inverted_tum_trajectory_file(eval_paths.slam_path)
     except Exception as e:
         print(e)
         return None, None
