@@ -11,6 +11,7 @@ from evo.tools import plot as evo_plot
 from evo.core import metrics
 from evo.core import sync
 from evo.core.trajectory import PoseTrajectory3D
+from scipy.signal import savgol_filter
 from plot_runtimes import plot_isam_runtimes
 
 import sys
@@ -41,6 +42,110 @@ def read_inverted_tum_trajectory_file(path):
         timestamps=traj.timestamps
     )
 
+def percentiles(errors):
+    """p95/p99 of an evo metric's error array, which get_all_statistics omits."""
+    errors = np.asarray(errors, dtype=float)
+    errors = errors[np.isfinite(errors)]
+    if errors.size == 0:
+        return {"p95": float("nan"), "p99": float("nan")}
+    return {
+        "p95": float(np.percentile(errors, 95)),
+        "p99": float(np.percentile(errors, 99)),
+    }
+
+
+# Jerk: uniform grid the positions are resampled onto before differentiating,
+# and the Savitzky-Golay differentiator applied on that grid. Same settings as
+# /home/antond2/Desktop/Research/jitter_metric/test.py
+RESAMPLE_HZ = 100.0
+SG_WINDOW_S = 0.25
+SG_POLYORDER = 5
+
+
+def interp_positions(traj, t):
+    """Linearly interpolate a trajectory's positions onto timestamps t."""
+    ts, idx = np.unique(traj.timestamps, return_index=True)
+    xyz = traj.positions_xyz[idx]
+    return np.column_stack([np.interp(t, ts, xyz[:, k]) for k in range(3)])
+
+
+def compute_jerk(traj_ref_sync, traj_est_sync):
+    """
+    Jerk error between the estimate and the ground truth, as |jerk_est - jerk_gt|.
+
+    Both trajectories are resampled onto a common uniform grid and
+    differentiated three times with a Savitzky-Golay filter, the same way
+    jitter_metric/test.py does it. The returned array is the normalized jerk:
+    the per-sample magnitude of the difference between the two jerk vectors.
+
+    The filter fits a polynomial over a moving window, so the first and last
+    half-window of samples are extrapolated rather than fitted. test.py avoids
+    those by keeping a margin of real data either side of its evaluation
+    window; here the trajectories arrive already synced (and, for failure
+    intervals, already cropped), so there is no margin to draw on and the
+    affected samples are trimmed off instead.
+
+    Returns an empty array if the segment is too short to differentiate.
+    """
+    dt = 1.0 / RESAMPLE_HZ
+
+    lo = max(traj_ref_sync.timestamps[0], traj_est_sync.timestamps[0])
+    hi = min(traj_ref_sync.timestamps[-1], traj_est_sync.timestamps[-1])
+    t = np.arange(lo, hi, dt)
+
+    sg_len = int(round(SG_WINDOW_S / dt)) | 1   # must be odd
+    half = sg_len // 2
+
+    # Needs a full filter window, plus something left over once both edges go
+    if len(t) <= sg_len + 2 * half:
+        return np.array([])
+
+    p_est = interp_positions(traj_est_sync, t)
+    p_ref = interp_positions(traj_ref_sync, t)
+
+    def jerk(p):
+        return savgol_filter(p, sg_len, SG_POLYORDER, deriv=3, delta=dt, axis=0)
+
+    jerk_err = np.linalg.norm(jerk(p_est) - jerk(p_ref), axis=1)
+
+    return jerk_err[half:-half]
+
+
+def compute_jitter(traj_ref_sync, traj_est_sync):
+    """
+    Translational jitter over a 3-pose sliding window, identical to eval.py.
+
+    Returns the two jitter series, the same measure computed on the reference
+    trajectory, and the timestamp of each window's centre pose, so they can be
+    plotted against time.
+    """
+    jitter = []                    # est jitter with the ground-truth jitter subtracted
+    jitter_est = []                # non-normalized
+    jitter_ref = []                # the same measure computed on the reference
+    timestamps = []
+
+    ref_pos = traj_ref_sync.positions_xyz
+    est_pos = traj_est_sync.positions_xyz
+
+    for i in range(len(est_pos) - 2):
+        # Compute on est
+        window = est_pos[i:i + 3]
+        d1 = window[1] - window[0]
+        d2 = window[2] - window[1]  # displacement of jitter
+        est_displacement = (np.linalg.norm(d1) + np.linalg.norm(d2)) / np.linalg.norm(window[2]-window[0])
+
+        # Compute on ref
+        window = ref_pos[i:i + 3]
+        d1 = window[1] - window[0]
+        d2 = window[2] - window[1]  # displacement of jitter
+        ref_displacement = (np.linalg.norm(d1) + np.linalg.norm(d2)) / np.linalg.norm(window[2]-window[0])
+     
+        jitter.append((est_displacement) - (ref_displacement))
+        jitter_est.append((est_displacement))
+        jitter_ref.append((ref_displacement))
+        timestamps.append(traj_est_sync.timestamps[i + 1])
+
+    return np.array(jitter)
 
 def crop_traj_by_time(traj, ids):
     """
@@ -110,56 +215,41 @@ def dump_stats(traj_ref_sync, traj_est_sync, print_stat=True, label=""):
         print(e)
 
     try:
-        # Jitter
-        jitter = [] # This is only considering translational jitter.
-        jitter_est = [] # non-normalized
-        jitter_est_displacement = [] # non-normalized and no angle scaling.
+        arr = compute_jitter(traj_ref_sync, traj_est_sync)
+        jitter_stats = {
+                "mean": float(np.nanmean(arr)),
+                "median": float(np.nanmedian(arr)),
+                "min": float(np.nanmin(arr)),
+                "max": float(np.nanmax(arr)),
+                "std": float(np.nanstd(arr)),
+                "rmse": float(np.sqrt(np.nanmean(arr ** 2))),
+                "p95": float(np.nanpercentile(arr, 95)),
+                "p99": float(np.nanpercentile(arr, 99)),
+            }
+        # if print_stat:
+            # print(f" Jitter {json.dumps(jitter_stats, indent=1)}")
+    except Exception as e:
+        print(e)
 
-        ref_pos = traj_ref_sync.positions_xyz
-        est_pos = traj_est_sync.positions_xyz
-
-        for i in range(len(est_pos) - 2):
-
-            # Compute on est
-            window = est_pos[i:i+3]
-            d1 = window[1] - window[0]
-            d2 = window[2] - window[1] # displacement of jitter
-            theta = 180 - angle_between(d1, d2)
-            est_displacement = np.linalg.norm(d1) + np.linalg.norm(d2)
-            est_angle = (theta/360)
-
-            # Compute on ref
-            window = ref_pos[i:i+3]
-            d1 = window[1] - window[0]
-            d2 = window[2] - window[1] # displacement of jitter
-            theta = 180  - angle_between(d1, d2)
-            ref_displacement = np.linalg.norm(d1) + np.linalg.norm(d2)
-            ref_angle = (theta/360)
-
-            jitter.append( (est_displacement*est_angle) - (ref_displacement*ref_angle) )
-            jitter_est.append((est_displacement*est_angle))
-            jitter_est_displacement.append(est_displacement)
-
-
-        if print_stat and len(jitter) > 0:
-            for name, arr in [("Jitter",jitter), ("Jitter Estimate-only", jitter_est), \
-                              ("Jitter Estimate-displacement", jitter_est_displacement)]:
-                arr = np.array(arr)
-                jitter_stats = {
-                    "mean": float(np.nanmean(arr)),
-                    "median": float(np.nanmedian(arr)),
-                    "min": float(np.nanmin(arr)),
-                    "max": float(np.nanmax(arr)),
-                    "std": float(np.nanstd(arr)),
-                    "rmse": float(np.sqrt(np.nanmean(arr ** 2))),
-                }
-                # print(f" {name} {json.dumps(jitter_stats, indent=1)}")
-
+    jerk = np.array([])
+    try:
+        jerk = compute_jerk(traj_ref_sync, traj_est_sync)
+        jerk_stats = {
+                "mean": float(np.nanmean(jerk)),
+                "median": float(np.nanmedian(jerk)),
+                "min": float(np.nanmin(jerk)),
+                "max": float(np.nanmax(jerk)),
+                "std": float(np.nanstd(jerk)),
+                "rmse": float(np.sqrt(np.nanmean(jerk ** 2))),
+                "p95": float(np.nanpercentile(jerk, 95)),
+                "p99": float(np.nanpercentile(jerk, 99)),
+        }
+        print(f" Jerk {json.dumps(jerk_stats, indent=1)}")
     except Exception as e:
         print(e)
 
     return ape_metric_trans, ape_metric_rot, rpe_metric_trans, rpe_metric_rot, \
-        jitter, jitter_est, jitter_est_displacement
+        jitter_stats, jitter_stats, jitter_stats, jerk
 
 def plot_metric_cdf(
     metric,
@@ -298,14 +388,20 @@ def run_eval(args):
         ### Run graph executable
         if not args.no_run:
             print(f"Running graph with {run_config}")
-            subprocess.run([
+
+            run_args = [
                 exe_path,
                 args.trial_name,
                 "none",
                 run_config,
                 "0.0",
                 "true"
-            ],
+            ]
+
+            if args.lpf_off: run_args.append("--lpf_off")
+            if args.rcf_on: run_args.append("--rcf_on")
+
+            subprocess.run(run_args,
             capture_output=True,
             text=True)
             print("Graph complete")
@@ -371,7 +467,7 @@ def run_eval(args):
 
         # Print metrics over entire trajectory
         # print(f"Entire trajectory")
-        ape_trans, ape_rot, rpe_trans, rpe_rot, jitter, jitter_est, jitter_est_displacement = dump_stats(traj_ref_sync, traj_est_sync)
+        ape_trans, ape_rot, rpe_trans, rpe_rot, jitter, jitter_est, jitter_est_displacement, jerk = dump_stats(traj_ref_sync, traj_est_sync)
         metric_report[name].append(
             {
                 "full_traj": True,
@@ -379,6 +475,7 @@ def run_eval(args):
                 "ape_rot": ape_rot,
                 "rpe_trans": rpe_trans,
                 "rpe_rot": rpe_rot,
+                "jerk": jerk,
             }
         )
         print()
@@ -421,7 +518,7 @@ def run_eval(args):
                 print(e)
                 return None, None
 
-            crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot, crop_jitter, crop_jitter_est, crop_jitter_est_displacement = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
+            crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot, crop_jitter, crop_jitter_est, crop_jitter_est_displacement, crop_jerk = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
 
             if not args.no_plot:
                 plot_metric_cdf(
@@ -466,6 +563,7 @@ def run_eval(args):
                     "ape_rot": crop_ape_rot,
                     "rpe_trans": crop_rpe_trans,
                     "rpe_rot": crop_rpe_rot,
+                    "jerk": crop_jerk,
                 }
             )
         
@@ -520,7 +618,7 @@ def run_eval(args):
 
         # Print metrics over entire trajectory
         # print(f"Entire trajectory")
-        ape_trans, ape_rot, rpe_trans, rpe_rot, jitter, jitter_est, jitter_est_displacement = dump_stats(traj_ref_sync, traj_est_sync)
+        ape_trans, ape_rot, rpe_trans, rpe_rot, jitter, jitter_est, jitter_est_displacement, jerk = dump_stats(traj_ref_sync, traj_est_sync)
 
 
         metric_report[name].append(
@@ -530,6 +628,7 @@ def run_eval(args):
                 "ape_rot": ape_rot,
                 "rpe_trans": rpe_trans,
                 "rpe_rot": rpe_rot,
+                "jerk": jerk,
             }
         )
         print()
@@ -568,7 +667,7 @@ def run_eval(args):
                 print(e)
                 return None, None
 
-            crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot, crop_jitter, crop_jitter_est, crop_jitter_est_displacement = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
+            crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot, crop_jitter, crop_jitter_est, crop_jitter_est_displacement, crop_jerk = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
 
             metric_report[name].append(
                 {
@@ -577,6 +676,7 @@ def run_eval(args):
                     "ape_rot": crop_ape_rot,
                     "rpe_trans": crop_rpe_trans,
                     "rpe_rot": crop_rpe_rot,
+                    "jerk": crop_jerk,
                 }
             )
         
@@ -611,7 +711,7 @@ def run_eval(args):
                                         max_diff = 0.05
                                     )
     
-    ape_trans, ape_rot, rpe_trans, rpe_rot, jitter, jitter_est, jitter_est_displacement = dump_stats(traj_ref_sync, traj_est_sync)
+    ape_trans, ape_rot, rpe_trans, rpe_rot, jitter, jitter_est, jitter_est_displacement, jerk = dump_stats(traj_ref_sync, traj_est_sync)
     metric_report["Live-SLAM"].append(
         {
             "full_traj": True,
@@ -619,6 +719,7 @@ def run_eval(args):
             "ape_rot": ape_rot,
             "rpe_trans": rpe_trans,
             "rpe_rot": rpe_rot,
+            "jerk": jerk,
         }
     )
     print()
@@ -642,7 +743,7 @@ def run_eval(args):
         
         cropped_traj_ref_sync = crop_traj_by_time(traj_ref_sync, ids) # Need to limit to the smallest number of poses?
         cropped_traj_est_sync = crop_traj_by_time(traj_est_sync, ids)
-        crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot, crop_jitter, crop_jitter_est, crop_jitter_est_displacement = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
+        crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot, crop_jitter, crop_jitter_est, crop_jitter_est_displacement, crop_jerk = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
 
         if not args.no_plot:
             plot_metric_cdf(
@@ -705,6 +806,7 @@ def run_eval(args):
                 "ape_rot": crop_ape_rot,
                 "rpe_trans": crop_rpe_trans,
                 "rpe_rot": crop_rpe_rot,
+                "jerk": crop_jerk,
             }
         )
 
@@ -723,5 +825,9 @@ if __name__ == "__main__":
     parser.add_argument("--hide_plots", action="store_true")
     parser.add_argument("--no_plot", action="store_true")
     args = parser.parse_args()
+
+    # Hard coded defaults, added for calls from MultiXR-Eval running component ablation
+    args.lpf_off = False
+    args.rcf_on = False
 
     run_eval(args)

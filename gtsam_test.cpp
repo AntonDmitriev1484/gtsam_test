@@ -29,14 +29,14 @@ int main(int argc, char* argv[]) {
 	std::vector<std::string> args;
 	for (int i = 1; i < argc; i++) {
 		std::string arg = argv[i];
-		if (arg == "--lpf-off") lpf_on = false;
-		else if (arg == "--rcf-on") rcf_on = true;
+		if (arg == "--lpf_off") lpf_on = false;
+		else if (arg == "--rcf_on") rcf_on = true;
 		else args.push_back(arg);
 	}
 
-	if (args.size() != 5) {
+	if (args.size() < 5) {
         std::cerr << "Usage: " << argv[0] << " <trial_name> <synthetic_trial_name or 'none'>"
-		 << " <'uwb' or 'no_uwb'> <uwb_noise> <dump (true|false)> [--lpf-off] [--rcf-on]" << std::endl;
+		 << " <'uwb' or 'no_uwb'> <uwb_noise> <dump (true|false)> [--lpf_off] [--rcf_on]" << std::endl;
         return 1;
     }
 	std::string trial_name = args[0];
@@ -95,8 +95,15 @@ int main(int argc, char* argv[]) {
 		noiseModel::Isotropic::shared_ptr uwb_gaussian_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 		SharedNoiseModel UWB_noise_model = uwb_gaussian_noise_model;
 		if (rcf_on) { // robust cost function downweights range outliers
+			// UWB_noise_model = noiseModel::Robust::Create(
+			// 	noiseModel::mEstimator::Huber::Create(1.345), uwb_gaussian_noise_model);
+		
+			// UWB_noise_model = noiseModel::Robust::Create(
+    		// 	noiseModel::mEstimator::Tukey::Create(5.0), uwb_gaussian_noise_model);
+
 			UWB_noise_model = noiseModel::Robust::Create(
-				noiseModel::mEstimator::Huber::Create(1.345), uwb_gaussian_noise_model);
+    			noiseModel::mEstimator::Tukey::Create(8), uwb_gaussian_noise_model);
+		
 		}
 		// SLAM noise model - (use to define pose prior)
 		double gt_pos_stdev = 1e-2;
@@ -124,7 +131,7 @@ int main(int argc, char* argv[]) {
 		const int smoother_lag = 1;
 		const bool use_smoother = true;
 		const bool use_filter = lpf_on && !(synth_live_slam_mode); 
-		// const bool use_filter = true;
+		// const bool use_filter = false; 
 		// don't use filter when we're synthesizing a live slam by running integration
 
 

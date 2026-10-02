@@ -28,7 +28,10 @@ RUN_CONFIGS = [("no_uwb", "IMU"), ("uwb", "Flock")]
 # Matching colors between the 3D plot and the per-config jitter windows
 CONFIG_COLORS = {"no_uwb": "tab:orange", "uwb": "tab:blue"}
 
-JITTER_METRICS = ["Jitter", "Jitter Estimate-only", "Jitter Estimate-displacement"]
+JITTER_METRICS = ["Jitter", "Jitter Estimate-only"]
+
+# Column order for every reported metric
+STAT_KEYS = ["mean", "median", "min", "max", "std", "rmse", "p95", "p99"]
 
 
 def read_inverted_tum_trajectory_file(path):
@@ -55,10 +58,10 @@ def angle_between(v1, v2):
 
 
 def array_stats(arr):
-    """Same summary statistics evo reports, for a plain array."""
+    """Same summary statistics evo reports, plus percentiles, for a plain array."""
     arr = np.asarray(arr, dtype=float)
     if arr.size == 0:
-        return {k: float("nan") for k in ["mean", "median", "min", "max", "std", "rmse"]}
+        return {k: float("nan") for k in STAT_KEYS}
     return {
         "mean": float(np.nanmean(arr)),
         "median": float(np.nanmedian(arr)),
@@ -66,6 +69,20 @@ def array_stats(arr):
         "max": float(np.nanmax(arr)),
         "std": float(np.nanstd(arr)),
         "rmse": float(np.sqrt(np.nanmean(arr ** 2))),
+        "p95": float(np.nanpercentile(arr, 95)),
+        "p99": float(np.nanpercentile(arr, 99)),
+    }
+
+
+def percentiles(errors):
+    """p95/p99 of an evo metric's error array, which get_all_statistics omits."""
+    errors = np.asarray(errors, dtype=float)
+    errors = errors[np.isfinite(errors)]
+    if errors.size == 0:
+        return {"p95": float("nan"), "p99": float("nan")}
+    return {
+        "p95": float(np.percentile(errors, 95)),
+        "p99": float(np.percentile(errors, 99)),
     }
 
 
@@ -73,12 +90,13 @@ def compute_jitter(traj_ref_sync, traj_est_sync):
     """
     Translational jitter over a 3-pose sliding window, identical to eval.py.
 
-    Returns the three jitter series plus the timestamp of each window's centre
-    pose, so they can be plotted against time.
+    Returns the two jitter series, the same measure computed on the reference
+    trajectory, and the timestamp of each window's centre pose, so they can be
+    plotted against time.
     """
     jitter = []                    # est jitter with the ground-truth jitter subtracted
     jitter_est = []                # non-normalized
-    jitter_est_displacement = []   # non-normalized and no angle scaling
+    jitter_ref = []                # the same measure computed on the reference
     timestamps = []
 
     ref_pos = traj_ref_sync.positions_xyz
@@ -89,52 +107,50 @@ def compute_jitter(traj_ref_sync, traj_est_sync):
         window = est_pos[i:i + 3]
         d1 = window[1] - window[0]
         d2 = window[2] - window[1]  # displacement of jitter
-        theta = 180 - angle_between(d1, d2)
         est_displacement = (np.linalg.norm(d1) + np.linalg.norm(d2)) / np.linalg.norm(window[2]-window[0])
-        est_angle = (theta / 360)
 
         # Compute on ref
         window = ref_pos[i:i + 3]
         d1 = window[1] - window[0]
         d2 = window[2] - window[1]  # displacement of jitter
-        theta = 180 - angle_between(d1, d2)
         ref_displacement = (np.linalg.norm(d1) + np.linalg.norm(d2)) / np.linalg.norm(window[2]-window[0])
-        ref_angle = (theta / 360)
-
-        jitter.append((est_displacement * est_angle) - (ref_displacement * ref_angle))
-        jitter_est.append(est_displacement * est_angle)
-        jitter_est_displacement.append(est_displacement)
+     
+        jitter.append((est_displacement) - (ref_displacement))
+        jitter_est.append((est_displacement))
+        jitter_ref.append((ref_displacement))
         timestamps.append(traj_est_sync.timestamps[i + 1])
 
     return (np.array(jitter), np.array(jitter_est),
-            np.array(jitter_est_displacement), np.array(timestamps))
+            np.array(jitter_ref), np.array(timestamps))
 
 
 def compute_metrics(traj_ref_sync, traj_est_sync):
-    """APE (translation + rotation) and the three jitter series."""
+    """APE (translation + rotation) and the two jitter series."""
     report = {}
 
     ape_trans = metrics.APE(metrics.PoseRelation.translation_part)
     ape_trans.process_data((traj_ref_sync, traj_est_sync))
-    report["APE Translation (m)"] = ape_trans.get_all_statistics()
+    report["APE Translation (m)"] = {
+        **ape_trans.get_all_statistics(), **percentiles(ape_trans.error)}
 
     ape_rot = metrics.APE(metrics.PoseRelation.rotation_angle_deg)
     ape_rot.process_data((traj_ref_sync, traj_est_sync))
-    report["APE Rotation (deg)"] = ape_rot.get_all_statistics()
+    report["APE Rotation (deg)"] = {
+        **ape_rot.get_all_statistics(), **percentiles(ape_rot.error)}
 
-    jitter, jitter_est, jitter_est_disp, jitter_ts = compute_jitter(
+    jitter, jitter_est, jitter_ref, jitter_ts = compute_jitter(
         traj_ref_sync, traj_est_sync)
 
-    series = dict(zip(JITTER_METRICS, [jitter, jitter_est, jitter_est_disp]))
+    series = dict(zip(JITTER_METRICS, [jitter, jitter_est]))
     for name, arr in series.items():
         report[name] = array_stats(arr)
 
-    return report, series, jitter_ts
+    return report, series, jitter_ref, jitter_ts
 
 
 def format_stats(report):
     """Summary statistics as a monospace block, for the console and the figure."""
-    keys = ["mean", "median", "min", "max", "std", "rmse"]
+    keys = STAT_KEYS
     width = max(len(n) for n in report) + 2
 
     lines = [" " * width + "".join(f"{k:>11}" for k in keys)]
@@ -199,6 +215,49 @@ def plot_trajectories_3d(trajectories, gt_traj, args):
         ax.set_ylim(centre[1] - span, centre[1] + span)
         ax.set_zlim(centre[2] - span, centre[2] + span)
         ax.set_box_aspect((1, 1, 1))
+
+    return fig
+
+
+def cdf(arr):
+    """Sorted finite values and their empirical CDF."""
+    arr = np.asarray(arr, dtype=float)
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return np.array([]), np.array([])
+    x = np.sort(arr)
+    return x, np.arange(1, len(x) + 1) / len(x)
+
+
+def plot_jitter_cdf_window(trajectories, args):
+    """Third window: jitter CDF of each estimate against the reference."""
+    fig, ax = plt.subplots(
+        num=f"Jitter CDF - {args.trial_name} (id {args.id})", figsize=(9, 7))
+
+    for run_config, name in RUN_CONFIGS:
+        entry = trajectories.get(run_config)
+        if entry is None:
+            continue
+
+        color = CONFIG_COLORS[run_config]
+
+        x, y = cdf(entry["series"]["Jitter Estimate-only"])
+        if x.size:
+            ax.plot(x, y, color=color, linewidth=1.4, alpha=0.75,
+                    label=f"est_{run_config} ({name})")
+
+        # The reference is synced separately per run config, so plot the one
+        # each estimate was actually compared against.
+        x, y = cdf(entry["jitter_ref"])
+        if x.size:
+            ax.plot(x, y, color=color, linewidth=1.2, linestyle="--", alpha=0.75,
+                    label=f"reference (synced to {run_config})")
+
+    ax.set_xlabel("jitter")
+    ax.set_ylabel("CDF")
+    ax.set_title(f"{args.trial_name} - nuc{args.id} - estimate vs reference jitter")
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="lower right")
 
     return fig
 
@@ -273,7 +332,8 @@ def run_metric_test(args):
         )
 
         try:
-            report, series, jitter_ts = compute_metrics(traj_ref_sync, traj_est_sync)
+            report, series, jitter_ref, jitter_ts = compute_metrics(
+                traj_ref_sync, traj_est_sync)
         except Exception as e:
             print(f"Could not compute metrics for est_{run_config}: {e}")
             continue
@@ -284,6 +344,7 @@ def run_metric_test(args):
             "ref": traj_ref_sync,
             "report": report,
             "series": series,
+            "jitter_ref": jitter_ref,
             "jitter_ts": jitter_ts,
         }
 
@@ -305,6 +366,7 @@ def run_metric_test(args):
             entry = trajectories.get(run_config)
             if entry is not None and len(entry["jitter_ts"]) > 0:
                 plot_jitter_window(run_config, name, entry, args)
+        plot_jitter_cdf_window(trajectories, args)
 
         if not args.hide_plots:
             plt.show()
