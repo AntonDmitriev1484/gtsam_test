@@ -314,7 +314,7 @@ def run_eval(args):
 
     if synth_failures:
         # Need to complete the synthetic failure by running the graph in live-SLAM mode
-        if not args.no_run:
+        if (not args.no_run) and (not args.fast_run):
 
             # Complete the integration once in the aligned frame, then once in the local frame (for Cappella)
             for run_config in ["live-slam-integration", "localframe-live-slam-integration"]:
@@ -333,31 +333,32 @@ def run_eval(args):
                 print("Graph complete")
                 # /home/antond2/Desktop/Research/MultiXR-Post/2/collect/opti_multi1_free_circle_nuc2_raw/meta.json
 
-        # Now re-apply annotations to the completed synthetic trajectories.
-        for filename in ["aligned_live_slam", "localframe_live_slam"]:
-            output_synth_slam = json.load(open(f"{results_path}/{filename}.json",'r')) # Fetch what we generated with the graph
-            metadata = json.load(open(f"/home/antond2/Desktop/Research/MultiXR-Post/{args.id}/collect/{args.trial_name}_nuc{args.id}_raw/meta.json", 'r'))
-            all_data_start_ts = metadata["start_ns"] * 1e-9
+        if not args.fast_run:
+            # Now re-apply annotations to the completed synthetic trajectories.
+            for filename in ["aligned_live_slam", "localframe_live_slam"]:
+                output_synth_slam = json.load(open(f"{results_path}/{filename}.json",'r')) # Fetch what we generated with the graph
+                metadata = json.load(open(f"/home/antond2/Desktop/Research/MultiXR-Post/{args.id}/collect/{args.trial_name}_nuc{args.id}_raw/meta.json", 'r'))
+                all_data_start_ts = metadata["start_ns"] * 1e-9
 
-            # input_synth_slam = [j for j in json.load(open(f"{post_path}/all.json")) if j["type"] == "aligned_live_slam_pose"]
+                # input_synth_slam = [j for j in json.load(open(f"{post_path}/all.json")) if j["type"] == "aligned_live_slam_pose"]
 
-            for interval in fails:
-                start_fail = all_data_start_ts + interval["start"]
-                init_newmap = all_data_start_ts + interval["init_newmap"]
-                end_fail = all_data_start_ts + interval["end"]
+                for interval in fails:
+                    start_fail = all_data_start_ts + interval["start"]
+                    init_newmap = all_data_start_ts + interval["init_newmap"]
+                    end_fail = all_data_start_ts + interval["end"]
 
-                for j in output_synth_slam:
-                    if init_newmap > j["t"] > start_fail: j["status"] = "imu"
-                    elif end_fail > j["t"] >= init_newmap: j["status"] = "init_newmap"
+                    for j in output_synth_slam:
+                        if init_newmap > j["t"] > start_fail: j["status"] = "imu"
+                        elif end_fail > j["t"] >= init_newmap: j["status"] = "init_newmap"
 
-            class NumpyEncoder(json.JSONEncoder):
-                def default(self, obj):
-                    if isinstance(obj, np.ndarray):
-                        return obj.tolist()
-                    if hasattr(obj, '__dict__'):
-                        return vars(obj)
-                    return super().default(obj)
-            json.dump(output_synth_slam, open(f"{results_path}/{filename}.json",'w'), cls=NumpyEncoder, indent=1)
+                class NumpyEncoder(json.JSONEncoder):
+                    def default(self, obj):
+                        if isinstance(obj, np.ndarray):
+                            return obj.tolist()
+                        if hasattr(obj, '__dict__'):
+                            return vars(obj)
+                        return super().default(obj)
+                json.dump(output_synth_slam, open(f"{results_path}/{filename}.json",'w'), cls=NumpyEncoder, indent=1)
 
     print()
 
@@ -384,6 +385,8 @@ def run_eval(args):
 
 
     for run_config, name in [('no_uwb', "IMU"), ('uwb', "Flock")]:
+
+        if args.fast_run and run_config == 'no_uwb': continue
 
         ### Run graph executable
         if not args.no_run:
@@ -572,6 +575,8 @@ def run_eval(args):
 
     for _, name in [('uwb', "Cappella")]:
 
+        if args.fast_run: continue
+
         print(f"Running {name}")
 
         real_trials = [
@@ -686,129 +691,130 @@ def run_eval(args):
     # Add SLAM trajectory to the error metrics:
     # Print metrics for each individual failure segment
 
-    if real_failures:
-        name = "Live SLAM"
-    else:
-        name = "Synthetic Live SLAM"
-    print(f"Comparing with {name}")
+    if not args.fast_run:
+        if real_failures:
+            name = "Live SLAM"
+        else:
+            name = "Synthetic Live SLAM"
+        print(f"Comparing with {name}")
 
-    eval_paths = SimpleNamespace()
-    if real_failures: eval_paths.slam_path = f"{post_path}/aligned_live_slam.txt" # Fetch the real live SLAM from all.json
-    else: eval_paths.slam_path = f"{results_path}/aligned_live_slam.txt" # Fetch what we generated with the graph
-    eval_paths.est_path = f"{results_path}/est_{run_config}.txt"
-    eval_paths.opti_path = f"{post_path}/opti.txt"
+        eval_paths = SimpleNamespace()
+        if real_failures: eval_paths.slam_path = f"{post_path}/aligned_live_slam.txt" # Fetch the real live SLAM from all.json
+        else: eval_paths.slam_path = f"{results_path}/aligned_live_slam.txt" # Fetch what we generated with the graph
+        eval_paths.est_path = f"{results_path}/est_{run_config}.txt"
+        eval_paths.opti_path = f"{post_path}/opti.txt"
 
-    slam_traj = []
-    try:
-        slam_traj = read_inverted_tum_trajectory_file(eval_paths.slam_path)
-    except Exception as e:
-        print(e)
-        return None, None
+        slam_traj = []
+        try:
+            slam_traj = read_inverted_tum_trajectory_file(eval_paths.slam_path)
+        except Exception as e:
+            print(e)
+            return None, None
 
-    traj_ref_sync, traj_est_sync = sync.associate_trajectories(
-                                        gt_traj,
-                                        slam_traj,
-                                        max_diff = 0.05
-                                    )
-    
-    ape_trans, ape_rot, rpe_trans, rpe_rot, jitter, jitter_est, jitter_est_displacement, jerk = dump_stats(traj_ref_sync, traj_est_sync)
-    metric_report["Live-SLAM"].append(
-        {
-            "full_traj": True,
-            "ape_trans": ape_trans,
-            "ape_rot": ape_rot,
-            "rpe_trans": rpe_trans,
-            "rpe_rot": rpe_rot,
-            "jerk": jerk,
-        }
-    )
-    print()
-
-    for interval in fails:
-        # start, end = traj_ref_sync.timestamps[0] + interval["start"] , traj_ref_sync.timestamps[0] + interval["end"]
-        start, end = (metadata["start_ns"] * 1e-9) + interval["start"] , (metadata["start_ns"] * 1e-9) + interval["end"]
-        print(f"Failure {interval["start"]}s - {interval["end"]}s")
-
-        ref_ids = np.where(
-            (traj_ref_sync.timestamps >= start) &
-            (traj_ref_sync.timestamps <= end)
-        )[0]
-
-        est_ids = np.where(
-            (traj_est_sync.timestamps >= start) &
-            (traj_est_sync.timestamps <= end)
-        )[0]
-
-        ids = est_ids
+        traj_ref_sync, traj_est_sync = sync.associate_trajectories(
+                                            gt_traj,
+                                            slam_traj,
+                                            max_diff = 0.05
+                                        )
         
-        cropped_traj_ref_sync = crop_traj_by_time(traj_ref_sync, ids) # Need to limit to the smallest number of poses?
-        cropped_traj_est_sync = crop_traj_by_time(traj_est_sync, ids)
-        crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot, crop_jitter, crop_jitter_est, crop_jitter_est_displacement, crop_jerk = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
-
-        if not args.no_plot:
-            plot_metric_cdf(
-                crop_ape_trans,
-                fig=cfig,
-                ax=caxt,
-                label=name,
-                title=f"Failure {interval["start"]}s - {interval["end"]}s",
-                xlabel="APE Translation Error (m)"
-            )
-            plot_metric_cdf(
-                crop_ape_rot,
-                fig=cfig,
-                ax=caxr,
-                label=name,
-                title=f"Failure {interval["start"]}s - {interval["end"]}s",
-                xlabel="APE Rotation Error (deg)"
-            )
-
-                        # Plot CDF over entire trajectory
-            plot_metric_cdf(
-                crop_rpe_trans,
-                fig=cfig,
-                ax=axt,
-                label=name,
-                title=f"Failure {interval["start"]}s - {interval["end"]}s",
-                xlabel="RPE (Delta=1m) Translation Error (m)"
-            )
-            plot_metric_cdf(
-                crop_rpe_rot,
-                fig=cfig,
-                ax=axr,
-                label=name,
-                title=f"Failure {interval["start"]}s - {interval["end"]}s",
-                xlabel="RPE (Delta=1m) Rotation Error (deg)"
-            )
-
-        plot_paths = SimpleNamespace()
-        if real_failures: plot_paths.live_slam_path = f"{post_path}/all.json" # Fetch the real live SLAM from all.json
-        else: plot_paths.live_slam_path = f"{results_path}/aligned_live_slam.json" # Fetch what we generated with the graph
-        plot_paths.post_slam_path = f"{post_path}/all.json"
-        plot_paths.est_path = None
-        plot_paths.opti_path = f"{post_path}/all.json"
-        plot_paths.slam_path = f"{post_path}/all.json" # I belive this is unaligned post SLAM always
-
-        if not args.no_plot:
-            # Plot trajectories with MultiXR-Post
-            plot_report["Live-SLAM"] = plot_trial_paper(args.id, 
-                    args.trial_name,
-                    slam_stride = -1,
-                    label_text = "Live-SLAM",
-                    show_live_slam = True,
-                    paths=plot_paths,
-                    show=False)
-
+        ape_trans, ape_rot, rpe_trans, rpe_rot, jitter, jitter_est, jitter_est_displacement, jerk = dump_stats(traj_ref_sync, traj_est_sync)
         metric_report["Live-SLAM"].append(
             {
-                "fail": interval,
-                "ape_trans": crop_ape_trans,
-                "ape_rot": crop_ape_rot,
-                "rpe_trans": crop_rpe_trans,
-                "rpe_rot": crop_rpe_rot,
-                "jerk": crop_jerk,
+                "full_traj": True,
+                "ape_trans": ape_trans,
+                "ape_rot": ape_rot,
+                "rpe_trans": rpe_trans,
+                "rpe_rot": rpe_rot,
+                "jerk": jerk,
             }
         )
+        print()
+
+        for interval in fails:
+            # start, end = traj_ref_sync.timestamps[0] + interval["start"] , traj_ref_sync.timestamps[0] + interval["end"]
+            start, end = (metadata["start_ns"] * 1e-9) + interval["start"] , (metadata["start_ns"] * 1e-9) + interval["end"]
+            print(f"Failure {interval["start"]}s - {interval["end"]}s")
+
+            ref_ids = np.where(
+                (traj_ref_sync.timestamps >= start) &
+                (traj_ref_sync.timestamps <= end)
+            )[0]
+
+            est_ids = np.where(
+                (traj_est_sync.timestamps >= start) &
+                (traj_est_sync.timestamps <= end)
+            )[0]
+
+            ids = est_ids
+            
+            cropped_traj_ref_sync = crop_traj_by_time(traj_ref_sync, ids) # Need to limit to the smallest number of poses?
+            cropped_traj_est_sync = crop_traj_by_time(traj_est_sync, ids)
+            crop_ape_trans, crop_ape_rot, crop_rpe_trans, crop_rpe_rot, crop_jitter, crop_jitter_est, crop_jitter_est_displacement, crop_jerk = dump_stats(cropped_traj_ref_sync, cropped_traj_est_sync)
+
+            if not args.no_plot:
+                plot_metric_cdf(
+                    crop_ape_trans,
+                    fig=cfig,
+                    ax=caxt,
+                    label=name,
+                    title=f"Failure {interval["start"]}s - {interval["end"]}s",
+                    xlabel="APE Translation Error (m)"
+                )
+                plot_metric_cdf(
+                    crop_ape_rot,
+                    fig=cfig,
+                    ax=caxr,
+                    label=name,
+                    title=f"Failure {interval["start"]}s - {interval["end"]}s",
+                    xlabel="APE Rotation Error (deg)"
+                )
+
+                            # Plot CDF over entire trajectory
+                plot_metric_cdf(
+                    crop_rpe_trans,
+                    fig=cfig,
+                    ax=axt,
+                    label=name,
+                    title=f"Failure {interval["start"]}s - {interval["end"]}s",
+                    xlabel="RPE (Delta=1m) Translation Error (m)"
+                )
+                plot_metric_cdf(
+                    crop_rpe_rot,
+                    fig=cfig,
+                    ax=axr,
+                    label=name,
+                    title=f"Failure {interval["start"]}s - {interval["end"]}s",
+                    xlabel="RPE (Delta=1m) Rotation Error (deg)"
+                )
+
+            plot_paths = SimpleNamespace()
+            if real_failures: plot_paths.live_slam_path = f"{post_path}/all.json" # Fetch the real live SLAM from all.json
+            else: plot_paths.live_slam_path = f"{results_path}/aligned_live_slam.json" # Fetch what we generated with the graph
+            plot_paths.post_slam_path = f"{post_path}/all.json"
+            plot_paths.est_path = None
+            plot_paths.opti_path = f"{post_path}/all.json"
+            plot_paths.slam_path = f"{post_path}/all.json" # I belive this is unaligned post SLAM always
+
+            if not args.no_plot:
+                # Plot trajectories with MultiXR-Post
+                plot_report["Live-SLAM"] = plot_trial_paper(args.id, 
+                        args.trial_name,
+                        slam_stride = -1,
+                        label_text = "Live-SLAM",
+                        show_live_slam = True,
+                        paths=plot_paths,
+                        show=False)
+
+            metric_report["Live-SLAM"].append(
+                {
+                    "fail": interval,
+                    "ape_trans": crop_ape_trans,
+                    "ape_rot": crop_ape_rot,
+                    "rpe_trans": crop_rpe_trans,
+                    "rpe_rot": crop_rpe_rot,
+                    "jerk": crop_jerk,
+                }
+            )
 
     if not args.hide_plots:
         plt.tight_layout()
@@ -822,6 +828,7 @@ if __name__ == "__main__":
     parser.add_argument("id", type=int)
     parser.add_argument("trial_name", help="Trial name")
     parser.add_argument("--no_run", action="store_true")
+    parser.add_argument("--fast_run", action="store_true")
     parser.add_argument("--hide_plots", action="store_true")
     parser.add_argument("--no_plot", action="store_true")
     args = parser.parse_args()
