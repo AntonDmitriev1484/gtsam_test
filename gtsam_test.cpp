@@ -7,6 +7,8 @@
 #include "/home/antond2/gnuplot-iostream/gnuplot-iostream.h"
 #include <boost/iostreams/stream.hpp>
 #include <boost/iostreams/device/file_descriptor.hpp>
+#include <gtsam/linear/NoiseModel.h>
+#include <gtsam/linear/LossFunctions.h>
 
 
 using PreintegrationType = gtsam::PreintegrationBase;
@@ -19,23 +21,43 @@ using symbol_shorthand::X;  // Pose3 (x,y,z,r,p,y)
 
 
 int main(int argc, char* argv[]) {
+	// Optional flags, may appear anywhere on the command line:
+	//   --lpf_off : turn OFF the low pass filter on the output (on by default)
+	//   --rcf_on  : turn ON the robust cost function for ranges (off by default)
+	bool lpf_on = true; // low pass filter on output
+	bool rcf_on = false;  // robust cost function for ranges
+	std::vector<std::string> args;
+	for (int i = 1; i < argc; i++) {
+		std::string arg = argv[i];
+		if (arg == "--lpf_off") lpf_on = false;
+		else if (arg == "--rcf_on") rcf_on = true;
+		else args.push_back(arg);
+	}
 
-	if (argc != 7) {
-        std::cerr << "Usage: " << argv[0] 
-		<< " <trial_name> <synthetic_trial_name or 'none'> <'uwb' or 'no_uwb'> <uwb_noise> <dump (true|false)>" 
-		<< " <anchor_loc>" << std::endl;
+	if (args.size() < 5 || args.size() > 6) {
+        std::cerr << "Usage: " << argv[0] << " <trial_name> <synthetic_trial_name or 'none'>"
+		 << " <'uwb' or 'no_uwb'> <uwb_noise> <dump (true|false)> [anchor_loc] [--lpf_off] [--rcf_on]" << std::endl;
         return 1;
     }
-	std::string trial_name = argv[1];
-    std::string synthetic_trial_name = argv[2];
-	std::string uwb_str = argv[3];
-	std::string uwb_noise_str = argv[4];
-	std::string dump_str = argv[5];
-	string anchor_loc_strategy = argv[6]; // should be, none, self-loc, pre-loc.
+	std::string trial_name = args[0];
+    std::string synthetic_trial_name = args[1];
+	std::string uwb_str = args[2];
+	std::string uwb_noise_str = args[3];
+	std::string dump_str = args[4];
+	// should be no-loc, self-loc, pre-loc. Defaults to pre-loc (anchors fixed assuming correct priors)
+	string anchor_loc_strategy = (args.size() == 6) ? args[5] : "pre-loc";
 
     bool log_dump = (dump_str == "true"); // We ignore this and dump anyways
 	bool use_uwb = (uwb_str == "uwb");
-	bool synth_live_slam_mode = (uwb_str == "live-slam-integration");
+
+	// arg 'live-slam-integration' -> use "aligned_live_slam_pose" This was for the original evaluation
+	// arg 'localframe-live-slam-integration' -> use "localframe_live_slam_pose" This is for evaluating synthetic failures with Cappella
+
+	bool synth_live_slam_mode = (uwb_str == "live-slam-integration") || (uwb_str == "localframe-live-slam-integration");
+	string INTEGRATION_POSE_NAME = "aligned_live_slam_pose";
+	if (uwb_str == "localframe-live-slam-integration") {
+		INTEGRATION_POSE_NAME = "localframe_live_slam_pose";
+	}
 
 	bool use_gt = true;
 	bool synthetic = synthetic_trial_name != "none";
@@ -70,15 +92,31 @@ int main(int argc, char* argv[]) {
 		json transforms = json::parse(transform_fs);
 
 		// UWB noise model
-		noiseModel::Isotropic::shared_ptr UWB_noise_model = noiseModel::Isotropic::Sigma(1, 1e-1);
+		double uwb_stdev = 0.1;
+		noiseModel::Isotropic::shared_ptr uwb_gaussian_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
+		SharedNoiseModel UWB_noise_model = uwb_gaussian_noise_model;
+
 		noiseModel::Isotropic::shared_ptr selfloc_UWB_noise_model = noiseModel::Isotropic::Sigma(1, 4e-1);
+		SharedNoiseModel UWB_selfloc_noise_model = selfloc_UWB_noise_model;
 		// noiseModel::Isotropic::shared_ptr selfloc_UWB_noise_model = UWB_noise_model;
+
+		if (rcf_on) { // robust cost function downweights range outliers
+
+			UWB_noise_model = noiseModel::Robust::Create(
+    			noiseModel::mEstimator::Tukey::Create(8), uwb_gaussian_noise_model);
+
+			UWB_selfloc_noise_model = noiseModel::Robust::Create(
+    			noiseModel::mEstimator::Tukey::Create(8), selfloc_UWB_noise_model);
+
+		}
+
 		// Anchor noise model - anchor pose prior when anchor_loc_strategy == self-loc
 		double anchor_pos_stdev = 1e-1;
 		double anchor_ori_stdev = 1e-1;
 		noiseModel::Diagonal::shared_ptr selfloc_Anchor_noise_model = noiseModel::Diagonal::Sigmas(
 			Vector6(1e-5, 1e-5, 1e-5, 
 				anchor_pos_stdev, anchor_pos_stdev, 1e-5));
+
 		// SLAM noise model - (use to define pose prior)
 		double gt_pos_stdev = 1e-2;
 		double gt_ori_stdev = 1e-2;
@@ -104,8 +142,8 @@ int main(int argc, char* argv[]) {
 
 		const int smoother_lag = 1;
 		const bool use_smoother = true;
-		const bool use_filter = !(synth_live_slam_mode); 
-		// const bool use_filter = true;
+		const bool use_filter = lpf_on && !(synth_live_slam_mode); 
+		// const bool use_filter = false; 
 		// don't use filter when we're synthesizing a live slam by running integration
 
 
@@ -117,6 +155,7 @@ int main(int argc, char* argv[]) {
 			smoother_lag, 
 			use_smoother, 
 			use_filter,
+			rcf_on,
 			use_uwb,
 			synth_live_slam_mode,
 			anchor_loc_strategy,
@@ -124,13 +163,15 @@ int main(int argc, char* argv[]) {
 			UWB_noise_model, 
 			prior_velocity_noise_model,
 			prior_bias_noise_model,
-			selfloc_UWB_noise_model,
+			UWB_selfloc_noise_model,
 			selfloc_Anchor_noise_model,
 			imu_preintegration_params,
 			prior_imu_bias,
 			prior_velocity,
 			out_dir,
 			debug_dir);
+
+		t.INTEGRATION_POSE_NAME = INTEGRATION_POSE_NAME;
 
 		t.init_anchors(anchor_stream);
 		t.init_state(sensor_stream); 
@@ -153,17 +194,32 @@ int main(int argc, char* argv[]) {
 		// Dump all tracker trajectories
 
 		if (synth_live_slam_mode) {
-			ofstream result_trajectory_fs("/home/antond2/Desktop/Research/gtsam_test/results/out/multi/"+to_string(user)+"/"+trial_name+"/aligned_live_slam.txt");
-			ofstream result_trajectory_htm_json_fs("/home/antond2/Desktop/Research/gtsam_test/results/out/multi/"+to_string(user)+"/"+trial_name+"/aligned_live_slam.json");
-			
-			// Write estimated poses to TUM so we can use in evaluation.
-			write_trajectory_TUM_format( t.track.slam_poses, t.track.slam_timestamps, result_trajectory_fs);
-			result_trajectory_fs.close();
+			if ((uwb_str == "live-slam-integration")){
+				ofstream result_trajectory_fs("/home/antond2/Desktop/Research/gtsam_test/results/out/multi/"+to_string(user)+"/"+trial_name+"/aligned_live_slam.txt");
+				ofstream result_trajectory_htm_json_fs("/home/antond2/Desktop/Research/gtsam_test/results/out/multi/"+to_string(user)+"/"+trial_name+"/aligned_live_slam.json");
+				
+				// Write estimated poses to TUM so we can use in evaluation.
+				write_trajectory_TUM_format( t.track.slam_poses, t.track.slam_timestamps, result_trajectory_fs);
+				result_trajectory_fs.close();
 
-			// Write estimated poses to a json so they can be plotted
-			write_trajectory_HTM_JSON_format (t.track.slam_poses, t.track.slam_timestamps, result_trajectory_htm_json_fs, 
-				"aligned_live_slam_pose", t.start, t.init_newmap, t.end);
-			result_trajectory_htm_json_fs.close();
+				// Write estimated poses to a json so they can be plotted
+				write_trajectory_HTM_JSON_format (t.track.slam_poses, t.track.slam_timestamps, result_trajectory_htm_json_fs, 
+					"aligned_live_slam_pose", t.start, t.init_newmap, t.end);
+				result_trajectory_htm_json_fs.close();
+			}
+			else if (uwb_str == "localframe-live-slam-integration") {
+				ofstream result_trajectory_fs("/home/antond2/Desktop/Research/gtsam_test/results/out/multi/"+to_string(user)+"/"+trial_name+"/localframe_live_slam.txt");
+				ofstream result_trajectory_htm_json_fs("/home/antond2/Desktop/Research/gtsam_test/results/out/multi/"+to_string(user)+"/"+trial_name+"/localframe_live_slam.json");
+				
+				// Write estimated poses to TUM so we can use in evaluation.
+				write_trajectory_TUM_format( t.track.slam_poses, t.track.slam_timestamps, result_trajectory_fs);
+				result_trajectory_fs.close();
+
+				// Write estimated poses to a json so they can be plotted
+				write_trajectory_HTM_JSON_format (t.track.slam_poses, t.track.slam_timestamps, result_trajectory_htm_json_fs, 
+					"localframe_live_slam_pose", t.start, t.init_newmap, t.end);
+				result_trajectory_htm_json_fs.close();
+			}
 		}
 		else {
 			// Write estimated trajectory as TUM for EVO

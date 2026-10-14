@@ -80,6 +80,7 @@ Tracker::Tracker(
     const double smoother_lag,
     const bool use_smoother,
     const bool use_filter,
+	const bool use_rcf,
     const bool use_uwb,
 	const bool synth_live_slam_mode,
 	const string anchor_loc_strategy,
@@ -154,6 +155,7 @@ Tracker::Tracker(
 
     // Flags / state
     use_filter(use_filter),
+	use_rcf(use_rcf),
     use_uwb(use_uwb),
 	synth_live_slam_mode(synth_live_slam_mode),
     imu_available(0),
@@ -612,7 +614,7 @@ void Tracker::exec_smoother(NavState& proposed, double mes_timestamp,
 void Tracker::processSensor(const json& mes) {
 
 	string slamtype = "aligned_slam_pose";
-	if (synth_live_slam_mode) slamtype = "aligned_live_slam_pose"; 
+	if (synth_live_slam_mode) slamtype = INTEGRATION_POSE_NAME; 
 	// With synth SLAM failures, the aligned_live_slam_pose are essentially the same gravity aligned poses as
 	// aligned SLAM pose, but with a deformation
 	// so to finish making the synthetic failure, we just integrate on top of the aligned_live_slam_pose for some time
@@ -686,7 +688,9 @@ void Tracker::processSensor(const json& mes) {
 			}
 			else {
 				// Actual logic implemented here
-				if (mes["status"] == "tracking") {
+
+				// Why does this no longer use Flock?
+				// if (mes["status"] == "tracking") {
 
 					if (imu_available == 0) {
 						// Pass this measurement and buffer it until the next IMU becomes available
@@ -699,7 +703,7 @@ void Tracker::processSensor(const json& mes) {
 						processSLAM(mes);
 						imu_available = 0;
 					}
-				}
+				// }
 			}
 
 		}
@@ -731,6 +735,11 @@ void Tracker::processSensor(const json& mes) {
 void Tracker::processSLAM(const json& mes)
 {
 	log_fs << "Used GT" << endl;
+
+
+	slam_status = mes["status"];
+	if (slam_status != "tracking") return;
+	
 	track.Ix++;
 	track.Iv++;
 	track.Ib++;
@@ -745,6 +754,7 @@ void Tracker::processSLAM(const json& mes)
 	Pose3 T_body_to_world = T_world_to_body.inverse();
 	Pose3 gt_pose = T_body_to_world;
 
+
 	track.slam_poses.push_back(gt_pose);
 	track.slam_timestamps.push_back(mes["t"]);
 
@@ -752,7 +762,7 @@ void Tracker::processSLAM(const json& mes)
 	// if (mes["status"] == "imu" && slam_status == "tracking") start = mes["t"];
 	// if (mes["status"] == "newmap" && slam_status == "imu") init_newmap = mes["t"];
 	// if (mes["status"] == "tracking" && slam_status == "newmap") end = mes["t"];
-	slam_status = mes["status"];
+
 
 	// Add IMU factor
 	auto* current_imu_preintegration =
