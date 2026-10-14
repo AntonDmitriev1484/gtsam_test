@@ -589,7 +589,7 @@ void Tracker::processSensor(const json& mes) {
 			}
 			else {
 				// Actual logic implemented here
-				if (mes["status"] == "tracking") {
+				// if (mes["status"] == "tracking") {
 
 					if (imu_available == 0) {
 						// Pass this measurement and buffer it until the next IMU becomes available
@@ -602,7 +602,7 @@ void Tracker::processSensor(const json& mes) {
 						processSLAM(mes);
 						imu_available = 0;
 					}
-				}
+				// }
 			}
 
 		}
@@ -624,6 +624,10 @@ void Tracker::processSensor(const json& mes) {
 
 void Tracker::processSLAM(const json& mes)
 {
+
+	slam_status = mes["status"];
+	if (slam_status != "tracking") return;
+	
 	log_fs << "Used GT" << endl;
 	track.Ix++;
 	track.Iv++;
