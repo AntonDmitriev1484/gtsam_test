@@ -103,10 +103,10 @@ int main(int argc, char* argv[]) {
 		if (rcf_on) { // robust cost function downweights range outliers
 
 			UWB_noise_model = noiseModel::Robust::Create(
-    			noiseModel::mEstimator::Tukey::Create(8), uwb_gaussian_noise_model);
+    			noiseModel::mEstimator::Tukey::Create(12), uwb_gaussian_noise_model);
 
 			UWB_selfloc_noise_model = noiseModel::Robust::Create(
-    			noiseModel::mEstimator::Tukey::Create(8), selfloc_UWB_noise_model);
+    			noiseModel::mEstimator::Tukey::Create(12), selfloc_UWB_noise_model);
 
 		}
 
