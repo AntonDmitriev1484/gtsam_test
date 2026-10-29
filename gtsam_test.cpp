@@ -44,7 +44,7 @@ int main(int argc, char* argv[]) {
 	std::string uwb_str = args[2];
 	std::string uwb_noise_str = args[3];
 	std::string dump_str = args[4];
-	// should be no-loc, self-loc, pre-loc. Defaults to pre-loc (anchors fixed assuming correct priors)
+	// should be no-loc, self-loc, weak-loc, pre-loc. Defaults to pre-loc (anchors fixed assuming correct priors)
 	string anchor_loc_strategy = (args.size() == 6) ? args[5] : "pre-loc";
 
     bool log_dump = (dump_str == "true"); // We ignore this and dump anyways
@@ -96,7 +96,7 @@ int main(int argc, char* argv[]) {
 		noiseModel::Isotropic::shared_ptr uwb_gaussian_noise_model = noiseModel::Isotropic::Sigma(1, uwb_stdev);
 		SharedNoiseModel UWB_noise_model = uwb_gaussian_noise_model;
 
-		noiseModel::Isotropic::shared_ptr selfloc_UWB_noise_model = noiseModel::Isotropic::Sigma(1, 4e-1);
+		noiseModel::Isotropic::shared_ptr selfloc_UWB_noise_model = noiseModel::Isotropic::Sigma(1, 1e-1);
 		SharedNoiseModel UWB_selfloc_noise_model = selfloc_UWB_noise_model;
 		// noiseModel::Isotropic::shared_ptr selfloc_UWB_noise_model = UWB_noise_model;
 
@@ -106,7 +106,7 @@ int main(int argc, char* argv[]) {
     			noiseModel::mEstimator::Tukey::Create(12), uwb_gaussian_noise_model);
 
 			UWB_selfloc_noise_model = noiseModel::Robust::Create(
-    			noiseModel::mEstimator::Tukey::Create(12), selfloc_UWB_noise_model);
+    			noiseModel::mEstimator::Tukey::Create(4), selfloc_UWB_noise_model);
 
 		}
 
@@ -115,7 +115,7 @@ int main(int argc, char* argv[]) {
 		double anchor_ori_stdev = 1e-1;
 		noiseModel::Diagonal::shared_ptr selfloc_Anchor_noise_model = noiseModel::Diagonal::Sigmas(
 			Vector6(1e-5, 1e-5, 1e-5, 
-				anchor_pos_stdev, anchor_pos_stdev, 1e-5));
+				anchor_pos_stdev, anchor_pos_stdev, 1e-5)); // z locked to known anchor height (see Tracker::init_anchor)
 
 		// SLAM noise model - (use to define pose prior)
 		double gt_pos_stdev = 1e-2;

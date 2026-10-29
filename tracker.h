@@ -136,7 +136,7 @@ public:
     int other_range_counter = 0;
 
     //emulator parameter, determines how Flock handles anchors
-    // valid strings are 'none', 'self-loc', 'pre-loc'
+    // valid strings are 'none', 'self-loc', 'weak-loc', 'pre-loc'
     string anchor_loc_strategy;
     // Returns a referencew to one of two possible noise models based on anchor_loc_strategy
     const SharedNoiseModel& AnchorNoiseModel();

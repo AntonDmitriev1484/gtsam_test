@@ -243,7 +243,7 @@ Key AnchorKey(string name) {return symbol('s', stoi(name));}
 const SharedNoiseModel& Tracker::UWBNoiseModel() {
 	if (slam_status == "tracking" ) {
 		// selfloc noise model applies so long as user has tracking.
-		if (anchor_loc_strategy == "self-loc") {
+		if (anchor_loc_strategy == "self-loc" or anchor_loc_strategy == "weak-loc") {
 			return selfloc_UWB_noise_model;
 		}
 	}
@@ -259,9 +259,13 @@ void Tracker::init_anchor(string id){
 		vals.insert(AnchorKey(id), prior_beacon_pose);
 		graph->add(NonlinearEquality<Pose3>(AnchorKey(id), prior_beacon_pose));
 	}
-	else if (anchor_loc_strategy == "self-loc") {
+	else if (anchor_loc_strategy == "self-loc" or anchor_loc_strategy == "weak-loc") {
 		// Assuming priors, that post_process.py can add manual errors to beforehand.
-		Pose3 prior_beacon_pose(anchors[id].slam_poses[0]);
+		// Anchors sit at a known height, so z is overridden to ANCHOR_Z and locked by selfloc_Anchor_noise_model.
+		const double ANCHOR_Z = 0.1;
+		Pose3 slam_beacon_pose(anchors[id].slam_poses[0]);
+		Point3 prior_t = slam_beacon_pose.translation();
+		Pose3 prior_beacon_pose(slam_beacon_pose.rotation(), Point3(prior_t.x(), prior_t.y(), ANCHOR_Z));
 		vals.insert(AnchorKey(id), prior_beacon_pose);
 		graph->add(PriorFactor<Pose3>(AnchorKey(id), prior_beacon_pose, selfloc_Anchor_noise_model));
 	}
@@ -810,6 +814,7 @@ void Tracker::processOtherUWBOnAnchor(const json& mes, double timestamp)
 	double measured_range = (double)mes["range"];
 	int dst_id = (int)mes["id"];
 
+	// Wait so is "no-loc" actually still adding ranges to the anchor state?
 	// Only add extra constraints on anchors if we are self localizing them!
 	if (anchor_loc_strategy != "self-loc") return;
 
@@ -918,7 +923,6 @@ void Tracker::processUWB(const json& mes)
 
 		// Add all other measurements buffered onto that static anchor.
 		// SO iterate through the buffer, when done, clear all ranges that we used to that static anchor.
-
 		vector<json> next_buffer;
 		for (json other_mes: other_range_buffer) {
 			// If the range we just added goes to 1
