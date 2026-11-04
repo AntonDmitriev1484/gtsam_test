@@ -2,6 +2,7 @@ import re
 import argparse
 import matplotlib.pyplot as plt
 import os
+import glob
 import subprocess
 import json
 import numpy as np
@@ -316,6 +317,11 @@ def run_eval(args):
         # Need to complete the synthetic failure by running the graph in live-SLAM mode
         if (not args.no_run) and (not args.fast_run):
 
+            # A live SLAM run that diverges dies before writing anything, and the evaluation would then silently
+            # read the previous run's trajectories, so clear them first (every user's, since Cappella reads them all)
+            for path in glob.glob(f"{os.path.dirname(os.path.dirname(results_path))}/*/{args.trial_name}/*_live_slam.*"):
+                os.remove(path)
+
             # Complete the integration once in the aligned frame, then once in the local frame (for Cappella)
             for run_config in ["live-slam-integration", "localframe-live-slam-integration"]:
 
@@ -336,6 +342,7 @@ def run_eval(args):
         if not args.fast_run:
             # Now re-apply annotations to the completed synthetic trajectories.
             for filename in ["aligned_live_slam", "localframe_live_slam"]:
+                if not os.path.exists(f"{results_path}/{filename}.json"): continue # The live SLAM run diverged
                 output_synth_slam = json.load(open(f"{results_path}/{filename}.json",'r')) # Fetch what we generated with the graph
                 metadata = json.load(open(f"/home/antond2/Desktop/Research/MultiXR-Post/{args.id}/collect/{args.trial_name}_nuc{args.id}_raw/meta.json", 'r'))
                 all_data_start_ts = metadata["start_ns"] * 1e-9
@@ -387,6 +394,8 @@ def run_eval(args):
     for run_config, name in [('no_uwb', "IMU"), ('uwb', "Flock")]:
 
         if args.fast_run and run_config == 'no_uwb': continue
+        # The IMU-only baseline can diverge to NaN after long failures, which aborts the whole evaluation
+        if not getattr(args, "run_imu_baseline", True) and run_config == 'no_uwb': continue
 
         ### Run graph executable
         if not args.no_run:
@@ -590,8 +599,12 @@ def run_eval(args):
         trial_with_real_failures = args.trial_name in real_trials
 
         # Assuming all failures have been added.
-        convert_to_cappella(args.trial_name, real_failures=trial_with_real_failures)
-        run_cappella(args.trial_name, plot=False)
+        try:
+            convert_to_cappella(args.trial_name, real_failures=trial_with_real_failures)
+        except FileNotFoundError as e:
+            print(f"Skipping {name}, a local frame live SLAM run diverged: {e}")
+            continue
+        run_cappella(args.trial_name, plot=False, shared_frame_exists = True)
 
         eval_paths = SimpleNamespace()
         eval_paths.est_path = f"/home/antond2/Desktop/Research/Cappella/results/out/multi/{args.id}/{args.trial_name}/est_cappella.txt"
@@ -694,7 +707,11 @@ def run_eval(args):
     # Add SLAM trajectory to the error metrics:
     # Print metrics for each individual failure segment
 
-    if not args.fast_run:
+    live_slam_available = real_failures or os.path.exists(f"{results_path}/aligned_live_slam.txt")
+    if not (args.fast_run or live_slam_available):
+        print("Skipping Live-SLAM, the live SLAM run diverged")
+
+    if not args.fast_run and live_slam_available:
         if real_failures:
             name = "Live SLAM"
         else:
@@ -834,6 +851,8 @@ if __name__ == "__main__":
     parser.add_argument("--fast_run", action="store_true")
     parser.add_argument("--hide_plots", action="store_true")
     parser.add_argument("--no_plot", action="store_true")
+    parser.add_argument("--no_imu_baseline", dest="run_imu_baseline", action="store_false",
+                        help="skip the IMU-only baseline; its metric_report entry stays empty")
     args = parser.parse_args()
 
     # Hard coded defaults, added for calls from MultiXR-Eval running component ablation
