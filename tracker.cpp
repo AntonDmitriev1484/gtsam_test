@@ -240,6 +240,11 @@ Pose3 Tracker::report_estimate(Pose3 initial, double timestamp){
 
 Key AnchorKey(string name) {return symbol('s', stoi(name));}
 
+// A SLAM pose arriving after more than this much IMU integration with no factors restarts the state (see processSLAM)
+constexpr double MAX_IMU_GAP_S = 2.0;
+// Loose, since the user may be moving when tracking comes back; the next IMU factor pins the velocity down
+constexpr double RESTART_VELOCITY_STDEV = 1.0;
+
 const SharedNoiseModel& Tracker::UWBNoiseModel() {
 	if (slam_status == "tracking" ) {
 		// selfloc noise model applies so long as user has tracking.
@@ -782,14 +787,27 @@ void Tracker::processSLAM(const json& mes)
 		}
 	}
 
-	CombinedImuFactor imu_factor(
-		X(track.Ix - 1), V(track.Iv - 1),
-		X(track.Ix), V(track.Iv),
-		B(track.Ib - 1), B(track.Ib),
-		*current_imu_preintegration);
+	// After a long stretch with no factors (SLAM lost and nothing else constraining the state, as in the IMU-only
+	// baseline or a synthetic live SLAM integration), the IMU prediction can be kilometres off, and one IMU factor
+	// across the whole gap makes the system ill-conditioned. Restart from the SLAM pose instead of linking across it.
+	double imu_gap = current_imu_preintegration->deltaTij();
+	if (imu_gap > MAX_IMU_GAP_S) {
+		log_fs << "Restarting from SLAM pose after " << imu_gap << " s of unconstrained IMU integration" << endl;
+		graph->addPrior(V(track.Iv), Vector3(0, 0, 0), noiseModel::Isotropic::Sigma(3, RESTART_VELOCITY_STDEV));
+		graph->addPrior(B(track.Ib), track.changing_bias, Bias_noise_model);
+		prev_state = NavState(gt_pose, Vector3(0, 0, 0));
+		imu_preintegrated->resetIntegrationAndSetBias(track.changing_bias);
+	}
+	else {
+		CombinedImuFactor imu_factor(
+			X(track.Ix - 1), V(track.Iv - 1),
+			X(track.Ix), V(track.Iv),
+			B(track.Ib - 1), B(track.Ib),
+			*current_imu_preintegration);
 
-	graph->add(imu_factor);
-	log_fs << "Added IMU factor " << graph->size() - 1 << endl;
+		graph->add(imu_factor);
+		log_fs << "Added IMU factor " << graph->size() - 1 << endl;
+	}
 
 	// Add GT prior factor
 	graph->add(PriorFactor<Pose3>(X(track.Ix), gt_pose, SLAM_noise_model));
